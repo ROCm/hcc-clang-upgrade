@@ -197,6 +197,12 @@ LANGOPT(CUDAHostDeviceConstexpr, 1, 1, "treating unattributed constexpr function
 LANGOPT(CUDADeviceFlushDenormalsToZero, 1, 0, "flushing denormals to zero")
 LANGOPT(CUDADeviceApproxTranscendentals, 1, 0, "using approximate transcendental functions")
 
+LANGOPT(CPlusPlusAMP      , 1, 0, "C++AMP")
+LANGOPT(DevicePath        , 1, 0, "C++AMP Device Path")
+LANGOPT(AMPCPU            , 1, 0, "C++AMP CPU Path")
+LANGOPT(HSAExtension      , 1, 0, "C++AMP Extension for HSA")
+LANGOPT(NoAutoAuto        , 1, 0, "Disable auto-auto")
+
 LANGOPT(SizedDeallocation , 1, 0, "sized deallocation")
 LANGOPT(AlignedAllocation , 1, 0, "aligned allocation")
 LANGOPT(NewAlignOverride  , 32, 0, "maximum alignment guaranteed by '::operator new(size_t)'")

@@ -80,7 +80,7 @@ IdentifierTable::IdentifierTable(const LangOptions &LangOpts,
   // Populate the identifier table with info about keywords for the current
   // language.
   AddKeywords(LangOpts);
-      
+
 
   // Add the '_experimental_modules_import' contextual keyword.
   get("import").setModulesImport(true);
@@ -114,6 +114,7 @@ namespace {
     KEYZVECTOR  = 0x40000,
     KEYCOROUTINES = 0x80000,
     KEYMODULES = 0x100000,
+    KEYCXXAMP = 0x200000,
     KEYALL = (0x1fffff & ~KEYNOMS18 &
               ~KEYNOOPENCL) // KEYNOMS18 and KEYNOOPENCL are used to exclude.
   };
@@ -153,6 +154,8 @@ static KeywordStatus getKeywordStatus(const LangOptions &LangOpts,
   if (LangOpts.CoroutinesTS && (Flags & KEYCOROUTINES)) return KS_Enabled;
   if (LangOpts.ModulesTS && (Flags & KEYMODULES)) return KS_Enabled;
   if (LangOpts.CPlusPlus && (Flags & KEYCXX11)) return KS_Future;
+  if (LangOpts.CPlusPlusAMP && (Flags & KEYCXXAMP)) return KS_Enabled;
+
   return KS_Disabled;
 }
 
@@ -287,7 +290,7 @@ tok::PPKeywordKind IdentifierInfo::getPPKeywordID() const {
   CASE( 6, 'i', 'n', ifndef);
   CASE( 6, 'i', 'p', import);
   CASE( 6, 'p', 'a', pragma);
-      
+
   CASE( 7, 'd', 'f', defined);
   CASE( 7, 'i', 'c', include);
   CASE( 7, 'w', 'r', warning);
@@ -296,7 +299,7 @@ tok::PPKeywordKind IdentifierInfo::getPPKeywordID() const {
   CASE(12, 'i', 'c', include_next);
 
   CASE(14, '_', 'p', __public_macro);
-      
+
   CASE(15, '_', 'p', __private_macro);
 
   CASE(16, '_', 'i', __include_macros);
@@ -487,7 +490,7 @@ ObjCMethodFamily Selector::getMethodFamilyImpl(Selector sel) {
     if (name == "self") return OMF_self;
     if (name == "initialize") return OMF_initialize;
   }
- 
+
   if (name == "performSelector") return OMF_performSelector;
 
   // The other method families may begin with a prefix of underscores.
@@ -521,9 +524,9 @@ ObjCMethodFamily Selector::getMethodFamilyImpl(Selector sel) {
 ObjCInstanceTypeFamily Selector::getInstTypeMethodFamily(Selector sel) {
   IdentifierInfo *first = sel.getIdentifierInfoForSlot(0);
   if (!first) return OIT_None;
-  
+
   StringRef name = first->getName();
-  
+
   if (name.empty()) return OIT_None;
   switch (name.front()) {
     case 'a':
@@ -547,22 +550,22 @@ ObjCInstanceTypeFamily Selector::getInstTypeMethodFamily(Selector sel) {
 ObjCStringFormatFamily Selector::getStringFormatFamilyImpl(Selector sel) {
   IdentifierInfo *first = sel.getIdentifierInfoForSlot(0);
   if (!first) return SFF_None;
-  
+
   StringRef name = first->getName();
-  
+
   switch (name.front()) {
     case 'a':
       if (name == "appendFormat") return SFF_NSString;
       break;
-      
+
     case 'i':
       if (name == "initWithFormat") return SFF_NSString;
       break;
-      
+
     case 'l':
       if (name == "localizedStringWithFormat") return SFF_NSString;
       break;
-      
+
     case 's':
       if (name == "stringByAppendingFormat" ||
           name == "stringWithFormat") return SFF_NSString;
