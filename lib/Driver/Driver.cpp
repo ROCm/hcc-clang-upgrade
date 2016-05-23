@@ -72,6 +72,10 @@ Driver::Driver(StringRef ClangExecutable, StringRef DefaultTargetTriple,
   Dir = llvm::sys::path::parent_path(ClangExecutable);
   InstalledDir = Dir; // Provide a sensible default installed dir.
 
+  // C++ AMP-specific
+  CXXAMPAssemblerPath = Dir + "/clamp-assemble";
+  CXXAMPLinkerPath = Dir + "/clamp-link";
+
   // Compute the path to the resource directory.
   StringRef ClangResourceDir(CLANG_RESOURCE_DIR);
   SmallString<128> P(Dir);
@@ -304,6 +308,20 @@ DerivedArgList *Driver::TranslateInputArgs(const InputArgList &Args) const {
 #endif
 
   return DAL;
+}
+
+// test if we are in C++AMP mode
+bool Driver::IsCXXAMP(const ArgList& Args) {
+  for (ArgList::const_iterator it = Args.begin(), ie = Args.end();
+       it != ie; ++it) {
+    Arg* A = *it;
+    if (A->getOption().getName().compare("std=") == 0 &&
+        A->getNumValues() == 1 &&
+        std::string("c++amp").compare(A->getValue(0)) == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /// \brief Compute target triple from args.
@@ -1548,8 +1566,63 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
         }
       }
 
-      if (DiagnoseInputExistence(*this, Args, Value, Ty))
-        Inputs.push_back(std::make_pair(Ty, A));
+      if (DiagnoseInputExistence(*this, Args, Value, Ty)) {
+
+        // C++ AMP-specific
+        // For C++ source files, duplicate the input so we launch the compiler twice
+        // 1 for GPU compilation (TY_CXX_AMP), 1 for CPU compilation (TY_CXX)
+        if (IsCXXAMP(Args) && (Ty == types::TY_CXX)) {
+          Arg *FinalPhaseArg;
+          phases::ID FinalPhase = getFinalPhase(Args, &FinalPhaseArg);
+          switch (FinalPhase) {
+            // -E
+            case phases::Preprocess:
+              if (Args.hasArg(options::OPT_cxxamp_kernel_mode)) {
+                Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              } else if (Args.hasArg(options::OPT_cxxamp_cpu_mode)) {
+                  Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
+              } else {
+                Inputs.push_back(std::make_pair(Ty, A));
+              }
+            break;
+
+            // -S
+            case phases::Compile:
+              if (Args.hasArg(options::OPT_cxxamp_kernel_mode)) {
+                Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              } else if (Args.hasArg(options::OPT_cxxamp_cpu_mode)) {
+                  Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
+              } else {
+                Inputs.push_back(std::make_pair(Ty, A));
+              }
+            break;
+
+            // -c
+            case phases::Assemble:
+              if (Args.hasArg(options::OPT_cxxamp_cpu_mode))
+                  Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
+              Inputs.push_back(std::make_pair(Ty, A));
+              Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+            break;
+
+            // build executable
+            case phases::Link:
+              if (Args.hasArg(options::OPT_cxxamp_cpu_mode))
+                  Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
+              Inputs.push_back(std::make_pair(Ty, A));
+              Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+            break;
+
+            default:
+              Inputs.push_back(std::make_pair(Ty, A));
+            break;
+          }
+        } else {
+
+          // Standard compilation flow
+          Inputs.push_back(std::make_pair(Ty, A));
+        }
+      }
 
     } else if (A->getOption().matches(options::OPT__SLASH_Tc)) {
       StringRef Value = A->getValue();
@@ -2686,8 +2759,11 @@ void Driver::BuildJobs(Compilation &C) const {
         ++NumOutputs;
 
     if (NumOutputs > 1) {
-      Diag(clang::diag::err_drv_output_argument_with_multiple_files);
-      FinalOutput = nullptr;
+      // relax rule for C++AMP because we may have multiple outputs
+      if (!IsCXXAMP(C.getArgs())) {
+        Diag(clang::diag::err_drv_output_argument_with_multiple_files);
+        FinalOutput = nullptr;
+      }
     }
   }
 
