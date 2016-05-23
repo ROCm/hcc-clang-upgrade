@@ -2503,7 +2503,7 @@ def InternalLinkage : InheritableAttr {
 // C++AMP attributes
 
 def CXXAMPRestrictAMP : InheritableAttr {
-  let Spellings = [GNU<"amp">];
+  let Spellings = [GNU<"amp">, GNU<"hc">];
   let Documentation = [Undocumented];
 }
 
@@ -2514,5 +2514,11 @@ def CXXAMPRestrictAUTO : InheritableAttr {
 
 def CXXAMPRestrictCPU : InheritableAttr {
   let Spellings = [GNU<"cpu">];
+  let Documentation = [Undocumented];
+}
+
+def HCGridLaunch : InheritableAttr {
+  let Spellings = [GNU<"hc_grid_launch">];
+  let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented];
 }
