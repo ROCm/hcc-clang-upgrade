@@ -221,12 +221,24 @@ Tool *ToolChain::buildCXXAMPCompiler() const {
   return new tools::CXXAMPCompile(*this);
 }
 
+Tool *ToolChain::buildHCHostCompiler() const {
+  return new tools::HCHostCompile(*this);
+}
+
 Tool *ToolChain::buildCXXAMPCPUCompiler() const {
     return new tools::CXXAMPCPUCompile(*this);
 }
 
 Tool *ToolChain::buildCXXAMPAssembler() const {
   return new tools::CXXAMPAssemble(*this);
+}
+
+Tool *ToolChain::buildHCKernelAssembler() const {
+  return new tools::HCKernelAssemble(*this);
+}
+
+Tool *ToolChain::buildHCHostAssembler() const {
+  return new tools::HCHostAssemble(*this);
 }
 
 Tool *ToolChain::buildCXXAMPLinker() const {
@@ -249,6 +261,12 @@ Tool *ToolChain::getCXXAMPCompile() const {
   return CXXAMPCompile.get();
 }
 
+Tool *ToolChain::getHCHostCompile() const {
+  if (!HCHostCompile)
+    HCHostCompile.reset(buildHCHostCompiler());
+  return HCHostCompile.get();
+}
+
 Tool *ToolChain::getCXXAMPCPUCompile() const {
     if (!CXXAMPCPUCompile)
         CXXAMPCPUCompile.reset(buildCXXAMPCPUCompiler());
@@ -259,6 +277,18 @@ Tool *ToolChain::getCXXAMPAssemble() const {
   if (!CXXAMPAssemble)
     CXXAMPAssemble.reset(buildCXXAMPAssembler());
   return CXXAMPAssemble.get();
+}
+
+Tool *ToolChain::getHCKernelAssemble() const {
+  if (!HCKernelAssemble)
+    HCKernelAssemble.reset(buildHCKernelAssembler());
+  return HCKernelAssemble.get();
+}
+
+Tool *ToolChain::getHCHostAssemble() const {
+  if (!HCHostAssemble)
+    HCHostAssemble.reset(buildHCHostAssembler());
+  return HCHostAssemble.get();
 }
 
 Tool *ToolChain::getCXXAMPLink() const {
@@ -376,10 +406,13 @@ bool ToolChain::needsProfileRT(const ArgList &Args) {
 
 // FIXME: LLVM coding style
 extern bool IsCXXAMPCompileJobAction(const JobAction* A);
+extern bool IsHCHostCompileJobAction(const JobAction* A);
 extern bool IsCXXAMPCPUCompileJobAction(const JobAction* A);
 extern bool IsCXXAMPAssembleJobAction(const JobAction* A);
 extern bool IsCXXAMPCPUAssembleJobAction(const JobAction* A);
 extern bool IsCXXAMPLinkJobAction(const JobAction* A);
+extern bool IsHCKernelAssembleJobAction(const JobAction* A);
+extern bool IsHCHostAssembleJobAction(const JobAction* A);
 
 Tool *ToolChain::SelectTool(const JobAction &JA) const {
   Action::ActionClass AC = JA.getKind();
@@ -389,7 +422,17 @@ Tool *ToolChain::SelectTool(const JobAction &JA) const {
           return getCXXAMPCompile();
       if (IsCXXAMPCPUCompileJobAction(&JA))
           return getCXXAMPCPUCompile();
+      if (IsHCHostCompileJobAction(&JA))
+          return getHCHostCompile();
   }
+
+  if (AC == Action::AssembleJobClass) {
+    if (IsHCHostAssembleJobAction(&JA))
+      return getHCHostAssemble();
+    if (IsHCKernelAssembleJobAction(&JA))
+      return getHCKernelAssemble();
+  }
+
   if (AC == Action::AssembleJobClass && (IsCXXAMPAssembleJobAction(&JA) ||
                                          IsCXXAMPCPUAssembleJobAction(&JA))) {
     return getCXXAMPAssemble();
