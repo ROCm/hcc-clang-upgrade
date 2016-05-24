@@ -4053,6 +4053,9 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     // exception is thrown during a cleanup outside of a try/catch.
     // We don't need to model anything in IR to get this behavior.
     CannotThrow = true;
+  } else if (CGM.getLangOpts().DevicePath) {
+    // If we can in HCC Device Path we do not support exceptions thrown
+    CannotThrow = true;
   } else {
     // Otherwise, nounwind call sites will never throw.
     CannotThrow = Attrs.hasAttribute(llvm::AttributeSet::FunctionIndex,
