@@ -32,6 +32,19 @@
 #include "llvm/ADT/SmallVector.h"
 using namespace clang;
 
+bool Parser::IsInAMPFunction(Scope *scope) {
+  while (scope) {
+    if (scope->getFlags() & Scope::FnScope) {
+      FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(static_cast<DeclContext*>(scope->getEntity()));
+      if (FD && FD->hasAttr<CXXAMPRestrictAMPAttr>()) {
+        return true;
+      }
+    }
+    scope = scope->getParent();
+  }
+  return false;
+}
+
 /// \brief Simple precedence-based parser for binary/ternary operators.
 ///
 /// Note: we diverge from the C99 grammar when parsing the assignment-expression
@@ -160,8 +173,15 @@ ExprResult Parser::ParseAssignmentExpression(TypeCastState isTypeCast) {
     return ExprError();
   }
 
-  if (Tok.is(tok::kw_throw))
+  if (Tok.is(tok::kw_throw)) {
+    // C++ AMP-specific, reject if we are in an AMP-restricted function
+    if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath && !getLangOpts().AMPCPU) {
+      if (IsInAMPFunction(getCurScope())) {
+        Diag(Tok, diag::err_amp_illegal_keyword_throw);
+      }
+    }
     return ParseThrowExpression();
+  }
   if (Tok.is(tok::kw_co_yield))
     return ParseCoyieldExpression();
 
@@ -1120,13 +1140,25 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
     ConsumeToken();
     return Res;
   }
-  case tok::kw_const_cast:
   case tok::kw_dynamic_cast:
+    // C++ AMP-specific, reject if we are in an AMP-restricted function
+    if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath) {
+      if (IsInAMPFunction(getCurScope())) {
+        Diag(Tok, diag::err_amp_illegal_keyword_dynamiccast);
+      }
+    }
+  case tok::kw_const_cast:
   case tok::kw_reinterpret_cast:
   case tok::kw_static_cast:
     Res = ParseCXXCasts();
     break;
   case tok::kw_typeid:
+    // C++ AMP-specific, reject if we are in an AMP-restricted function
+    if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath) {
+      if (IsInAMPFunction(getCurScope())) {
+        Diag(Tok, diag::err_amp_illegal_keyword_typeid);
+      }
+    }
     Res = ParseCXXTypeid();
     break;
   case tok::kw___uuidof:
