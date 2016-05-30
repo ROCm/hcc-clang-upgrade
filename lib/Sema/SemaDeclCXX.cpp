@@ -12399,11 +12399,6 @@ void Sema::DefineAmpCpuSerializeFunction(SourceLocation CurrentLocation,
              MethodEnd = FieldClassDecl->method_end();
              Method != MethodEnd; ++Method) {
           if((*Method)->getNameInfo().getAsString() == "__cxxamp_serialize") {
-            FieldDecl *F = dynamic_cast<FieldDecl*>(*Field);
-            assert(F && "F ERROR!");
-            Expr *FieldRef = BuildDeclRefExpr(F,FieldType,VK_LValue,Loc).get();
-            assert(FieldRef && "Reference to Field cannot fail!");
-  
             // Intentionally empty
             CXXScopeSpec CSS;
             LookupResult MemberLookup(*this, Field->getDeclName(), Loc,
@@ -12527,11 +12522,6 @@ void Sema::DefineAmpCpuSerializeFunction(SourceLocation CurrentLocation,
              MethodEnd = FieldClassDecl->method_end();
              Method != MethodEnd; ++Method) {
           if((*Method)->getNameInfo().getAsString() == "__cxxamp_serialize") {
-            FieldDecl *F = dynamic_cast<FieldDecl*>(*Field);
-            assert(F && "F ERROR!");
-            Expr *FieldRef = BuildDeclRefExpr(F,FieldType,VK_LValue,Loc).get();
-            assert(FieldRef && "Reference to Field cannot fail!");
-
             // Intentionally empty
             CXXScopeSpec CSS;
             LookupResult MemberLookup(*this, Field->getDeclName(), Loc,
