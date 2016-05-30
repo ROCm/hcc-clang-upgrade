@@ -395,6 +395,16 @@ static void handleSimpleAttributeWithExclusions(Sema &S, Decl *D,
                                                                           Attr);
 }
 
+static void handleHCGridLaunchAttr(Sema &S, Decl *D,
+                                   const AttributeList &Attr) {
+  if (!isa<FunctionDecl>(D)) {
+    return;
+  }
+  D->addAttr(::new (S.Context)
+             HCGridLaunchAttr(Attr.getRange(), S.Context,
+                              Attr.getAttributeSpellingListIndex()));
+}
+
 /// \brief Check if the passed-in expression is of type int or bool.
 static bool isIntOrBool(Expr *Exp) {
   QualType QT = Exp->getType();
@@ -5872,6 +5882,9 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
     break;
   case AttributeList::AT_ExtVectorType:
     handleExtVectorTypeAttr(S, scope, D, Attr);
+    break;
+  case AttributeList::AT_HCGridLaunch:
+    handleHCGridLaunchAttr(S, D, Attr);
     break;
   case AttributeList::AT_MinSize:
     handleMinSizeAttr(S, D, Attr);
