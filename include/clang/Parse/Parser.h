@@ -1546,10 +1546,11 @@ private:
   ExprResult ParseLambdaExpression();
   ExprResult TryParseLambdaExpression();
   Optional<unsigned> ParseLambdaIntroducer(LambdaIntroducer &Intro,
+                                           ParsedAttributes &AttrIntro,
                                            bool *SkippedInits = nullptr);
-  bool TryParseLambdaIntroducer(LambdaIntroducer &Intro);
+  bool TryParseLambdaIntroducer(LambdaIntroducer &Intro, ParsedAttributes &AttrIntro);
   ExprResult ParseLambdaExpressionAfterIntroducer(
-               LambdaIntroducer &Intro);
+               LambdaIntroducer &Intro, ParsedAttributes &AttrIntro);
 
   //===--------------------------------------------------------------------===//
   // C++ 5.2p1: C++ Casts
