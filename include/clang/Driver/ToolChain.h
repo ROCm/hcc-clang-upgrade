@@ -88,7 +88,6 @@ private:
   mutable std::unique_ptr<Tool> CXXAMPAssemble;
   mutable std::unique_ptr<Tool> HCKernelAssemble;
   mutable std::unique_ptr<Tool> HCHostAssemble;
-  mutable std::unique_ptr<Tool> CXXAMPLink;
   mutable std::unique_ptr<Tool> Link;
   mutable std::unique_ptr<Tool> OffloadBundler;
   Tool *getClang() const;
@@ -96,7 +95,6 @@ private:
   Tool *getHCKernelAssemble() const;
   Tool *getHCHostAssemble() const;
   Tool *getCXXAMPAssemble() const;
-  Tool *getCXXAMPLink() const;
   Tool *getLink() const;
   Tool *getClangAs() const;
   Tool *getOffloadBundler() const;
@@ -121,7 +119,6 @@ protected:
   virtual Tool *buildCXXAMPAssembler() const;
   virtual Tool *buildHCKernelAssembler() const;
   virtual Tool *buildHCHostAssembler() const;
-  virtual Tool *buildCXXAMPLinker() const;
   virtual Tool *buildLinker() const;
   virtual Tool *getTool(Action::ActionClass AC) const;
 

@@ -229,10 +229,6 @@ Tool *ToolChain::buildHCHostAssembler() const {
   return new tools::HCC::HCHostAssemble(*this);
 }
 
-Tool *ToolChain::buildCXXAMPLinker() const {
-  return new tools::HCC::CXXAMPLink(*this);
-}
-
 Tool *ToolChain::buildLinker() const {
   llvm_unreachable("Linking is not supported by this toolchain");
 }
@@ -259,12 +255,6 @@ Tool *ToolChain::getHCHostAssemble() const {
   if (!HCHostAssemble)
     HCHostAssemble.reset(buildHCHostAssembler());
   return HCHostAssemble.get();
-}
-
-Tool *ToolChain::getCXXAMPLink() const {
-  if (!CXXAMPLink)
-    CXXAMPLink.reset(buildCXXAMPLinker());
-  return CXXAMPLink.get();
 }
 
 Tool *ToolChain::getClangAs() const {
@@ -377,7 +367,6 @@ bool ToolChain::needsProfileRT(const ArgList &Args) {
 // FIXME: LLVM coding style
 extern bool IsCXXAMPAssembleJobAction(const JobAction* A);
 extern bool IsCXXAMPCPUAssembleJobAction(const JobAction* A);
-extern bool IsCXXAMPLinkJobAction(const JobAction* A);
 extern bool IsHCKernelAssembleJobAction(const JobAction* A);
 extern bool IsHCHostAssembleJobAction(const JobAction* A);
 
@@ -394,10 +383,6 @@ Tool *ToolChain::SelectTool(const JobAction &JA) const {
   if (AC == Action::AssembleJobClass && (IsCXXAMPAssembleJobAction(&JA) ||
                                          IsCXXAMPCPUAssembleJobAction(&JA))) {
     return getCXXAMPAssemble();
-  }
-
-  if (AC == Action::LinkJobClass && IsCXXAMPLinkJobAction(&JA)) {
-    return getCXXAMPLink();
   }
 
   if (getDriver().ShouldUseClangCompiler(JA)) return getClang();
