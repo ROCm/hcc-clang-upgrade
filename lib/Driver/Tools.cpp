@@ -4166,6 +4166,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (IsIAMCU && types::isCXX(Input.getType()))
     D.Diag(diag::err_drv_clang_unsupported) << "C++ for IAMCU";
 
+  // Set flag
+  bool IsHCCKernelPath = IsCXXAMPBackendJobAction(&JA) || IsCXXAMPCPUBackendJobAction(&JA);
+
   // Invoke ourselves in -cc1 mode.
   //
   // FIXME: Implement custom jobs for internal actions.
@@ -4195,6 +4198,17 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
     CmdArgs.push_back("-aux-triple");
     CmdArgs.push_back(Args.MakeArgString(NormalizedTriple));
+  }
+
+  // Make sure host triple is specified for HCC kernel compilation path
+  if (IsHCCKernelPath) {
+    if (&getToolChain() == C.getHCCDeviceToolChain())
+      AuxToolChain = C.getHCCHostToolChain();
+
+    if (AuxToolChain != nullptr) {
+      CmdArgs.push_back("-aux-triple");
+      CmdArgs.push_back(Args.MakeArgString(AuxToolChain->getTriple().str()));
+    }
   }
 
   if (Triple.isOSWindows() && (Triple.getArch() == llvm::Triple::arm ||
