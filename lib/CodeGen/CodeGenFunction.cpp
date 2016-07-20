@@ -658,6 +658,9 @@ void CodeGenFunction::EmitOpenCLKernelMetadata(const FunctionDecl *FD,
 
   llvm::LLVMContext &Context = getLLVMContext();
 
+  SmallVector<llvm::Metadata *, 5> kernelMDArgs;
+  kernelMDArgs.push_back(llvm::ConstantAsMetadata::get(Fn));
+
   GenOpenCLArgMetadata(FD, Fn, CGM, Context, Builder, getContext());
 
   if (const VecTypeHintAttr *A = FD->getAttr<VecTypeHintAttr>()) {
@@ -690,6 +693,11 @@ void CodeGenFunction::EmitOpenCLKernelMetadata(const FunctionDecl *FD,
         llvm::ConstantAsMetadata::get(Builder.getInt32(A->getZDim()))};
     Fn->setMetadata("reqd_work_group_size", llvm::MDNode::get(Context, attrMDArgs));
   }
+
+  llvm::MDNode *kernelMDNode = llvm::MDNode::get(Context, kernelMDArgs);
+  llvm::NamedMDNode *OpenCLKernelMetadata =
+    CGM.getModule().getOrInsertNamedMetadata("opencl.kernels");
+  OpenCLKernelMetadata->addOperand(kernelMDNode);
 }
 
 /// Determine whether the function F ends with a return stmt.
