@@ -1123,14 +1123,14 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
     F->setSection(SA->getName());
 
   // Prevent barrier functions be duplicated
-  // Set C++AMP kernels carry SPIR_KERNEL calling convention
+  // Set C++AMP kernels carry AMDGPU_KERNEL calling convention
   if (getLangOpts().OpenCL ||
       (getLangOpts().CPlusPlusAMP && CodeGenOpts.AMPIsDevice)) {
       if (F->getName()=="barrier") {
           F->addFnAttr(llvm::Attribute::NoDuplicate);
       }
       if (FD->hasAttr<OpenCLKernelAttr>())
-          F->setCallingConv(llvm::CallingConv::SPIR_KERNEL);
+          F->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
   }
 
   if (FD->isReplaceableGlobalAllocationFunction()) {
