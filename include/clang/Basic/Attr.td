@@ -592,6 +592,34 @@ def Const : InheritableAttr {
   let Documentation = [Undocumented];
 }
 
+def HCWavesPerEU : InheritableAttr {
+  let Spellings = [CXX11<"", "hc_waves_per_eu", 201511>];
+  let Args = [DefaultIntArgument<"min_waves", 1>,
+              IntArgument<"max_waves", 1>,
+              StringArgument<"accelerator_isa", 1>];
+  let Subjects = SubjectList<[Function], ErrorDiag>;
+  let Documentation = [Undocumented];
+}
+
+def HCFlatWorkgroupSize : InheritableAttr {
+  let Spellings = [CXX11<"", "hc_flat_workgroup_size", 201511>];
+  let Args = [DefaultIntArgument<"min_work_items", 64>,
+              IntArgument<"max_work_items", 1>,
+              StringArgument<"accelerator_isa", 1>];
+  let Subjects = SubjectList<[Function], ErrorDiag>;
+  let Documentation = [Undocumented];
+}
+
+def HCMaxWorkgroupDim : InheritableAttr {
+  let Spellings = [CXX11<"", "hc_max_workgroup_dim", 201511>];
+  let Args = [DefaultIntArgument<"x", 1>,
+              DefaultIntArgument<"y", 1>,
+              DefaultIntArgument<"z", 1>,
+              StringArgument<"accelerator_isa", 1>];
+  let Subjects = SubjectList<[Function], ErrorDiag>;
+  let Documentation = [Undocumented];
+}
+
 def HC_HC : InheritableAttr {
   let Spellings = [CXX11<"","hc", 201511>];
   let Subjects = SubjectList<[Function], ErrorDiag>;
