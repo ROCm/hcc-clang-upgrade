@@ -520,8 +520,9 @@ private:
   /// there we can have additional unnamed fields.
   llvm::DIGlobalVariableExpression *
   CollectAnonRecordDecls(const RecordDecl *RD, llvm::DIFile *Unit,
-                         unsigned LineNo, StringRef LinkageName,
-                         llvm::GlobalVariable *Var, llvm::DIScope *DContext);
+                         unsigned LineNo, unsigned AddressSpace,
+                         StringRef LinkageName, llvm::GlobalVariable *Var,
+                         llvm::DIScope *DContext);
 
   /// Get function name for the given FunctionDecl. If the name is
   /// constructed on demand (e.g., C++ destructor) then the name is
@@ -561,8 +562,9 @@ private:
 
   /// Collect various properties of a VarDecl.
   void collectVarDeclProps(const VarDecl *VD, llvm::DIFile *&Unit,
-                           unsigned &LineNo, QualType &T, StringRef &Name,
-                           StringRef &LinkageName, llvm::DIScope *&VDContext);
+                           unsigned &LineNo, unsigned &AddressSpace,
+                           QualType &T, StringRef &Name, StringRef &LinkageName,
+                           llvm::DIScope *&VDContext);
 
   /// Allocate a copy of \p A using the DebugInfoNames allocator
   /// and return a reference to it. If multiple arguments are given the strings
