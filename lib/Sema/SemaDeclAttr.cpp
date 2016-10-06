@@ -4962,6 +4962,19 @@ static void handleAMDGPUNumSGPRAttr(Sema &S, Decl *D,
                                Attr.getAttributeSpellingListIndex()));
 }
 
+static void handleHCWavesPerEU(Sema &S, Decl *D,
+                               const AttributeList &Attr) {
+  uint32_t NumArgs = Attr.getNumArgs();
+  uint32_t MinWaves;
+
+  Expr *MinWavesExpr = static_cast<Expr*>(Attr.getArgAsExpr(0));
+  if(!checkUInt32Argument(S, Attr, MinWavesExpr, MinWaves))
+    return;
+  llvm::errs()<<MinWaves<<"\n";
+  D->addAttr(::new (S.Context) HCWavesPerEUAttr(Attr.getLoc(), S.Context,
+              MinWaves, 100, "", Attr.getAttributeSpellingListIndex()));
+}
+
 static void handleX86ForceAlignArgPointerAttr(Sema &S, Decl *D,
                                               const AttributeList& Attr) {
   // If we try to apply it to a function pointer, don't warn, but don't
@@ -5488,6 +5501,9 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
     break;
   case AttributeList::AT_AMDGPUNumSGPR:
     handleAMDGPUNumSGPRAttr(S, D, Attr);
+    break;
+  case AttributeList::AT_HCWavesPerEU:
+    handleHCWavesPerEU(S, D, Attr);
     break;
   case AttributeList::AT_IBAction:
     handleSimpleAttribute<IBActionAttr>(S, D, Attr);
