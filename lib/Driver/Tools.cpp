@@ -4705,6 +4705,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.ClaimAllArgs(options::OPT_g_Group);
   Arg *SplitDwarfArg = Args.getLastArg(options::OPT_gsplit_dwarf);
+
+  // disable debug output for HCC kernel path
+  if (!IsHCCKernelPath) {
+
   if (Arg *A = Args.getLastArg(options::OPT_g_Group)) {
     // If the last option explicitly specified a debug-info level, use it.
     if (A->getOption().matches(options::OPT_gN_Group)) {
@@ -4822,6 +4826,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-backend-option");
     CmdArgs.push_back("-generate-type-units");
   }
+
+  } // if (!IsHCCKernelPath)
 
   // CloudABI and WebAssembly use -ffunction-sections and -fdata-sections by
   // default.
@@ -6098,7 +6104,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fno-gnu-inline-asm");
 
   // Turn off vectorization support for GPU kernels for now
-  if (!IsCXXAMPBackendJobAction(&JA) && !IsCXXAMPCPUBackendJobAction(&JA))  {
+  if (!IsHCCKernelPath) {
 
   // Enable vectorization per default according to the optimization level
   // selected. For optimization levels that want vectorization we use the alias
