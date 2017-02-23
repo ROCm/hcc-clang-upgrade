@@ -35,7 +35,7 @@ unsigned long long test_mm512_reduce_max_epu64(__m512i __W){
   // CHECK: %shuffle6.elt.i = extractelement <8 x i64> %tmp3, i32 1
   // CHECK: %vecext.i = select i1 %.elt.i, i64 %.elt20.i, i64 %shuffle6.elt.i
   // CHECK: ret i64 %vecext.i
-  return _mm512_reduce_max_epu64(__W); 
+  return _mm512_reduce_max_epu64(__W);
 }
 
 double test_mm512_reduce_max_pd(__m512d __W){
@@ -47,7 +47,7 @@ double test_mm512_reduce_max_pd(__m512d __W){
   // CHECK: %tmp2 = tail call <8 x double> @llvm.x86.avx512.mask.max.pd.512(<8 x double> %tmp1, <8 x double> %shuffle6.i, <8 x double> zeroinitializer, i8 -1, i32 4) #3
   // CHECK: %vecext.i = extractelement <8 x double> %tmp2, i32 0
   // CHECK: ret double %vecext.i
-  return _mm512_reduce_max_pd(__W); 
+  return _mm512_reduce_max_pd(__W);
 }
 
 long long test_mm512_reduce_min_epi64(__m512i __W){
@@ -81,7 +81,7 @@ unsigned long long test_mm512_reduce_min_epu64(__m512i __W){
   // CHECK: %shuffle6.elt.i = extractelement <8 x i64> %tmp3, i32 1
   // CHECK: %vecext.i = select i1 %.elt.i, i64 %.elt20.i, i64 %shuffle6.elt.i
   // CHECK: ret i64 %vecext.i
-  return _mm512_reduce_max_epu64(__W); 
+  return _mm512_reduce_max_epu64(__W);
 }
 
 double test_mm512_reduce_min_pd(__m512d __W){
@@ -93,7 +93,7 @@ double test_mm512_reduce_min_pd(__m512d __W){
   // CHECK: %tmp2 = tail call <8 x double> @llvm.x86.avx512.mask.min.pd.512(<8 x double> %tmp1, <8 x double> %shuffle6.i, <8 x double> zeroinitializer, i8 -1, i32 4) #3
   // CHECK: %vecext.i = extractelement <8 x double> %tmp2, i32 0
   // CHECK: ret double %vecext.i
-  return _mm512_reduce_min_pd(__W); 
+  return _mm512_reduce_min_pd(__W);
 }
 
 long long test_mm512_mask_reduce_max_epi64(__mmask8 __M, __m512i __W){
@@ -112,7 +112,7 @@ long long test_mm512_mask_reduce_max_epi64(__mmask8 __M, __m512i __W){
   // CHECK: %shuffle7.elt.i = extractelement <8 x i64> %tmp5, i32 1
   // CHECK: %vecext.i = select i1 %.elt.i, i64 %.elt22.i, i64 %shuffle7.elt.i
   // CHECK: ret i64 %vecext.i
-  return _mm512_mask_reduce_max_epi64(__M, __W); 
+  return _mm512_mask_reduce_max_epi64(__M, __W);
 }
 
 unsigned long test_mm512_mask_reduce_max_epu64(__mmask8 __M, __m512i __W){
@@ -131,7 +131,7 @@ unsigned long test_mm512_mask_reduce_max_epu64(__mmask8 __M, __m512i __W){
   // CHECK: %shuffle7.elt.i = extractelement <8 x i64> %tmp5, i32 1
   // CHECK: %vecext.i = select i1 %.elt.i, i64 %.elt22.i, i64 %shuffle7.elt.i
   // CHECK: ret i64 %vecext.i
-  return _mm512_mask_reduce_max_epu64(__M, __W); 
+  return _mm512_mask_reduce_max_epu64(__M, __W);
 }
 
 long long test_mm512_mask_reduce_max_pd(__mmask8 __M, __m512d __W){
@@ -146,7 +146,7 @@ long long test_mm512_mask_reduce_max_pd(__mmask8 __M, __m512d __W){
   // CHECK: %vecext.i = extractelement <8 x double> %tmp4, i32 0
   // CHECK: %conv = fptosi double %vecext.i to i64
   // CHECK: ret i64 %conv
-  return _mm512_mask_reduce_max_pd(__M, __W); 
+  return _mm512_mask_reduce_max_pd(__M, __W);
 }
 
 long long test_mm512_mask_reduce_min_epi64(__mmask8 __M, __m512i __W){
@@ -165,7 +165,7 @@ long long test_mm512_mask_reduce_min_epi64(__mmask8 __M, __m512i __W){
   // CHECK: %shuffle7.elt.i = extractelement <8 x i64> %tmp5, i32 1
   // CHECK: %vecext.i = select i1 %.elt.i, i64 %.elt22.i, i64 %shuffle7.elt.i
   // CHECK: ret i64 %vecext.i
-  return _mm512_mask_reduce_min_epi64(__M, __W); 
+  return _mm512_mask_reduce_min_epi64(__M, __W);
 }
 
 long long test_mm512_mask_reduce_min_epu64(__mmask8 __M, __m512i __W){
@@ -184,7 +184,7 @@ long long test_mm512_mask_reduce_min_epu64(__mmask8 __M, __m512i __W){
   // CHECK: %shuffle7.elt.i = extractelement <8 x i64> %tmp5, i32 1
   // CHECK: %vecext.i = select i1 %.elt.i, i64 %.elt22.i, i64 %shuffle7.elt.i
   // CHECK: ret i64 %vecext.i
-  return _mm512_mask_reduce_max_epu64(__M, __W); 
+  return _mm512_mask_reduce_max_epu64(__M, __W);
 }
 
 double test_mm512_mask_reduce_min_pd(__mmask8 __M, __m512d __W){
@@ -198,7 +198,7 @@ double test_mm512_mask_reduce_min_pd(__mmask8 __M, __m512d __W){
   // CHECK: %tmp4 = tail call <8 x double> @llvm.x86.avx512.mask.min.pd.512(<8 x double> %tmp3, <8 x double> %shuffle7.i, <8 x double> zeroinitializer, i8 -1, i32 4) #3
   // CHECK: %vecext.i = extractelement <8 x double> %tmp4, i32 0
   // CHECK: ret double %vecext.i
-  return _mm512_mask_reduce_min_pd(__M, __W); 
+  return _mm512_mask_reduce_min_pd(__M, __W);
 }
 
 int test_mm512_reduce_max_epi32(__m512i __W){
@@ -240,7 +240,7 @@ unsigned int test_mm512_reduce_max_epu32(__m512i __W){
   // CHECK: %vecext.i = extractelement <8 x i64> %tmp9, i32 0
   // CHECK: %conv.i = trunc i64 %vecext.i to i32
   // CHECK: ret i32 %conv.i
-  return _mm512_reduce_max_epu32(__W); 
+  return _mm512_reduce_max_epu32(__W);
 }
 
 float test_mm512_reduce_max_ps(__m512 __W){
@@ -254,7 +254,7 @@ float test_mm512_reduce_max_ps(__m512 __W){
   // CHECK: %tmp3 = tail call <16 x float> @llvm.x86.avx512.mask.max.ps.512(<16 x float> %tmp2, <16 x float> %shuffle9.i, <16 x float> zeroinitializer, i16 -1, i32 4) #3
   // CHECK: %vecext.i = extractelement <16 x float> %tmp3, i32 0
   // CHECK: ret float %vecext.i
-  return _mm512_reduce_max_ps(__W); 
+  return _mm512_reduce_max_ps(__W);
 }
 
 int test_mm512_reduce_min_epi32(__m512i __W){
@@ -296,7 +296,7 @@ unsigned int test_mm512_reduce_min_epu32(__m512i __W){
   // CHECK: %vecext.i = extractelement <8 x i64> %tmp9, i32 0
   // CHECK: %conv.i = trunc i64 %vecext.i to i32
   // CHECK: ret i32 %conv.i
-  return _mm512_reduce_min_epu32(__W); 
+  return _mm512_reduce_min_epu32(__W);
 }
 
 float test_mm512_reduce_min_ps(__m512 __W){
@@ -310,7 +310,7 @@ float test_mm512_reduce_min_ps(__m512 __W){
   // CHECK: %tmp3 = tail call <16 x float> @llvm.x86.avx512.mask.min.ps.512(<16 x float> %tmp2, <16 x float> %shuffle9.i, <16 x float> zeroinitializer, i16 -1, i32 4) #3
   // CHECK: %vecext.i = extractelement <16 x float> %tmp3, i32 0
   // CHECK: ret float %vecext.i
-  return _mm512_reduce_min_ps(__W); 
+  return _mm512_reduce_min_ps(__W);
 }
 
 int test_mm512_mask_reduce_max_epi32(__mmask16 __M, __m512i __W){
@@ -333,7 +333,7 @@ int test_mm512_mask_reduce_max_epi32(__mmask16 __M, __m512i __W){
   // CHECK: %vecext.i = extractelement <8 x i64> %tmp11, i32 0
   // CHECK: %conv.i = trunc i64 %vecext.i to i32
   // CHECK: ret i32 %conv.i
-  return _mm512_mask_reduce_max_epi32(__M, __W); 
+  return _mm512_mask_reduce_max_epi32(__M, __W);
 }
 
 unsigned int test_mm512_mask_reduce_max_epu32(__mmask16 __M, __m512i __W){
@@ -356,7 +356,7 @@ unsigned int test_mm512_mask_reduce_max_epu32(__mmask16 __M, __m512i __W){
   // CHECK: %vecext.i = extractelement <8 x i64> %tmp11, i32 0
   // CHECK: %conv.i = trunc i64 %vecext.i to i32
   // CHECK: ret i32 %conv.i
-  return _mm512_mask_reduce_max_epu32(__M, __W); 
+  return _mm512_mask_reduce_max_epu32(__M, __W);
 }
 
 float test_mm512_mask_reduce_max_ps(__mmask16 __M, __m512 __W){
@@ -372,7 +372,7 @@ float test_mm512_mask_reduce_max_ps(__mmask16 __M, __m512 __W){
   // CHECK: %tmp5 = tail call <16 x float> @llvm.x86.avx512.mask.max.ps.512(<16 x float> %tmp4, <16 x float> %shuffle10.i, <16 x float> zeroinitializer, i16 -1, i32 4) #3
   // CHECK: %vecext.i = extractelement <16 x float> %tmp5, i32 0
   // CHECK: ret float %vecext.i
-  return _mm512_mask_reduce_max_ps(__M, __W); 
+  return _mm512_mask_reduce_max_ps(__M, __W);
 }
 
 int test_mm512_mask_reduce_min_epi32(__mmask16 __M, __m512i __W){
@@ -395,7 +395,7 @@ int test_mm512_mask_reduce_min_epi32(__mmask16 __M, __m512i __W){
   // CHECK: %vecext.i = extractelement <8 x i64> %tmp11, i32 0
   // CHECK: %conv.i = trunc i64 %vecext.i to i32
   // CHECK: ret i32 %conv.i
-  return _mm512_mask_reduce_min_epi32(__M, __W); 
+  return _mm512_mask_reduce_min_epi32(__M, __W);
 }
 
 unsigned int test_mm512_mask_reduce_min_epu32(__mmask16 __M, __m512i __W){
@@ -418,7 +418,7 @@ unsigned int test_mm512_mask_reduce_min_epu32(__mmask16 __M, __m512i __W){
   // CHECK: %vecext.i = extractelement <8 x i64> %tmp11, i32 0
   // CHECK: %conv.i = trunc i64 %vecext.i to i32
   // CHECK: ret i32 %conv.i
-  return _mm512_mask_reduce_min_epu32(__M, __W); 
+  return _mm512_mask_reduce_min_epu32(__M, __W);
 }
 
 float test_mm512_mask_reduce_min_ps(__mmask16 __M, __m512 __W){
@@ -434,6 +434,6 @@ float test_mm512_mask_reduce_min_ps(__mmask16 __M, __m512 __W){
   // CHECK: %tmp5 = tail call <16 x float> @llvm.x86.avx512.mask.min.ps.512(<16 x float> %tmp4, <16 x float> %shuffle10.i, <16 x float> zeroinitializer, i16 -1, i32 4) #3
   // CHECK: %vecext.i = extractelement <16 x float> %tmp5, i32 0
   // CHECK: ret float %vecext.i
-  return _mm512_mask_reduce_min_ps(__M, __W); 
+  return _mm512_mask_reduce_min_ps(__M, __W);
 }
 

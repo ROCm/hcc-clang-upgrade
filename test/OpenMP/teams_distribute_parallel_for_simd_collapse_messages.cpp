@@ -35,7 +35,7 @@ T tmain(T argc, S **argv) { //expected-note 2 {{declared here}}
 // expected-error@+3 2 {{expression is not an integral constant expression}}
 // expected-note@+2 2 {{read of non-const variable 'argc' is not allowed in a constant expression}}
 #pragma omp target
-#pragma omp teams distribute parallel for simd collapse (argc 
+#pragma omp teams distribute parallel for simd collapse (argc
   for (int i = ST; i < N; i++)
     argv[0][i] = argv[0][i] - argv[0][i-ST];
 
@@ -137,7 +137,7 @@ int main(int argc, char **argv) {
 // expected-error@+3 2 {{directive '#pragma omp teams distribute parallel for simd' cannot contain more than one 'collapse' clause}}
 // expected-error@+2 2 {{argument to 'collapse' clause must be a strictly positive integer value}}
 #pragma omp target
-#pragma omp teams distribute parallel for simd collapse (foobool(argc)), collapse (true), collapse (-5) 
+#pragma omp teams distribute parallel for simd collapse (foobool(argc)), collapse (true), collapse (-5)
   for (int i = 4; i < 12; i++)
     argv[0][i] = argv[0][i] - argv[0][i-4];
 
