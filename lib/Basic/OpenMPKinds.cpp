@@ -780,7 +780,7 @@ bool clang::isOpenMPParallelDirective(OpenMPDirectiveKind DKind) {
 
 bool clang::isOpenMPTargetExecutionDirective(OpenMPDirectiveKind DKind) {
   return DKind == OMPD_target || DKind == OMPD_target_parallel ||
-         DKind == OMPD_target_parallel_for || 
+         DKind == OMPD_target_parallel_for ||
          DKind == OMPD_target_parallel_for_simd || DKind == OMPD_target_simd ||
          DKind == OMPD_target_teams || DKind == OMPD_target_teams_distribute ||
          DKind == OMPD_target_teams_distribute_parallel_for ||

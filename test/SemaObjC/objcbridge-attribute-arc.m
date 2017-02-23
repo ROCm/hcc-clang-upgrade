@@ -217,7 +217,7 @@ void Test8(CFMyPersonalErrorRef cf) {
 void Test9(CFErrorRef2 cf, NSError *ns, NSString *str, Class c, CFUColor2Ref cf2) {
   (void)(__bridge NSString *)cf; // expected-warning {{'CFErrorRef2' (aka 'struct __CFErrorRef *') bridges to NSError, not 'NSString'}}
   (void)(__bridge NSError *)cf; // okay
-  (void)(__bridge MyError*)cf; // expected-warning {{'CFErrorRef2' (aka 'struct __CFErrorRef *') bridges to NSError, not 'MyError'}} 
+  (void)(__bridge MyError*)cf; // expected-warning {{'CFErrorRef2' (aka 'struct __CFErrorRef *') bridges to NSError, not 'MyError'}}
   (void)(__bridge NSUColor *)cf2; // okay
   (void)(__bridge CFErrorRef)ns; // okay
   (void)(__bridge CFErrorRef)str;  // expected-warning {{'NSString' cannot bridge to 'CFErrorRef' (aka 'struct __CFErrorRef *')}}

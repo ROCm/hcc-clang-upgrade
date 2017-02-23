@@ -247,7 +247,7 @@ void ASTStmtWriter::VisitGCCAsmStmt(GCCAsmStmt *S) {
   Record.AddStmt(S->getAsmString());
 
   // Outputs
-  for (unsigned I = 0, N = S->getNumOutputs(); I != N; ++I) {      
+  for (unsigned I = 0, N = S->getNumOutputs(); I != N; ++I) {
     Record.AddIdentifierRef(S->getOutputIdentifier(I));
     Record.AddStmt(S->getOutputConstraintLiteral(I));
     Record.AddStmt(S->getOutputExpr(I));
@@ -286,7 +286,7 @@ void ASTStmtWriter::VisitMSAsmStmt(MSAsmStmt *S) {
   }
 
   // Outputs
-  for (unsigned I = 0, N = S->getNumOutputs(); I != N; ++I) {      
+  for (unsigned I = 0, N = S->getNumOutputs(); I != N; ++I) {
     Record.AddStmt(S->getOutputExpr(I));
     Record.AddString(S->getOutputConstraint(I));
   }
@@ -967,7 +967,7 @@ void ASTStmtWriter::VisitObjCDictionaryLiteral(ObjCDictionaryLiteral *E) {
       Record.push_back(NumExpansions);
     }
   }
-    
+
   Record.AddDeclRef(E->getDictWithObjectsMethod());
   Record.AddSourceRange(E->getSourceRange());
   Code = serialization::EXPR_OBJC_DICTIONARY_LITERAL;
@@ -1031,7 +1031,7 @@ void ASTStmtWriter::VisitObjCPropertyRefExpr(ObjCPropertyRefExpr *E) {
     Record.push_back(2);
     Record.AddDeclRef(E->getClassReceiver());
   }
-  
+
   Code = serialization::EXPR_OBJC_PROPERTY_REF_EXPR;
 }
 
@@ -1042,7 +1042,7 @@ void ASTStmtWriter::VisitObjCSubscriptRefExpr(ObjCSubscriptRefExpr *E) {
   Record.AddStmt(E->getKeyExpr());
   Record.AddDeclRef(E->getAtIndexMethodDecl());
   Record.AddDeclRef(E->setAtIndexMethodDecl());
-  
+
   Code = serialization::EXPR_OBJC_SUBSCRIPT_REF_EXPR;
 }
 
@@ -1075,9 +1075,9 @@ void ASTStmtWriter::VisitObjCMessageExpr(ObjCMessageExpr *E) {
     Record.AddDeclRef(E->getMethodDecl());
   } else {
     Record.push_back(0);
-    Record.AddSelectorRef(E->getSelector());    
+    Record.AddSelectorRef(E->getSelector());
   }
-    
+
   Record.AddSourceLocation(E->getLeftLoc());
   Record.AddSourceLocation(E->getRightLoc());
 
@@ -1263,14 +1263,14 @@ void ASTStmtWriter::VisitLambdaExpr(LambdaExpr *E) {
   Record.push_back(E->ExplicitParams);
   Record.push_back(E->ExplicitResultType);
   Record.AddSourceLocation(E->ClosingBrace);
-  
+
   // Add capture initializers.
   for (LambdaExpr::capture_init_iterator C = E->capture_init_begin(),
                                       CEnd = E->capture_init_end();
        C != CEnd; ++C) {
     Record.AddStmt(*C);
   }
-  
+
   Code = serialization::EXPR_LAMBDA;
 }
 
@@ -1417,7 +1417,7 @@ void ASTStmtWriter::VisitCXXDeleteExpr(CXXDeleteExpr *E) {
   Record.AddDeclRef(E->getOperatorDelete());
   Record.AddStmt(E->getArgument());
   Record.AddSourceLocation(E->getSourceRange().getBegin());
-  
+
   Code = serialization::EXPR_CXX_DELETE;
 }
 
@@ -2604,7 +2604,7 @@ void ASTWriter::WriteSubStmt(Stmt *S) {
   RecordData Record;
   ASTStmtWriter Writer(*this, Record);
   ++NumStatements;
-  
+
   if (!S) {
     Stream.EmitRecord(serialization::STMT_NULL_PTR, Record);
     return;
@@ -2637,7 +2637,7 @@ void ASTWriter::WriteSubStmt(Stmt *S) {
 #endif
 
   Writer.Visit(S);
-  
+
   uint64_t Offset = Writer.Emit();
   SubStmtEntries[S] = Offset;
 }
@@ -2652,7 +2652,7 @@ void ASTRecordWriter::FlushStmts() {
 
   for (unsigned I = 0, N = StmtsToEmit.size(); I != N; ++I) {
     Writer->WriteSubStmt(StmtsToEmit[I]);
-    
+
     assert(N == StmtsToEmit.size() && "record modified while being written!");
 
     // Note that we are at the end of a full expression. Any

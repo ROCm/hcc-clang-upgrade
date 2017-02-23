@@ -100,7 +100,7 @@ SValBuilder::getRegionValueSymbolVal(const TypedValueRegion* region) {
 
   if (T->isNullPtrType())
     return makeZeroVal(T);
-  
+
   if (!SymbolManager::canSymbolicate(T))
     return UnknownVal();
 

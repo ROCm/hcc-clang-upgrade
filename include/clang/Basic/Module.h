@@ -35,20 +35,20 @@ namespace llvm {
 }
 
 namespace clang {
-  
+
 class LangOptions;
 class TargetInfo;
 class IdentifierInfo;
-  
+
 /// \brief Describes the name of a module.
 typedef SmallVector<std::pair<std::string, SourceLocation>, 2> ModuleId;
-  
+
 /// \brief Describes a module or submodule.
 class Module {
 public:
   /// \brief The name of this module.
   std::string Name;
-  
+
   /// \brief The location of the module definition.
   SourceLocation DefinitionLoc;
 
@@ -69,12 +69,12 @@ public:
 
   /// \brief The name of the umbrella entry, as written in the module map.
   std::string UmbrellaAsWritten;
-  
+
 private:
   /// \brief The submodules of this module, indexed by name.
   std::vector<Module *> SubModules;
-  
-  /// \brief A mapping from the submodule name to the index into the 
+
+  /// \brief A mapping from the submodule name to the index into the
   /// \c SubModules vector at which that submodule resides.
   llvm::StringMap<unsigned> SubModuleIndex;
 
@@ -161,13 +161,13 @@ public:
 
   /// \brief Whether this module was loaded from a module file.
   unsigned IsFromModuleFile : 1;
-  
+
   /// \brief Whether this is a framework module.
   unsigned IsFramework : 1;
-  
+
   /// \brief Whether this is an explicit submodule.
   unsigned IsExplicit : 1;
-  
+
   /// \brief Whether this is a "system" module (which assumes that all
   /// headers in it are system headers).
   unsigned IsSystem : 1;
@@ -180,16 +180,16 @@ public:
   /// \brief Whether this is an inferred submodule (module * { ... }).
   unsigned IsInferred : 1;
 
-  /// \brief Whether we should infer submodules for this module based on 
+  /// \brief Whether we should infer submodules for this module based on
   /// the headers.
   ///
   /// Submodules can only be inferred for modules with an umbrella header.
   unsigned InferSubmodules : 1;
-  
+
   /// \brief Whether, when inferring submodules, the inferred submodules
   /// should be explicit.
   unsigned InferExplicitSubmodules : 1;
-  
+
   /// \brief Whether, when inferring submodules, the inferr submodules should
   /// export all modules they import (e.g., the equivalent of "export *").
   unsigned InferExportWildcard : 1;
@@ -225,31 +225,31 @@ public:
   /// \brief The set of modules imported by this module, and on which this
   /// module depends.
   llvm::SmallSetVector<Module *, 2> Imports;
-  
+
   /// \brief Describes an exported module.
   ///
   /// The pointer is the module being re-exported, while the bit will be true
   /// to indicate that this is a wildcard export.
   typedef llvm::PointerIntPair<Module *, 1, bool> ExportDecl;
-  
+
   /// \brief The set of export declarations.
   SmallVector<ExportDecl, 2> Exports;
-  
+
   /// \brief Describes an exported module that has not yet been resolved
   /// (perhaps because the module it refers to has not yet been loaded).
   struct UnresolvedExportDecl {
     /// \brief The location of the 'export' keyword in the module map file.
     SourceLocation ExportLoc;
-    
+
     /// \brief The name of the module.
     ModuleId Id;
-    
+
     /// \brief Whether this export declaration ends in a wildcard, indicating
     /// that all of its submodules should be exported (rather than the named
     /// module itself).
     bool Wildcard;
   };
-  
+
   /// \brief The set of export declarations that have yet to be resolved.
   SmallVector<UnresolvedExportDecl, 2> UnresolvedExports;
 
@@ -265,7 +265,7 @@ public:
     LinkLibrary() : IsFramework(false) { }
     LinkLibrary(const std::string &Library, bool IsFramework)
       : Library(Library), IsFramework(IsFramework) { }
-    
+
     /// \brief The library to link against.
     ///
     /// This will typically be a library or framework name, but can also
@@ -312,9 +312,9 @@ public:
   /// \brief Construct a new module or submodule.
   Module(StringRef Name, SourceLocation DefinitionLoc, Module *Parent,
          bool IsFramework, bool IsExplicit, unsigned VisibilityID);
-  
+
   ~Module();
-  
+
   /// \brief Determine whether this module is available for use within the
   /// current translation unit.
   bool isAvailable() const { return IsAvailable; }
@@ -330,26 +330,26 @@ public:
   /// \param Req If this module is unavailable, this parameter
   /// will be set to one of the requirements that is not met for use of
   /// this module.
-  bool isAvailable(const LangOptions &LangOpts, 
+  bool isAvailable(const LangOptions &LangOpts,
                    const TargetInfo &Target,
                    Requirement &Req,
                    UnresolvedHeaderDirective &MissingHeader) const;
 
   /// \brief Determine whether this module is a submodule.
   bool isSubModule() const { return Parent != nullptr; }
-  
+
   /// \brief Determine whether this module is a submodule of the given other
   /// module.
   bool isSubModuleOf(const Module *Other) const;
-  
+
   /// \brief Determine whether this module is a part of a framework,
   /// either because it is a framework module or because it is a submodule
   /// of a framework module.
   bool isPartOfFramework() const {
-    for (const Module *Mod = this; Mod; Mod = Mod->Parent) 
+    for (const Module *Mod = this; Mod; Mod = Mod->Parent)
       if (Mod->IsFramework)
         return true;
-    
+
     return false;
   }
 
@@ -379,7 +379,7 @@ public:
   /// \brief Retrieve the top-level module for this (sub)module, which may
   /// be this module.
   const Module *getTopLevelModule() const;
-  
+
   /// \brief Retrieve the name of the top-level module.
   ///
   StringRef getTopLevelModuleName() const {
@@ -476,7 +476,7 @@ public:
 
   typedef std::vector<Module *>::iterator submodule_iterator;
   typedef std::vector<Module *>::const_iterator submodule_const_iterator;
-  
+
   submodule_iterator submodule_begin() { return SubModules.begin(); }
   submodule_const_iterator submodule_begin() const {return SubModules.begin();}
   submodule_iterator submodule_end()   { return SubModules.end(); }
@@ -499,10 +499,10 @@ public:
     return "<module-includes>";
   }
 
-  /// \brief Print the module map for this module to the given stream. 
+  /// \brief Print the module map for this module to the given stream.
   ///
   void print(raw_ostream &OS, unsigned Indent = 0) const;
-  
+
   /// \brief Dump the contents of this module to the given output stream.
   void dump() const;
 

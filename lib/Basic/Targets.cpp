@@ -4297,15 +4297,15 @@ X86TargetInfo::convertConstraint(const char *&Constraint) const {
     switch (Constraint[1]) {
     default:
       // Break from inner switch and fall through (copy single char),
-      // continue parsing after copying the current constraint into 
+      // continue parsing after copying the current constraint into
       // the return string.
       break;
     case 'k':
       // "^" hints llvm that this is a 2 letter constraint.
-      // "Constraint++" is used to promote the string iterator 
+      // "Constraint++" is used to promote the string iterator
       // to the next constraint.
       return std::string("^") + std::string(Constraint++, 2);
-    } 
+    }
     LLVM_FALLTHROUGH;
   default:
     return std::string(1, *Constraint);

@@ -62,7 +62,7 @@ Parser::DeclGroupPtrTy Parser::ParseNamespace(unsigned Context,
   assert(Tok.is(tok::kw_namespace) && "Not a namespace!");
   SourceLocation NamespaceLoc = ConsumeToken();  // eat the 'namespace'.
   ObjCDeclContextSwitch ObjCDC(*this);
-    
+
   if (Tok.is(tok::code_completion)) {
     Actions.CodeCompleteNamespaceDecl(getCurScope());
     cutOffParsing();
@@ -130,8 +130,8 @@ Parser::DeclGroupPtrTy Parser::ParseNamespace(unsigned Context,
     return nullptr;
   }
 
-  if (getCurScope()->isClassScope() || getCurScope()->isTemplateParamScope() || 
-      getCurScope()->isInObjcMethodScope() || getCurScope()->getBlockParent() || 
+  if (getCurScope()->isClassScope() || getCurScope()->isTemplateParamScope() ||
+      getCurScope()->isInObjcMethodScope() || getCurScope()->getBlockParent() ||
       getCurScope()->getFnParent()) {
     Diag(T.getOpenLocation(), diag::err_namespace_nonnamespace_scope);
     SkipUntil(tok::r_brace);
@@ -185,13 +185,13 @@ Parser::DeclGroupPtrTy Parser::ParseNamespace(unsigned Context,
   UsingDirectiveDecl *ImplicitUsingDirectiveDecl = nullptr;
   Decl *NamespcDecl =
     Actions.ActOnStartNamespaceDef(getCurScope(), InlineLoc, NamespaceLoc,
-                                   IdentLoc, Ident, T.getOpenLocation(), 
+                                   IdentLoc, Ident, T.getOpenLocation(),
                                    attrs.getList(), ImplicitUsingDirectiveDecl);
 
   PrettyDeclStackTraceEntry CrashInfo(Actions, NamespcDecl, NamespaceLoc,
                                       "parsing namespace");
 
-  // Parse the contents of the namespace.  This includes parsing recovery on 
+  // Parse the contents of the namespace.  This includes parsing recovery on
   // any improperly nested namespaces.
   ParseInnerNamespace(ExtraIdentLoc, ExtraIdent, ExtraNamespaceLoc, 0,
                       InlineLoc, attrs, T);
@@ -201,8 +201,8 @@ Parser::DeclGroupPtrTy Parser::ParseNamespace(unsigned Context,
 
   DeclEnd = T.getCloseLocation();
   Actions.ActOnFinishNamespaceDef(NamespcDecl, DeclEnd);
-  
-  return Actions.ConvertDeclToDeclGroup(NamespcDecl, 
+
+  return Actions.ConvertDeclToDeclGroup(NamespcDecl,
                                         ImplicitUsingDirectiveDecl);
 }
 
@@ -236,9 +236,9 @@ void Parser::ParseInnerNamespace(std::vector<SourceLocation> &IdentLoc,
   Decl *NamespcDecl =
     Actions.ActOnStartNamespaceDef(getCurScope(), SourceLocation(),
                                    NamespaceLoc[index], IdentLoc[index],
-                                   Ident[index], Tracker.getOpenLocation(), 
+                                   Ident[index], Tracker.getOpenLocation(),
                                    attrs.getList(), ImplicitUsingDirectiveDecl);
-  assert(!ImplicitUsingDirectiveDecl && 
+  assert(!ImplicitUsingDirectiveDecl &&
          "nested namespace definition cannot define anonymous namespace");
 
   ParseInnerNamespace(IdentLoc, Ident, NamespaceLoc, ++index, InlineLoc,
@@ -429,7 +429,7 @@ Parser::ParseUsingDirectiveOrDeclaration(unsigned Context,
                                          ParsedAttributesWithRange &attrs) {
   assert(Tok.is(tok::kw_using) && "Not using token");
   ObjCDeclContextSwitch ObjCDC(*this);
-  
+
   // Eat 'using'.
   SourceLocation UsingLoc = ConsumeToken();
 
@@ -872,7 +872,7 @@ Decl *Parser::ParseStaticAssertDeclaration(SourceLocation &DeclEnd){
 SourceLocation Parser::ParseDecltypeSpecifier(DeclSpec &DS) {
   assert(Tok.isOneOf(tok::kw_decltype, tok::annot_decltype)
            && "Not a decltype specifier");
-  
+
   ExprResult Result;
   SourceLocation StartLoc = Tok.getLocation();
   SourceLocation EndLoc;
@@ -974,7 +974,7 @@ SourceLocation Parser::ParseDecltypeSpecifier(DeclSpec &DS) {
   return EndLoc;
 }
 
-void Parser::AnnotateExistingDecltypeSpecifier(const DeclSpec& DS, 
+void Parser::AnnotateExistingDecltypeSpecifier(const DeclSpec& DS,
                                                SourceLocation StartLoc,
                                                SourceLocation EndLoc) {
   // make sure we have a token we can turn into an annotation token
@@ -1025,9 +1025,9 @@ void Parser::ParseUnderlyingTypeSpecifier(DeclSpec &DS) {
 }
 
 /// ParseBaseTypeSpecifier - Parse a C++ base-type-specifier which is either a
-/// class name or decltype-specifier. Note that we only check that the result 
-/// names a type; semantic analysis will need to verify that the type names a 
-/// class. The result is either a type or null, depending on whether a type 
+/// class name or decltype-specifier. Note that we only check that the result
+/// names a type; semantic analysis will need to verify that the type names a
+/// class. The result is either a type or null, depending on whether a type
 /// name was found.
 ///
 ///       base-type-specifier: [C++11 class.derived]
@@ -1058,7 +1058,7 @@ TypeResult Parser::ParseBaseTypeSpecifier(SourceLocation &BaseLoc,
   BaseLoc = Tok.getLocation();
 
   // Parse decltype-specifier
-  // tok == kw_decltype is just error recovery, it can only happen when SS 
+  // tok == kw_decltype is just error recovery, it can only happen when SS
   // isn't empty
   if (Tok.isOneOf(tok::kw_decltype, tok::annot_decltype)) {
     if (SS.isNotEmpty())
@@ -1323,8 +1323,8 @@ bool Parser::isValidAfterTypeSpecifier(bool CouldBeBitfield) {
 void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
                                  SourceLocation StartLoc, DeclSpec &DS,
                                  const ParsedTemplateInfo &TemplateInfo,
-                                 AccessSpecifier AS, 
-                                 bool EnteringContext, DeclSpecContext DSC, 
+                                 AccessSpecifier AS,
+                                 bool EnteringContext, DeclSpecContext DSC,
                                  ParsedAttributesWithRange &Attributes) {
   DeclSpec::TST TagType;
   if (TagTokKind == tok::kw_struct)
@@ -2034,7 +2034,7 @@ BaseResult Parser::ParseBaseSpecifier(Decl *ClassDecl) {
   if (BaseType.isInvalid())
     return true;
 
-  // Parse the optional ellipsis (for a pack expansion). The ellipsis is 
+  // Parse the optional ellipsis (for a pack expansion). The ellipsis is
   // actually part of the base-specifier-list grammar productions, but we
   // parse it here for convenience.
   SourceLocation EllipsisLoc;
@@ -2202,7 +2202,7 @@ void Parser::ParseOptionalCXX11VirtSpecifierSeq(VirtSpecifiers &VS,
 bool Parser::isCXX11FinalKeyword() const {
   VirtSpecifiers::Specifier Specifier = isCXX11VirtSpecifier();
   return Specifier == VirtSpecifiers::VS_Final ||
-         Specifier == VirtSpecifiers::VS_GNU_Final || 
+         Specifier == VirtSpecifiers::VS_GNU_Final ||
          Specifier == VirtSpecifiers::VS_Sealed;
 }
 
@@ -2372,7 +2372,7 @@ void Parser::MaybeParseAndDiagnoseDeclSpecAfterCXX11VirtSpecifierSeq(
 ///         override
 ///         final
 /// [MS]    sealed
-/// 
+///
 ///       pure-specifier:
 ///         '= 0'
 ///
@@ -2621,9 +2621,9 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
     }
     DeclaratorInfo.setFunctionDefinitionKind(DefinitionKind);
 
-    // C++11 [dcl.attr.grammar] p4: If an attribute-specifier-seq appertains 
+    // C++11 [dcl.attr.grammar] p4: If an attribute-specifier-seq appertains
     // to a friend declaration, that declaration shall be a definition.
-    if (DeclaratorInfo.isFunctionDeclarator() && 
+    if (DeclaratorInfo.isFunctionDeclarator() &&
         DefinitionKind != FDK_Definition && DS.isFriendSpecified()) {
       // Diagnose attributes that appear before decl specifier:
       // [[]] friend int foo();
@@ -2872,7 +2872,7 @@ ExprResult Parser::ParseCXXMemberInitializer(Decl *D, bool IsFunction,
   assert(Tok.isOneOf(tok::equal, tok::l_brace)
          && "Data member initializer not starting with '=' or '{'");
 
-  EnterExpressionEvaluationContext Context(Actions, 
+  EnterExpressionEvaluationContext Context(Actions,
                                            Sema::PotentiallyEvaluated,
                                            D);
   if (TryConsumeToken(tok::equal, EqualLoc)) {
@@ -3114,7 +3114,7 @@ void Parser::ParseCXXMemberSpecification(SourceLocation RecordLoc,
   if (getLangOpts().CPlusPlus && Tok.is(tok::identifier)) {
     VirtSpecifiers::Specifier Specifier = isCXX11VirtSpecifier(Tok);
     assert((Specifier == VirtSpecifiers::VS_Final ||
-            Specifier == VirtSpecifiers::VS_GNU_Final || 
+            Specifier == VirtSpecifiers::VS_GNU_Final ||
             Specifier == VirtSpecifiers::VS_Sealed) &&
            "not a class definition");
     FinalLoc = ConsumeToken();
@@ -3233,7 +3233,7 @@ void Parser::ParseCXXMemberSpecification(SourceLocation RecordLoc,
 
   if (TagDecl)
     Actions.ActOnFinishCXXMemberSpecification(getCurScope(), RecordLoc, TagDecl,
-                                              T.getOpenLocation(), 
+                                              T.getOpenLocation(),
                                               T.getCloseLocation(),
                                               attrs.getList());
 
@@ -3424,7 +3424,7 @@ MemInitResult Parser::ParseMemInitializer(Decl *ConstructorDecl) {
     TryConsumeToken(tok::ellipsis, EllipsisLoc);
 
     return Actions.ActOnMemInitializer(ConstructorDecl, getCurScope(), SS, II,
-                                       TemplateTypeTy, DS, IdLoc, 
+                                       TemplateTypeTy, DS, IdLoc,
                                        InitList.get(), EllipsisLoc);
   } else if(Tok.is(tok::l_paren)) {
     BalancedDelimiterTracker T(*this, tok::l_paren);
@@ -3473,7 +3473,7 @@ Parser::tryParseExceptionSpecification(bool Delayed,
                     CachedTokens *&ExceptionSpecTokens) {
   ExceptionSpecificationType Result = EST_None;
   ExceptionSpecTokens = nullptr;
-  
+
   // Handle delayed parsing of exception-specifications.
   if (Delayed) {
     if (Tok.isNot(tok::kw_throw) && Tok.isNot(tok::kw_noexcept))
@@ -3492,11 +3492,11 @@ Parser::tryParseExceptionSpecification(bool Delayed,
         NoexceptExpr = nullptr;
         return EST_BasicNoexcept;
       }
-      
+
       Diag(Tok, diag::err_expected_lparen_after) << "throw";
       return EST_DynamicNone;
     }
-    
+
     // Cache the tokens for the exception-specification.
     ExceptionSpecTokens = new CachedTokens;
     ExceptionSpecTokens->push_back(StartTok); // 'throw' or 'noexcept'
@@ -3510,7 +3510,7 @@ Parser::tryParseExceptionSpecification(bool Delayed,
 
     return EST_Unparsed;
   }
-  
+
   // See if there's a dynamic specification.
   if (Tok.is(tok::kw_throw)) {
     Result = ParseDynamicExceptionSpecification(SpecificationRange,
@@ -3631,7 +3631,7 @@ ExceptionSpecificationType Parser::ParseDynamicExceptionSpecification(
 
     if (Tok.is(tok::ellipsis)) {
       // C++0x [temp.variadic]p5:
-      //   - In a dynamic-exception-specification (15.4); the pattern is a 
+      //   - In a dynamic-exception-specification (15.4); the pattern is a
       //     type-id.
       SourceLocation Ellipsis = ConsumeToken();
       Range.setEnd(Ellipsis);
@@ -3829,7 +3829,7 @@ bool Parser::ParseCXX11AttributeArgs(IdentifierInfo *AttrName,
     unsigned NumArgs =
         ParseAttributeArgsCommon(AttrName, AttrNameLoc, Attrs, EndLoc,
                                  ScopeName, ScopeLoc, AttributeList::AS_CXX11);
-    
+
     const AttributeList *Attr = Attrs.getList();
     if (Attr && IsBuiltInOrStandardCXX11Attribute(AttrName, ScopeName)) {
       // If the attribute is a standard or built-in attribute and we are
@@ -4164,7 +4164,7 @@ void Parser::ParseMicrosoftIfExistsClassDeclaration(DeclSpec::TST TagType,
   IfExistsCondition Result;
   if (ParseMicrosoftIfExistsCondition(Result))
     return;
-  
+
   BalancedDelimiterTracker Braces(*this, tok::l_brace);
   if (Braces.consumeOpen()) {
     Diag(Tok, diag::err_expected) << tok::l_brace;
@@ -4175,12 +4175,12 @@ void Parser::ParseMicrosoftIfExistsClassDeclaration(DeclSpec::TST TagType,
   case IEB_Parse:
     // Parse the declarations below.
     break;
-        
+
   case IEB_Dependent:
     Diag(Result.KeywordLoc, diag::warn_microsoft_dependent_exists)
       << Result.IsIfExists;
     // Fall through to skip.
-      
+
   case IEB_Skip:
     Braces.skipToEnd();
     return;
@@ -4216,7 +4216,7 @@ void Parser::ParseMicrosoftIfExistsClassDeclaration(DeclSpec::TST TagType,
     // Parse all the comma separated declarators.
     ParseCXXClassMemberDeclaration(CurAS, nullptr);
   }
-  
+
   Braces.consumeClose();
 }
 

@@ -82,7 +82,7 @@ static llvm::Constant *buildBlockDescriptor(CodeGenModule &CGM,
     cast<llvm::IntegerType>(CGM.getTypes().ConvertType(C.UnsignedLongTy));
   llvm::PointerType *i8p = nullptr;
   if (CGM.getLangOpts().OpenCL)
-    i8p = 
+    i8p =
       llvm::Type::getInt8PtrTy(
            CGM.getLLVMContext(), C.getTargetAddressSpace(LangAS::opencl_constant));
   else
@@ -114,7 +114,7 @@ static llvm::Constant *buildBlockDescriptor(CodeGenModule &CGM,
     CGM.getContext().getObjCEncodingForBlock(blockInfo.getBlockExpr());
   elements.add(llvm::ConstantExpr::getBitCast(
     CGM.GetAddrOfConstantCString(typeAtEncoding).getPointer(), i8p));
-  
+
   // GC layout.
   if (C.getLangOpts().ObjC1) {
     if (CGM.getLangOpts().getGC() != LangOptions::NonGC)
@@ -350,7 +350,7 @@ static void computeBlockInfo(CodeGenModule &CGM, CodeGenFunction *CGF,
   else if (C.getLangOpts().ObjC1 &&
            CGM.getLangOpts().getGC() == LangOptions::NonGC)
     info.HasCapturedVariableLayout = true;
-  
+
   // Collect the layout chunks.
   SmallVector<BlockLayoutChunk, 16> layout;
   layout.reserve(block->capturesCXXThis() +
@@ -448,12 +448,12 @@ static void computeBlockInfo(CodeGenModule &CGM, CodeGenFunction *CGF,
     QualType VT = getCaptureFieldType(*CGF, CI);
     CharUnits size = C.getTypeSizeInChars(VT);
     CharUnits align = C.getDeclAlign(variable);
-    
+
     maxFieldAlign = std::max(maxFieldAlign, align);
 
     llvm::Type *llvmType =
       CGM.getTypes().ConvertTypeForMem(VT);
-    
+
     layout.push_back(
         BlockLayoutChunk(align, size, lifetime, &CI, llvmType, VT));
   }
@@ -470,11 +470,11 @@ static void computeBlockInfo(CodeGenModule &CGM, CodeGenFunction *CGF,
   // to get reproducible results.  There should probably be an
   // llvm::array_pod_stable_sort.
   std::stable_sort(layout.begin(), layout.end());
-  
+
   // Needed for blocks layout info.
   info.BlockHeaderForcedGapOffset = info.BlockSize;
   info.BlockHeaderForcedGapSize = CharUnits::Zero();
-  
+
   CharUnits &blockSize = info.BlockSize;
   info.BlockAlign = std::max(maxFieldAlign, info.BlockAlign);
 
@@ -525,7 +525,7 @@ static void computeBlockInfo(CodeGenModule &CGM, CodeGenFunction *CGF,
   }
 
   assert(endAlign == getLowBit(blockSize));
-  
+
   // At this point, we just have to add padding if the end align still
   // isn't aligned right.
   if (endAlign < maxFieldAlign) {
@@ -636,7 +636,7 @@ static void enterBlockScope(CodeGenFunction &CGF, BlockDecl *block) {
 
     CleanupKind cleanupKind = InactiveNormalCleanup;
     bool useArrayEHCleanup = CGF.needsEHCleanup(dtorKind);
-    if (useArrayEHCleanup) 
+    if (useArrayEHCleanup)
       cleanupKind = InactiveNormalAndEHCleanup;
 
     CGF.pushDestroy(cleanupKind, addr, VT,
@@ -977,7 +977,7 @@ llvm::Type *CodeGenModule::getGenericBlockLiteralType() {
   return GenericBlockLiteralType;
 }
 
-RValue CodeGenFunction::EmitBlockCallExpr(const CallExpr *E, 
+RValue CodeGenFunction::EmitBlockCallExpr(const CallExpr *E,
                                           ReturnValueSlot ReturnValue) {
   const BlockPointerType *BPT =
     E->getCallee()->getType()->getAs<BlockPointerType>();
@@ -1136,7 +1136,7 @@ static llvm::Constant *buildGlobalBlock(CodeGenModule &CGM,
   // __flags
   BlockFlags flags = BLOCK_IS_GLOBAL | BLOCK_HAS_SIGNATURE;
   if (blockInfo.UsesStret) flags |= BLOCK_USE_STRET;
-                                      
+
   fields.addInt(CGM.IntTy, flags.getBitMask());
 
   // Reserved
@@ -1217,7 +1217,7 @@ CodeGenFunction::GenerateBlockFunction(GlobalDecl GD,
   CurGD = GD;
 
   CurEHLocation = blockInfo.getBlockExpr()->getLocEnd();
-  
+
   BlockInfo = &blockInfo;
 
   // Arrange for local static and local extern declarations to appear
@@ -1776,7 +1776,7 @@ public:
     // variable.
 
     llvm::Value *value = CGF.Builder.CreateLoad(srcField);
-    
+
     llvm::Value *null =
       llvm::ConstantPointerNull::get(cast<llvm::PointerType>(value->getType()));
 
@@ -1918,7 +1918,7 @@ generateByrefCopyHelper(CodeGenFunction &CGF, const BlockByrefInfo &byrefInfo,
                                          "src-object");
 
     generator.emitCopy(CGF, destField, srcField);
-  }  
+  }
 
   CGF.FinishFunction();
 
@@ -2083,7 +2083,7 @@ CodeGenFunction::buildByrefHelpers(llvm::StructType &byrefType,
   BlockFieldFlags flags;
   if (type->isBlockPointerType()) {
     flags |= BLOCK_FIELD_IS_BLOCK;
-  } else if (CGM.getContext().isObjCNSObjectType(type) || 
+  } else if (CGM.getContext().isObjCNSObjectType(type) ||
              type->isObjCObjectPointerType()) {
     flags |= BLOCK_FIELD_IS_OBJECT;
   } else {
@@ -2142,24 +2142,24 @@ const BlockByrefInfo &CodeGenFunction::getBlockByrefInfo(const VarDecl *D) {
   llvm::StructType *byrefType =
     llvm::StructType::create(getLLVMContext(),
                              "struct.__block_byref_" + D->getNameAsString());
-  
+
   QualType Ty = D->getType();
 
   CharUnits size;
   SmallVector<llvm::Type *, 8> types;
-  
+
   // void *__isa;
   types.push_back(Int8PtrTy);
   size += getPointerSize();
-  
+
   // void *__forwarding;
   types.push_back(llvm::PointerType::getUnqual(byrefType));
   size += getPointerSize();
-  
+
   // int32_t __flags;
   types.push_back(Int32Ty);
   size += CharUnits::fromQuantity(4);
-    
+
   // int32_t __size;
   types.push_back(Int32Ty);
   size += CharUnits::fromQuantity(4);
@@ -2170,7 +2170,7 @@ const BlockByrefInfo &CodeGenFunction::getBlockByrefInfo(const VarDecl *D) {
     /// void *__copy_helper;
     types.push_back(Int8PtrTy);
     size += getPointerSize();
-    
+
     /// void *__destroy_helper;
     types.push_back(Int8PtrTy);
     size += getPointerSize();

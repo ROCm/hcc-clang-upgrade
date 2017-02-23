@@ -44,7 +44,7 @@ namespace clang {
     OR_Ambiguous,           ///< Ambiguous candidates found.
     OR_Deleted              ///< Succeeded, but refers to a deleted function.
   };
-  
+
   enum OverloadCandidateDisplayKind {
     /// Requests that all candidates be shown.  Viable candidates will
     /// be printed first.
@@ -80,7 +80,7 @@ namespace clang {
     ICK_Vector_Conversion,     ///< Vector conversions
     ICK_Vector_Splat,          ///< A vector splat from an arithmetic type
     ICK_Complex_Real,          ///< Complex-real conversions (C99 6.3.1.7)
-    ICK_Block_Pointer_Conversion,    ///< Block Pointer conversions 
+    ICK_Block_Pointer_Conversion,    ///< Block Pointer conversions
     ICK_TransparentUnionConversion, ///< Transparent Union Conversions
     ICK_Writeback_Conversion,  ///< Objective-C ARC writeback conversion
     ICK_Zero_Event_Conversion, ///< Zero constant to event (OpenCL1.2 6.12.10)
@@ -163,7 +163,7 @@ namespace clang {
     /// \brief Whether the qualification conversion involves a change in the
     /// Objective-C lifetime (for automatic reference counting).
     unsigned QualificationIncludesObjCLifetime : 1;
-    
+
     /// IncompatibleObjC - Whether this is an Objective-C conversion
     /// that we should warn about (if we actually use it).
     unsigned IncompatibleObjC : 1;
@@ -179,21 +179,21 @@ namespace clang {
     /// \brief Whether this is an lvalue reference binding (otherwise, it's
     /// an rvalue reference binding).
     unsigned IsLvalueReference : 1;
-    
+
     /// \brief Whether we're binding to a function lvalue.
     unsigned BindsToFunctionLvalue : 1;
-    
+
     /// \brief Whether we're binding to an rvalue.
     unsigned BindsToRvalue : 1;
-    
-    /// \brief Whether this binds an implicit object argument to a 
+
+    /// \brief Whether this binds an implicit object argument to a
     /// non-static member function without a ref-qualifier.
     unsigned BindsImplicitObjectArgumentWithoutRefQualifier : 1;
-    
+
     /// \brief Whether this binds a reference to an object with a different
     /// Objective-C lifetime qualifier.
     unsigned ObjCLifetimeConversionBinding : 1;
-    
+
     /// FromType - The type that this conversion is converting
     /// from. This is an opaque pointer that can be translated into a
     /// QualType.
@@ -213,12 +213,12 @@ namespace clang {
     DeclAccessPair FoundCopyConstructor;
 
     void setFromType(QualType T) { FromTypePtr = T.getAsOpaquePtr(); }
-    void setToType(unsigned Idx, QualType T) { 
+    void setToType(unsigned Idx, QualType T) {
       assert(Idx < 3 && "To type index is out of range");
-      ToTypePtrs[Idx] = T.getAsOpaquePtr(); 
+      ToTypePtrs[Idx] = T.getAsOpaquePtr();
     }
     void setAllToTypes(QualType T) {
-      ToTypePtrs[0] = T.getAsOpaquePtr(); 
+      ToTypePtrs[0] = T.getAsOpaquePtr();
       ToTypePtrs[1] = ToTypePtrs[0];
       ToTypePtrs[2] = ToTypePtrs[0];
     }
@@ -232,11 +232,11 @@ namespace clang {
     }
 
     void setAsIdentityConversion();
-    
+
     bool isIdentityConversion() const {
       return Second == ICK_Identity && Third == ICK_Identity;
     }
-    
+
     ImplicitConversionRank getRank() const;
     NarrowingKind getNarrowingKind(ASTContext &Context, const Expr *Converted,
                                    APValue &ConstantValue,
@@ -465,12 +465,12 @@ namespace clang {
       new (this) ImplicitConversionSequence(Other);
       return *this;
     }
-    
+
     Kind getKind() const {
       assert(isInitialized() && "querying uninitialized conversion");
       return Kind(ConversionKind);
     }
-    
+
     /// \brief Return a ranking of the implicit conversion sequence
     /// kind, where smaller ranks represent better conversion
     /// sequences.
@@ -480,11 +480,11 @@ namespace clang {
     /// per C++ [over.best.ics]p10.
     unsigned getKindRank() const {
       switch (getKind()) {
-      case StandardConversion: 
+      case StandardConversion:
         return 0;
 
       case UserDefinedConversion:
-      case AmbiguousConversion: 
+      case AmbiguousConversion:
         return 1;
 
       case EllipsisConversion:
@@ -678,7 +678,7 @@ namespace clang {
 
     union {
       DeductionFailureInfo DeductionFailure;
-      
+
       /// FinalConversion - For a conversion function (where Function is
       /// a CXXConversionDecl), the standard conversion that occurs
       /// after the call to the overload candidate to convert the result

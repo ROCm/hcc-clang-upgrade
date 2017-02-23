@@ -162,7 +162,7 @@ namespace dr522 { // dr522: yes
   template<typename T> void b3(Base<T> *);
 
   void test(int n, const int cn, int **p, int *S::*pm) {
-    int *a[3], *S::*am[3]; 
+    int *a[3], *S::*am[3];
     const Derived cd = Derived();
     Derived d[3];
 

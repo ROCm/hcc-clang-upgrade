@@ -91,7 +91,7 @@ static OpenMPDirectiveKind ParseOpenMPDirectiveKind(Parser &P) {
     { OMPD_declare, OMPD_target, OMPD_declare_target },
     { OMPD_distribute, OMPD_parallel, OMPD_distribute_parallel },
     { OMPD_distribute_parallel, OMPD_for, OMPD_distribute_parallel_for },
-    { OMPD_distribute_parallel_for, OMPD_simd, 
+    { OMPD_distribute_parallel_for, OMPD_simd,
       OMPD_distribute_parallel_for_simd },
     { OMPD_distribute, OMPD_simd, OMPD_distribute_simd },
     { OMPD_end, OMPD_declare, OMPD_end_declare },

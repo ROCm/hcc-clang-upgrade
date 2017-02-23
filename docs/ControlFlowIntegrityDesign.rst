@@ -121,9 +121,9 @@ example class hierarchy will be emitted like this:
 .. csv-table:: Bit Vectors for A, B, C
   :header: Class, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
 
-  A,  ,  , 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,  ,  
-  B,  ,  ,  ,  ,  ,  ,  , 1,  ,  ,  ,  ,  ,  ,  
-  C,  ,  ,  ,  ,  ,  ,  ,  ,  ,  ,  ,  , 1,  ,  
+  A,  ,  , 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,  ,
+  B,  ,  ,  ,  ,  ,  ,  , 1,  ,  ,  ,  ,  ,  ,
+  C,  ,  ,  ,  ,  ,  ,  ,  ,  ,  ,  ,  , 1,  ,
 
 Short Inline Bit Vectors
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -149,7 +149,7 @@ If the bit vector fits in 32 bits, the code looks like this:
      de6:       48 89 df                mov    %rbx,%rdi
      de9:       ff 10                   callq  *(%rax)
     [...]
-     e0b:       0f 0b                   ud2    
+     e0b:       0f 0b                   ud2
 
 Or if the bit vector fits in 64 bits:
 
@@ -163,13 +163,13 @@ Or if the bit vector fits in 64 bits:
     11ba:       48 83 f9 2a             cmp    $0x2a,%rcx
     11be:       77 35                   ja     11f5 <main+0xb5>
     11c0:       48 ba 09 00 00 00 00    movabs $0x40000000009,%rdx
-    11c7:       04 00 00 
+    11c7:       04 00 00
     11ca:       48 0f a3 ca             bt     %rcx,%rdx
     11ce:       73 25                   jae    11f5 <main+0xb5>
     11d0:       48 89 df                mov    %rbx,%rdi
     11d3:       ff 10                   callq  *(%rax)
     [...]
-    11f5:       0f 0b                   ud2    
+    11f5:       0f 0b                   ud2
 
 If the bit vector consists of a single bit, there is only one possible
 virtual table, and the check can consist of a single equality comparison:

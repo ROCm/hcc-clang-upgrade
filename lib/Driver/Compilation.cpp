@@ -25,6 +25,8 @@ using namespace llvm::opt;
 Compilation::Compilation(const Driver &D, const ToolChain &_DefaultToolChain,
                          InputArgList *_Args, DerivedArgList *_TranslatedArgs)
     : TheDriver(D), DefaultToolChain(_DefaultToolChain), ActiveOffloadMask(0u),
+      CudaHostToolChain(&DefaultToolChain), CudaDeviceToolChain(nullptr),
+      HCCHostToolChain(&DefaultToolChain), HCCDeviceToolChain(nullptr),
       Args(_Args), TranslatedArgs(_TranslatedArgs), Redirects(nullptr),
       ForDiagnostics(false) {
   // The offloading host toolchain is the default tool chain.

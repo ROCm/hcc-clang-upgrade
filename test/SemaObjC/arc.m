@@ -14,7 +14,7 @@ id CFBridgingRelease(CFTypeRef);
 @protocol NSFastEnumeration
 - (NSUInteger)countByEnumeratingWithState:(NSFastEnumerationState *)state objects:(id __unsafe_unretained [])buffer count:(NSUInteger)len;
 @end
-@interface NSNumber 
+@interface NSNumber
 + (NSNumber *)numberWithInt:(int)value;
 @end
 @interface NSArray <NSFastEnumeration>
@@ -389,7 +389,7 @@ struct Test16;
 - (void) test16_6: (id) x;
 @end
 
-@interface Test16b 
+@interface Test16b
 - (void) test16_0: (int) x;
 - (int) test16_1: (char*) x; // expected-note {{also found}}
 - (char*) test16_2: (int) x; // expected-note {{also found}}
@@ -577,9 +577,9 @@ typedef struct Bark Bark;
 
 @implementation Test29
 @synthesize P;
-- (id)Meth { 
-  Bark** f = &P; 
-  return 0; 
+- (id)Meth {
+  Bark** f = &P;
+  return 0;
 }
 @end
 
@@ -672,7 +672,7 @@ void test35(void) {
   test36_helper(&y);
   ^{ test36_helper(&y); }();
 
-  __strong int non_objc_type; // expected-warning {{'__strong' only applies to Objective-C object or block pointer types}} 
+  __strong int non_objc_type; // expected-warning {{'__strong' only applies to Objective-C object or block pointer types}}
 }
 
 void test36(int first, ...) {
@@ -721,7 +721,7 @@ void _NSCalcBeze(NSColor* color, NSColor* bezelColors[]); // expected-error {{mu
 @end
 
 @implementation Radar9970739
-- (void) Meth { 
+- (void) Meth {
   RestaurantTableViewCell *cell;
   [cell restaurantLocatoin]; // expected-error {{no visible @interface for 'RestaurantTableViewCell' declares the selector 'restaurantLocatoin'}}
 }
@@ -759,7 +759,7 @@ void rdar12569201(id key, id value) {
     __weak id n = @42; // expected-warning {{assigning numeric literal to a weak variable; object will be released after assignment}}
     __weak id e = @(42); // expected-warning {{assigning numeric literal to a weak variable; object will be released after assignment}}
     __weak id m = @(41 + 1); // expected-warning {{assigning boxed expression to a weak variable; object will be released after assignment}}
-    
+
     // Assignments.
     y = @{ key : value }; // expected-warning {{assigning dictionary literal to a weak variable; object will be released after assignment}}
     z = @[ value ]; // expected-warning {{assigning array literal to a weak variable; object will be released after assignment}}

@@ -31,7 +31,7 @@ constexpr int f(S s) {
 }
 static_assert(f({1, 2}) == 12);
 
-constexpr bool g(S &&s) { 
+constexpr bool g(S &&s) {
   auto &[a, b] = s;
   return &a == &s.a && &b == &s.b && &a != &b;
 }

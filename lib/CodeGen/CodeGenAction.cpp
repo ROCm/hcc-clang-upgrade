@@ -324,7 +324,7 @@ namespace clang {
     void OptimizationFailureHandler(
         const llvm::DiagnosticInfoOptimizationFailure &D);
   };
-  
+
   void BackendConsumer::anchor() {}
 }
 
@@ -393,7 +393,7 @@ void BackendConsumer::InlineAsmDiagHandler2(const llvm::SMDiagnostic &D,
   // code.
   if (LocCookie.isValid()) {
     Diags.Report(LocCookie, DiagID).AddString(Message);
-    
+
     if (D.getLoc().isValid()) {
       DiagnosticBuilder B = Diags.Report(Loc, diag::note_fe_inline_asm_here);
       // Convert the SMDiagnostic ranges into SourceRange and attach them
@@ -406,7 +406,7 @@ void BackendConsumer::InlineAsmDiagHandler2(const llvm::SMDiagnostic &D,
     }
     return;
   }
-  
+
   // Otherwise, report the backend issue as occurring in the generated .s file.
   // If Loc is invalid, we still need to report the issue, it just gets no
   // location info.

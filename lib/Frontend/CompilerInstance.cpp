@@ -281,7 +281,7 @@ CompilerInstance::createDiagnostics(DiagnosticOptions *Opts,
   if (!Opts->DiagnosticSerializationFile.empty())
     SetupSerializedDiagnostics(Opts, *Diags,
                                Opts->DiagnosticSerializationFile);
-  
+
   // Configure our handling of diagnostics.
   ProcessWarningOptions(*Diags, *Opts);
 
@@ -924,7 +924,7 @@ bool CompilerInstance::ExecuteAction(FrontendAction &Act) {
   // Adjust target options based on codegen options.
   getTarget().adjustTargetOptions(getCodeGenOpts(), getTargetOpts());
 
-  // rewriter project will change target built-in bool type from its default. 
+  // rewriter project will change target built-in bool type from its default.
   if (getFrontendOpts().ProgramAction == frontend::RewriteObjC)
     getTarget().noSignedCharForObjCBool();
 
@@ -1006,22 +1006,22 @@ static InputKind getSourceInputKindFromOptions(const LangOptions &LangOpts) {
   return LangOpts.CPlusPlus? IK_CXX : IK_C;
 }
 
-/// \brief Compile a module file for the given module, using the options 
+/// \brief Compile a module file for the given module, using the options
 /// provided by the importing compiler instance. Returns true if the module
 /// was built without errors.
 static bool compileModuleImpl(CompilerInstance &ImportingInstance,
                               SourceLocation ImportLoc,
                               Module *Module,
                               StringRef ModuleFileName) {
-  ModuleMap &ModMap 
+  ModuleMap &ModMap
     = ImportingInstance.getPreprocessor().getHeaderSearchInfo().getModuleMap();
-    
+
   // Construct a compiler invocation for creating this module.
   auto Invocation =
       std::make_shared<CompilerInvocation>(ImportingInstance.getInvocation());
 
   PreprocessorOptions &PPOpts = Invocation->getPreprocessorOpts();
-  
+
   // For any options that aren't intended to affect how a module is built,
   // reset them to their default values.
   Invocation->getLangOpts()->resetNonModularOptions();
@@ -1065,11 +1065,11 @@ static bool compileModuleImpl(CompilerInstance &ImportingInstance,
 
   // Don't free the remapped file buffers; they are owned by our caller.
   PPOpts.RetainRemappedFileBuffers = true;
-    
+
   Invocation->getDiagnosticOpts().VerifyDiagnostics = 0;
   assert(ImportingInstance.getInvocation().getModuleHash() ==
          Invocation->getModuleHash() && "Module hash mismatch!");
-  
+
   // Construct a compiler instance that will be used to actually create the
   // module.
   CompilerInstance Instance(ImportingInstance.getPCHContainerOperations(),
@@ -1238,7 +1238,7 @@ static void checkConfigMacro(Preprocessor &PP, StringRef ConfigMacro,
                              Module *Mod, SourceLocation ImportLoc) {
   IdentifierInfo *Id = PP.getIdentifierInfo(ConfigMacro);
   SourceManager &SourceMgr = PP.getSourceManager();
-  
+
   // If this identifier has never had a macro definition, then it could
   // not have changed.
   if (!Id->hadMacroDefinition())
@@ -1540,9 +1540,9 @@ CompilerInstance::loadModule(SourceLocation ImportLoc,
     = KnownModules.find(Path[0].first);
   if (Known != KnownModules.end()) {
     // Retrieve the cached top-level module.
-    Module = Known->second;    
+    Module = Known->second;
   } else if (ModuleName == getLangOpts().CurrentModule) {
-    // This is the module we're building. 
+    // This is the module we're building.
     Module = PP->getHeaderSearchInfo().lookupModule(ModuleName);
     Known = KnownModules.insert(std::make_pair(Path[0].first, Module)).first;
   } else {
@@ -1712,24 +1712,24 @@ CompilerInstance::loadModule(SourceLocation ImportLoc,
     // Cache the result of this top-level module lookup for later.
     Known = KnownModules.insert(std::make_pair(Path[0].first, Module)).first;
   }
-  
+
   // If we never found the module, fail.
   if (!Module)
     return ModuleLoadResult();
-  
+
   // Verify that the rest of the module path actually corresponds to
   // a submodule.
   if (Path.size() > 1) {
     for (unsigned I = 1, N = Path.size(); I != N; ++I) {
       StringRef Name = Path[I].first->getName();
       clang::Module *Sub = Module->findSubmodule(Name);
-      
+
       if (!Sub) {
         // Attempt to perform typo correction to find a module name that works.
         SmallVector<StringRef, 2> Best;
         unsigned BestEditDistance = (std::numeric_limits<unsigned>::max)();
-        
-        for (clang::Module::submodule_iterator J = Module->submodule_begin(), 
+
+        for (clang::Module::submodule_iterator J = Module->submodule_begin(),
                                             JEnd = Module->submodule_end();
              J != JEnd; ++J) {
           unsigned ED = Name.edit_distance((*J)->Name,
@@ -1740,24 +1740,24 @@ CompilerInstance::loadModule(SourceLocation ImportLoc,
               Best.clear();
               BestEditDistance = ED;
             }
-            
+
             Best.push_back((*J)->Name);
           }
         }
-        
+
         // If there was a clear winner, user it.
         if (Best.size() == 1) {
-          getDiagnostics().Report(Path[I].second, 
+          getDiagnostics().Report(Path[I].second,
                                   diag::err_no_submodule_suggest)
             << Path[I].first << Module->getFullModuleName() << Best[0]
             << SourceRange(Path[0].second, Path[I-1].second)
             << FixItHint::CreateReplacement(SourceRange(Path[I].second),
                                             Best[0]);
-          
+
           Sub = Module->findSubmodule(Best[0]);
         }
       }
-      
+
       if (!Sub) {
         // No submodule by this name. Complain, and don't look for further
         // submodules.
@@ -1766,7 +1766,7 @@ CompilerInstance::loadModule(SourceLocation ImportLoc,
           << SourceRange(Path[0].second, Path[I-1].second);
         break;
       }
-      
+
       Module = Sub;
     }
   }

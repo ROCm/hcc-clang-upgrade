@@ -544,7 +544,7 @@ private:
   llvm::DenseMap<serialization::DeclID, DeclContextVisibleUpdates>
       PendingVisibleUpdates;
 
-  /// \brief The set of C++ or Objective-C classes that have forward 
+  /// \brief The set of C++ or Objective-C classes that have forward
   /// declarations that have not yet been linked to their definitions.
   llvm::SmallPtrSet<Decl *, 4> PendingDefinitions;
 
@@ -614,10 +614,10 @@ private:
   /// This vector is indexed by the Submodule ID (-1). NULL submodule entries
   /// indicate that the particular submodule ID has not yet been loaded.
   SmallVector<Module *, 2> SubmodulesLoaded;
-  
+
   typedef ContinuousRangeMap<serialization::SubmoduleID, ModuleFile *, 4>
     GlobalSubmoduleMapType;
-  
+
   /// \brief Mapping from global submodule IDs to the module file in which the
   /// submodule resides along with the offset that should be added to the
   /// global submodule ID to produce a local ID.
@@ -630,13 +630,13 @@ private:
   /// \brief A mapping from each of the hidden submodules to the deserialized
   /// declarations in that submodule that could be made visible.
   HiddenNamesMapType HiddenNamesMap;
-  
-  
+
+
   /// \brief A module import, export, or conflict that hasn't yet been resolved.
   struct UnresolvedModuleRef {
     /// \brief The file in which this module resides.
     ModuleFile *File;
-    
+
     /// \brief The module that is importing or exporting.
     Module *Mod;
 
@@ -652,11 +652,11 @@ private:
     /// \brief String data.
     StringRef String;
   };
-  
-  /// \brief The set of module imports and exports that still need to be 
+
+  /// \brief The set of module imports and exports that still need to be
   /// resolved.
   SmallVector<UnresolvedModuleRef, 2> UnresolvedModuleRefs;
-  
+
   /// \brief A vector containing selectors that have already been loaded.
   ///
   /// This vector is indexed by the Selector ID (-1). NULL selector
@@ -972,7 +972,7 @@ private:
   /// \brief The generation number of each identifier, which keeps track of
   /// the last time we loaded information about this identifier.
   llvm::DenseMap<IdentifierInfo *, unsigned> IdentifierGeneration;
-  
+
   /// \brief Contains declarations and definitions that will be
   /// "interesting" to the ASTConsumer, when we get that AST consumer.
   ///
@@ -981,7 +981,7 @@ private:
   /// Objective-C protocols.
   std::deque<Decl *> InterestingDecls;
 
-  /// \brief The list of redeclaration chains that still need to be 
+  /// \brief The list of redeclaration chains that still need to be
   /// reconstructed, and the local offset to the corresponding list
   /// of redeclarations.
   SmallVector<std::pair<Decl *, uint64_t>, 16> PendingDeclChains;
@@ -1031,14 +1031,14 @@ private:
 
   typedef llvm::DenseMap<Decl *, SmallVector<serialization::DeclID, 2> >
     KeyDeclsMap;
-    
+
   /// \brief A mapping from canonical declarations to the set of global
   /// declaration IDs for key declaration that have been merged with that
   /// canonical declaration. A key declaration is a formerly-canonical
   /// declaration whose module did not import any other key declaration for that
   /// entity. These are the IDs that we use as keys when finding redecl chains.
   KeyDeclsMap KeyDecls;
-  
+
   /// \brief A mapping from DeclContexts to the semantic DeclContext that we
   /// are treating as the definition of the entity. This is used, for instance,
   /// when merging implicit instantiations of class templates across modules.
@@ -1513,7 +1513,7 @@ public:
   /// \brief Determine whether we tried to load the global index, but failed,
   /// e.g., because it is out-of-date or does not exist.
   bool isGlobalIndexUnavailable() const;
-  
+
   /// \brief Initializes the ASTContext
   void InitializeContext();
 
@@ -1542,7 +1542,7 @@ public:
   /// \brief Retrieve the name of the original source file name for the primary
   /// module file.
   StringRef getOriginalSourceFile() {
-    return ModuleMgr.getPrimaryModule().OriginalSourceFileName; 
+    return ModuleMgr.getPrimaryModule().OriginalSourceFileName;
   }
 
   /// \brief Retrieve the name of the original source file name directly from
@@ -1626,7 +1626,7 @@ public:
   unsigned getTotalNumSubmodules() const {
     return static_cast<unsigned>(SubmodulesLoaded.size());
   }
-  
+
   /// \brief Returns the number of selectors found in the chain.
   unsigned getTotalNumSelectors() const {
     return static_cast<unsigned>(SelectorsLoaded.size());
@@ -1720,15 +1720,15 @@ public:
     return cast_or_null<T>(GetLocalDecl(F, LocalID));
   }
 
-  /// \brief Map a global declaration ID into the declaration ID used to 
+  /// \brief Map a global declaration ID into the declaration ID used to
   /// refer to this declaration within the given module fule.
   ///
   /// \returns the global ID of the given declaration as known in the given
   /// module file.
-  serialization::DeclID 
+  serialization::DeclID
   mapGlobalIDToModuleFileGlobalID(ModuleFile &M,
                                   serialization::DeclID GlobalID);
-  
+
   /// \brief Reads a declaration ID from the given position in a record in the
   /// given module.
   ///
@@ -1948,7 +1948,7 @@ public:
 
   /// \brief Retrieve the global submodule ID given a module and its local ID
   /// number.
-  serialization::SubmoduleID 
+  serialization::SubmoduleID
   getGlobalSubmoduleID(ModuleFile &M, unsigned LocalID);
 
   /// \brief Retrieve the submodule that corresponds to a global submodule ID.

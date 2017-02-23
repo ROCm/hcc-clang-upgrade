@@ -32,7 +32,7 @@ namespace dr1631 {  // dr1631: 3.7
     void f(B, int);           // TODO: expected- note {{candidate function}}
     void f(int, A);           // expected-note {{candidate function}}
     void f(int, A, int = 0);  // expected-note {{candidate function}}
-    
+
     void test() {
       f({0}, {{1}});        // expected-error{{call to 'f' is ambiguous}}
     }

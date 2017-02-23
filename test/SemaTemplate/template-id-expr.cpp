@@ -17,7 +17,7 @@ template<typename T>
 struct X0 {
   template<typename U>
   void f1();
-  
+
   template<typename U>
   void f2(U) {
     f1<U>();
@@ -37,9 +37,9 @@ struct Y {
 template<int I>
 struct X {
   X(int, int);
-  void f() { 
-    Y<X<I> >(X<I>(0, 0)); 
-    Y<X<I> >(::X<I>(0, 0)); 
+  void f() {
+    Y<X<I> >(X<I>(0, 0));
+    Y<X<I> >(::X<I>(0, 0));
   }
 };
 
