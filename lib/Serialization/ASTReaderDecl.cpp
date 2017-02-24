@@ -240,6 +240,7 @@ namespace clang {
     /// \brief Determine whether this declaration has a pending body.
     bool hasPendingBody() const { return HasPendingBody; }
 
+    void ReadFunctionDefinition(FunctionDecl *FD);
     void Visit(Decl *D);
 
     void UpdateDecl(Decl *D);
@@ -292,6 +293,7 @@ namespace clang {
     void VisitUnresolvedUsingValueDecl(UnresolvedUsingValueDecl *D);
     void VisitDeclaratorDecl(DeclaratorDecl *DD);
     void VisitFunctionDecl(FunctionDecl *FD);
+    void VisitCXXDeductionGuideDecl(CXXDeductionGuideDecl *GD);
     void VisitCXXMethodDecl(CXXMethodDecl *D);
     void VisitCXXConstructorDecl(CXXConstructorDecl *D);
     void VisitCXXDestructorDecl(CXXDestructorDecl *D);
@@ -421,6 +423,17 @@ uint64_t ASTDeclReader::GetCurrentCursorOffset() {
   return Loc.F->DeclsCursor.GetCurrentBitNo() + Loc.F->GlobalBitOffset;
 }
 
+void ASTDeclReader::ReadFunctionDefinition(FunctionDecl *FD) {
+  if (auto *CD = dyn_cast<CXXConstructorDecl>(FD)) {
+    CD->NumCtorInitializers = Record.readInt();
+    if (CD->NumCtorInitializers)
+      CD->CtorInitializers = ReadGlobalOffset();
+  }
+  // Store the offset of the body so we can lazily load it later.
+  Reader.PendingBodies[FD] = GetCurrentCursorOffset();
+  HasPendingBody = true;
+}
+
 void ASTDeclReader::Visit(Decl *D) {
   DeclVisitor<ASTDeclReader, void>::Visit(D);
 
@@ -457,15 +470,8 @@ void ASTDeclReader::Visit(Decl *D) {
     // We only read it if FD doesn't already have a body (e.g., from another
     // module).
     // FIXME: Can we diagnose ODR violations somehow?
-    if (Record.readInt()) {
-      if (auto *CD = dyn_cast<CXXConstructorDecl>(FD)) {
-        CD->NumCtorInitializers = Record.readInt();
-        if (CD->NumCtorInitializers)
-          CD->CtorInitializers = ReadGlobalOffset();
-      }
-      Reader.PendingBodies[FD] = GetCurrentCursorOffset();
-      HasPendingBody = true;
-    }
+    if (Record.readInt())
+      ReadFunctionDefinition(FD);
   }
 }
 
@@ -485,7 +491,7 @@ void ASTDeclReader::VisitDecl(Decl *D) {
     Reader.addPendingDeclContextInfo(D,
                                      SemaDCIDForTemplateParmDecl,
                                      LexicalDCIDForTemplateParmDecl);
-    D->setDeclContext(Reader.getContext().getTranslationUnitDecl()); 
+    D->setDeclContext(Reader.getContext().getTranslationUnitDecl());
   } else {
     DeclContext *SemaDC = ReadDeclAs<DeclContext>();
     DeclContext *LexicalDC = ReadDeclAs<DeclContext>();
@@ -534,7 +540,7 @@ void ASTDeclReader::VisitDecl(Decl *D) {
         // The owning module is not visible. Mark this declaration as hidden.
         D->Hidden = true;
 
-        // Note that this declaration was hidden because its owning module is 
+        // Note that this declaration was hidden because its owning module is
         // not yet visible.
         Reader.HiddenNamesMap[Owner].push_back(D);
       }
@@ -592,6 +598,11 @@ ASTDeclReader::VisitTypedefNameDecl(TypedefNameDecl *TD) {
     TD->setModedTypeSourceInfo(TInfo, modedT);
   } else
     TD->setTypeSourceInfo(TInfo);
+  // Read and discard the declaration for which this is a typedef name for
+  // linkage, if it exists. We cannot rely on our type to pull in this decl,
+  // because it might have been merged with a type from another module and
+  // thus might not refer to our version of the declaration.
+  ReadDecl();
   return Redecl;
 }
 
@@ -612,7 +623,7 @@ void ASTDeclReader::VisitTypeAliasDecl(TypeAliasDecl *TD) {
 ASTDeclReader::RedeclarableResult ASTDeclReader::VisitTagDecl(TagDecl *TD) {
   RedeclarableResult Redecl = VisitRedeclarable(TD);
   VisitTypeDecl(TD);
-  
+
   TD->IdentifierNamespace = Record.readInt();
   TD->setTagKind((TagDecl::TagKind)Record.readInt());
   if (!isa<CXXRecordDecl>(TD))
@@ -621,7 +632,7 @@ ASTDeclReader::RedeclarableResult ASTDeclReader::VisitTagDecl(TagDecl *TD) {
   TD->setFreeStanding(Record.readInt());
   TD->setCompleteDefinitionRequired(Record.readInt());
   TD->setBraceRange(ReadSourceRange());
-  
+
   switch (Record.readInt()) {
   case 0:
     break;
@@ -738,6 +749,7 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   FD->SClass = (StorageClass)Record.readInt();
   FD->IsInline = Record.readInt();
   FD->IsInlineSpecified = Record.readInt();
+  FD->IsExplicitSpecified = Record.readInt();
   FD->IsVirtualAsWritten = Record.readInt();
   FD->IsPure = Record.readInt();
   FD->HasInheritedPrototype = Record.readInt();
@@ -748,6 +760,7 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   FD->IsExplicitlyDefaulted = Record.readInt();
   FD->HasImplicitReturnZero = Record.readInt();
   FD->IsConstexpr = Record.readInt();
+  FD->UsesSEHTry = Record.readInt();
   FD->HasSkippedBody = Record.readInt();
   FD->IsLateTemplateParsed = Record.readInt();
   FD->setCachedLinkage(Linkage(Record.readInt()));
@@ -1515,6 +1528,7 @@ void ASTDeclReader::ReadCXXDefinitionData(
   Data.ImplicitCopyAssignmentHasConstParam = Record.readInt();
   Data.HasDeclaredCopyConstructorWithConstParam = Record.readInt();
   Data.HasDeclaredCopyAssignmentWithConstParam = Record.readInt();
+  Data.ODRHash = Record.readInt();
 
   Data.NumBases = Record.readInt();
   if (Data.NumBases)
@@ -1539,7 +1553,7 @@ void ASTDeclReader::ReadCXXDefinitionData(
     Lambda.NumExplicitCaptures = Record.readInt();
     Lambda.ManglingNumber = Record.readInt();
     Lambda.ContextDecl = ReadDeclID();
-    Lambda.Captures 
+    Lambda.Captures
       = (Capture*)Reader.Context.Allocate(sizeof(Capture)*Lambda.NumCaptures);
     Capture *ToCapture = Lambda.Captures;
     Lambda.MethodTyInfo = GetTypeSourceInfo();
@@ -1548,7 +1562,7 @@ void ASTDeclReader::ReadCXXDefinitionData(
       bool IsImplicit = Record.readInt();
       LambdaCaptureKind Kind = static_cast<LambdaCaptureKind>(Record.readInt());
       switch (Kind) {
-      case LCK_StarThis: 
+      case LCK_StarThis:
       case LCK_This:
       case LCK_VLAType:
         *ToCapture++ = Capture(Loc, IsImplicit, Kind, nullptr,SourceLocation());
@@ -1645,6 +1659,7 @@ void ASTDeclReader::MergeDefinitionData(
   OR_FIELD(HasDeclaredCopyConstructorWithConstParam)
   OR_FIELD(HasDeclaredCopyAssignmentWithConstParam)
   MATCH_FIELD(IsLambda)
+  MATCH_FIELD(ODRHash)
 #undef OR_FIELD
 #undef MATCH_FIELD
 
@@ -1774,6 +1789,10 @@ ASTDeclReader::VisitCXXRecordDeclImpl(CXXRecordDecl *D) {
   return Redecl;
 }
 
+void ASTDeclReader::VisitCXXDeductionGuideDecl(CXXDeductionGuideDecl *D) {
+  VisitFunctionDecl(D);
+}
+
 void ASTDeclReader::VisitCXXMethodDecl(CXXMethodDecl *D) {
   VisitFunctionDecl(D);
 
@@ -1803,8 +1822,6 @@ void ASTDeclReader::VisitCXXConstructorDecl(CXXConstructorDecl *D) {
   }
 
   VisitCXXMethodDecl(D);
-
-  D->IsExplicitSpecified = Record.readInt();
 }
 
 void ASTDeclReader::VisitCXXDestructorDecl(CXXDestructorDecl *D) {
@@ -1820,7 +1837,6 @@ void ASTDeclReader::VisitCXXDestructorDecl(CXXDestructorDecl *D) {
 
 void ASTDeclReader::VisitCXXConversionDecl(CXXConversionDecl *D) {
   VisitCXXMethodDecl(D);
-  D->IsExplicitSpecified = Record.readInt();
 }
 
 void ASTDeclReader::VisitImportDecl(ImportDecl *D) {
@@ -1830,7 +1846,7 @@ void ASTDeclReader::VisitImportDecl(ImportDecl *D) {
   SourceLocation *StoredLocs = D->getTrailingObjects<SourceLocation>();
   for (unsigned I = 0, N = Record.back(); I != N; ++I)
     StoredLocs[I] = ReadSourceLocation();
-  (void)Record.readInt(); // The number of stored source locations.
+  Record.skipInts(1); // The number of stored source locations.
 }
 
 void ASTDeclReader::VisitAccessSpecDecl(AccessSpecDecl *D) {
@@ -1872,6 +1888,7 @@ DeclID ASTDeclReader::VisitTemplateDecl(TemplateDecl *D) {
   DeclID PatternID = ReadDeclID();
   NamedDecl *TemplatedDecl = cast_or_null<NamedDecl>(Reader.GetDecl(PatternID));
   TemplateParameterList *TemplateParams = Record.readTemplateParameterList();
+  // FIXME handle associated constraints
   D->init(TemplatedDecl, TemplateParams);
 
   return PatternID;
@@ -2470,12 +2487,11 @@ void ASTDeclReader::VisitOMPCapturedExprDecl(OMPCapturedExprDecl *D) {
 //===----------------------------------------------------------------------===//
 
 /// \brief Reads attributes from the current stream position.
-void ASTReader::ReadAttributes(ModuleFile &F, AttrVec &Attrs,
-                               const RecordData &Record, unsigned &Idx) {
-  for (unsigned i = 0, e = Record[Idx++]; i != e; ++i) {
+void ASTReader::ReadAttributes(ASTRecordReader &Record, AttrVec &Attrs) {
+  for (unsigned i = 0, e = Record.readInt(); i != e; ++i) {
     Attr *New = nullptr;
-    attr::Kind Kind = (attr::Kind)Record[Idx++];
-    SourceRange Range = ReadSourceRange(F, Record, Idx);
+    attr::Kind Kind = (attr::Kind)Record.readInt();
+    SourceRange Range = Record.readSourceRange();
 
 #include "clang/Serialization/AttrPCHRead.inc"
 
@@ -2516,8 +2532,8 @@ static bool isConsumerInterestedIn(ASTContext &Ctx, Decl *D, bool HasBody) {
       D->getImportedOwningModule())
     return false;
 
-  if (isa<FileScopeAsmDecl>(D) || 
-      isa<ObjCProtocolDecl>(D) || 
+  if (isa<FileScopeAsmDecl>(D) ||
+      isa<ObjCProtocolDecl>(D) ||
       isa<ObjCImplDecl>(D) ||
       isa<ImportDecl>(D) ||
       isa<PragmaCommentDecl>(D) ||
@@ -2530,7 +2546,7 @@ static bool isConsumerInterestedIn(ASTContext &Ctx, Decl *D, bool HasBody) {
            Var->isThisDeclarationADefinition() == VarDecl::Definition;
   if (FunctionDecl *Func = dyn_cast<FunctionDecl>(D))
     return Func->doesThisDeclarationHaveABody() || HasBody;
-  
+
   return false;
 }
 
@@ -2647,6 +2663,44 @@ static bool isSameTemplateParameterList(const TemplateParameterList *X,
   return true;
 }
 
+/// Determine whether the attributes we can overload on are identical for A and
+/// B. Expects A and B to (otherwise) have the same type.
+static bool hasSameOverloadableAttrs(const FunctionDecl *A,
+                                     const FunctionDecl *B) {
+  SmallVector<const EnableIfAttr *, 4> AEnableIfs;
+  // Since this is an equality check, we can ignore that enable_if attrs show up
+  // in reverse order.
+  for (const auto *EIA : A->specific_attrs<EnableIfAttr>())
+    AEnableIfs.push_back(EIA);
+
+  SmallVector<const EnableIfAttr *, 4> BEnableIfs;
+  for (const auto *EIA : B->specific_attrs<EnableIfAttr>())
+    BEnableIfs.push_back(EIA);
+
+  // Two very common cases: either we have 0 enable_if attrs, or we have an
+  // unequal number of enable_if attrs.
+  if (AEnableIfs.empty() && BEnableIfs.empty())
+    return true;
+
+  if (AEnableIfs.size() != BEnableIfs.size())
+    return false;
+
+  llvm::FoldingSetNodeID Cand1ID, Cand2ID;
+  for (unsigned I = 0, E = AEnableIfs.size(); I != E; ++I) {
+    Cand1ID.clear();
+    Cand2ID.clear();
+
+    AEnableIfs[I]->getCond()->Profile(Cand1ID, A->getASTContext(), true);
+    BEnableIfs[I]->getCond()->Profile(Cand2ID, B->getASTContext(), true);
+    if (Cand1ID != Cand2ID)
+      return false;
+  }
+
+  // FIXME: This doesn't currently consider pass_object_size attributes, since
+  // we aren't guaranteed that A and B have valid parameter lists yet.
+  return true;
+}
+
 /// \brief Determine whether the two declarations refer to the same entity.
 static bool isSameEntity(NamedDecl *X, NamedDecl *Y) {
   assert(X->getDeclName() == Y->getDeclName() && "Declaration name mismatch!");
@@ -2702,8 +2756,10 @@ static bool isSameEntity(NamedDecl *X, NamedDecl *Y) {
                         CtorY->getInheritedConstructor().getConstructor()))
         return false;
     }
-    return (FuncX->getLinkageInternal() == FuncY->getLinkageInternal()) &&
-      FuncX->getASTContext().hasSameType(FuncX->getType(), FuncY->getType());
+    return FuncX->getLinkageInternal() == FuncY->getLinkageInternal() &&
+           FuncX->getASTContext().hasSameType(FuncX->getType(),
+                                              FuncY->getType()) &&
+           hasSameOverloadableAttrs(FuncX, FuncY);
   }
 
   // Variables with the same type and linkage match.
@@ -2990,7 +3046,7 @@ ASTDeclReader::FindExistingResult ASTDeclReader::findExisting(NamedDecl *D) {
       }
     } UpToDate(Name.getAsIdentifierInfo());
 
-    for (IdentifierResolver::iterator I = IdResolver.begin(Name), 
+    for (IdentifierResolver::iterator I = IdResolver.begin(Name),
                                    IEnd = IdResolver.end();
          I != IEnd; ++I) {
       if (NamedDecl *Existing = getDeclForMerging(*I, TypedefNameForLinkage))
@@ -3322,6 +3378,9 @@ Decl *ASTReader::ReadDeclRecord(DeclID ID) {
   case DECL_CXX_RECORD:
     D = CXXRecordDecl::CreateDeserialized(Context, ID);
     break;
+  case DECL_CXX_DEDUCTION_GUIDE:
+    D = CXXDeductionGuideDecl::CreateDeserialized(Context, ID);
+    break;
   case DECL_CXX_METHOD:
     D = CXXMethodDecl::CreateDeserialized(Context, ID);
     break;
@@ -3466,7 +3525,7 @@ Decl *ASTReader::ReadDeclRecord(DeclID ID) {
     Error("attempt to read a C++ ctor initializer record as a declaration");
     return nullptr;
   case DECL_IMPORT:
-    // Note: last entry of the ImportDecl record is the number of stored source 
+    // Note: last entry of the ImportDecl record is the number of stored source
     // locations.
     D = ImportDecl::CreateDeserialized(Context, ID, Record.back());
     break;
@@ -3525,7 +3584,7 @@ Decl *ASTReader::ReadDeclRecord(DeclID ID) {
     if (Class->isThisDeclarationADefinition() ||
         PendingDefinitions.count(Class))
       loadObjCCategories(ID, Class);
-  
+
   // If we have deserialized a declaration that has a definition the
   // AST consumer might need to know about, queue it.
   // We don't pass it to the consumer immediately because we may be in recursive
@@ -3639,17 +3698,17 @@ namespace {
     llvm::DenseMap<DeclarationName, ObjCCategoryDecl *> NameCategoryMap;
     serialization::GlobalDeclID InterfaceID;
     unsigned PreviousGeneration;
-    
+
     void add(ObjCCategoryDecl *Cat) {
       // Only process each category once.
       if (!Deserialized.erase(Cat))
         return;
-      
+
       // Check for duplicate categories.
       if (Cat->getDeclName()) {
         ObjCCategoryDecl *&Existing = NameCategoryMap[Cat->getDeclName()];
-        if (Existing && 
-            Reader.getOwningModuleFile(Existing) 
+        if (Existing &&
+            Reader.getOwningModuleFile(Existing)
                                           != Reader.getOwningModuleFile(Cat)) {
           // FIXME: We should not warn for duplicates in diamond:
           //
@@ -3659,8 +3718,8 @@ namespace {
           //  \  /    //
           //   MB     //
           //
-          // If there are duplicates in ML/MR, there will be warning when 
-          // creating MB *and* when importing MB. We should not warn when 
+          // If there are duplicates in ML/MR, there will be warning when
+          // creating MB *and* when importing MB. We should not warn when
           // importing.
           Reader.Diag(Cat->getLocation(), diag::warn_dup_category_def)
             << Interface->getDeclName() << Cat->getDeclName();
@@ -3670,7 +3729,7 @@ namespace {
           Existing = Cat;
         }
       }
-      
+
       // Add this category to the end of the chain.
       if (Tail)
         ASTDeclReader::setNextObjCCategory(Tail, Cat);
@@ -3678,7 +3737,7 @@ namespace {
         Interface->setCategoryListRaw(Cat);
       Tail = Cat;
     }
-    
+
   public:
     ObjCCategoriesVisitor(ASTReader &Reader,
                           ObjCInterfaceDecl *Interface,
@@ -3693,7 +3752,7 @@ namespace {
       for (auto *Cat : Interface->known_categories()) {
         if (Cat->getDeclName())
           NameCategoryMap[Cat->getDeclName()] = Cat;
-        
+
         // Keep track of the tail of the category list.
         Tail = Cat;
       }
@@ -3704,8 +3763,8 @@ namespace {
       // this module file, we're done.
       if (M.Generation <= PreviousGeneration)
         return true;
-      
-      // Map global ID of the definition down to the local ID used in this 
+
+      // Map global ID of the definition down to the local ID used in this
       // module file. If there is no such mapping, we'll find nothing here
       // (or in any module it imports).
       DeclID LocalID = Reader.mapGlobalIDToModuleFileGlobalID(M, InterfaceID);
@@ -3717,7 +3776,7 @@ namespace {
       const ObjCCategoriesInfo Compare = { LocalID, 0 };
       const ObjCCategoriesInfo *Result
         = std::lower_bound(M.ObjCCategoriesMap,
-                           M.ObjCCategoriesMap + M.LocalNumObjCCategoriesInMap, 
+                           M.ObjCCategoriesMap + M.LocalNumObjCCategoriesInMap,
                            Compare);
       if (Result == M.ObjCCategoriesMap + M.LocalNumObjCCategoriesInMap ||
           Result->DefinitionID != LocalID) {
@@ -3726,7 +3785,7 @@ namespace {
         // so suppress further lookup.
         return Reader.isDeclIDFromModule(InterfaceID, M);
       }
-      
+
       // We found something. Dig out all of the categories.
       unsigned Offset = Result->Offset;
       unsigned N = M.ObjCCategories[Offset];
@@ -3857,14 +3916,7 @@ void ASTDeclReader::UpdateDecl(Decl *D) {
         });
       }
       FD->setInnerLocStart(ReadSourceLocation());
-      if (auto *CD = dyn_cast<CXXConstructorDecl>(FD)) {
-        CD->NumCtorInitializers = Record.readInt();
-        if (CD->NumCtorInitializers)
-          CD->CtorInitializers = ReadGlobalOffset();
-      }
-      // Store the offset of the body so we can lazily load it later.
-      Reader.PendingBodies[FD] = GetCurrentCursorOffset();
-      HasPendingBody = true;
+      ReadFunctionDefinition(FD);
       assert(Record.getIdx() == Record.size() && "lazy body must be last");
       break;
     }

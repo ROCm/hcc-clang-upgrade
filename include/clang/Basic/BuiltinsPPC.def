@@ -58,7 +58,7 @@ BUILTIN(__builtin_altivec_vctuxs, "V4UiV4fi", "")
 
 BUILTIN(__builtin_altivec_dss, "vUi", "")
 BUILTIN(__builtin_altivec_dssall, "v", "")
-BUILTIN(__builtin_altivec_dst, "vvC*iUi", "") 
+BUILTIN(__builtin_altivec_dst, "vvC*iUi", "")
 BUILTIN(__builtin_altivec_dstt, "vvC*iUi", "")
 BUILTIN(__builtin_altivec_dstst, "vvC*iUi", "")
 BUILTIN(__builtin_altivec_dststt, "vvC*iUi", "")
@@ -416,6 +416,9 @@ BUILTIN(__builtin_vsx_xvcvhpsp, "V4fV8Us", "")
 // Vector Test Data Class builtins
 BUILTIN(__builtin_vsx_xvtstdcdp, "V2ULLiV2dIi", "")
 BUILTIN(__builtin_vsx_xvtstdcsp, "V4UiV4fIi", "")
+
+BUILTIN(__builtin_vsx_insertword, "V16UcV4UiV16UcIi", "")
+BUILTIN(__builtin_vsx_extractuword, "V2ULLiV16UcIi", "")
 
 // HTM builtins
 BUILTIN(__builtin_tbegin, "UiUIi", "")

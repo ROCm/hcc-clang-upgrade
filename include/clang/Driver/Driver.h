@@ -14,6 +14,7 @@
 #include "clang/Basic/LLVM.h"
 #include "clang/Driver/Action.h"
 #include "clang/Driver/Phases.h"
+#include "clang/Driver/ToolChain.h"
 #include "clang/Driver/Types.h"
 #include "clang/Driver/Util.h"
 #include "llvm/ADT/StringMap.h"
@@ -62,7 +63,7 @@ enum LTOKind {
 /// Driver - Encapsulate logic for constructing compilation processes
 /// from a set of gcc-driver-like command line arguments.
 class Driver {
-  llvm::opt::OptTable *Opts;
+  std::unique_ptr<llvm::opt::OptTable> Opts;
 
   DiagnosticsEngine &Diags;
 
@@ -227,7 +228,7 @@ private:
   /// This maps from the string representation of a triple to a ToolChain
   /// created targeting that triple. The driver owns all the ToolChain objects
   /// stored in it, and will clean them up when torn down.
-  mutable llvm::StringMap<ToolChain *> ToolChains;
+  mutable llvm::StringMap<std::unique_ptr<ToolChain>> ToolChains;
 
 private:
   /// TranslateInputArgs - Create a new derived argument list from the input
@@ -235,7 +236,7 @@ private:
   llvm::opt::DerivedArgList *
   TranslateInputArgs(const llvm::opt::InputArgList &Args) const;
 
-  // getFinalPhase - Determine which compilation mode we are in and record 
+  // getFinalPhase - Determine which compilation mode we are in and record
   // which option we used to determine the final phase.
   phases::ID getFinalPhase(const llvm::opt::DerivedArgList &DAL,
                            llvm::opt::Arg **FinalPhaseArg = nullptr) const;
@@ -264,7 +265,6 @@ public:
   Driver(StringRef ClangExecutable, StringRef DefaultTargetTriple,
          DiagnosticsEngine &Diags,
          IntrusiveRefCntPtr<vfs::FileSystem> VFS = nullptr);
-  ~Driver();
 
   /// @name Accessors
   /// @{
@@ -306,13 +306,8 @@ public:
   bool isSaveTempsObj() const { return SaveTemps == SaveTempsObj; }
 
   bool embedBitcodeEnabled() const { return BitcodeEmbed != EmbedNone; }
-  bool embedBitcodeInObject() const {
-    // LTO has no object file output so ignore embed bitcode option in LTO.
-    return (BitcodeEmbed == EmbedBitcode) && !isUsingLTO();
-  }
-  bool embedBitcodeMarkerOnly() const {
-    return (BitcodeEmbed == EmbedMarker) && !isUsingLTO();
-  }
+  bool embedBitcodeInObject() const { return (BitcodeEmbed == EmbedBitcode); }
+  bool embedBitcodeMarkerOnly() const { return (BitcodeEmbed == EmbedMarker); }
 
   /// Compute the desired OpenMP runtime from the flags provided.
   OpenMPRuntimeKind getOpenMPRuntime(const llvm::opt::ArgList &Args) const;
@@ -345,12 +340,12 @@ public:
   /// ArgList.
   llvm::opt::InputArgList ParseArgStrings(ArrayRef<const char *> Args);
 
-  /// BuildInputs - Construct the list of inputs and their types from 
+  /// BuildInputs - Construct the list of inputs and their types from
   /// the given arguments.
   ///
   /// \param TC - The default host tool chain.
   /// \param Args - The input arguments.
-  /// \param Inputs - The list to store the resulting compilation 
+  /// \param Inputs - The list to store the resulting compilation
   /// inputs onto.
   void BuildInputs(const ToolChain &TC, llvm::opt::DerivedArgList &Args,
                    InputList &Inputs) const;
@@ -387,9 +382,9 @@ public:
   int ExecuteCompilation(Compilation &C,
      SmallVectorImpl< std::pair<int, const Command *> > &FailingCommands);
 
-  /// generateCompilationDiagnostics - Generate diagnostics information 
+  /// generateCompilationDiagnostics - Generate diagnostics information
   /// including preprocessed source file(s).
-  /// 
+  ///
   void generateCompilationDiagnostics(Compilation &C,
                                       const Command &FailingCommand);
 
@@ -459,7 +454,7 @@ public:
   /// \param JA - The action of interest.
   /// \param BaseInput - The original input file that this action was
   /// triggered by.
-  /// \param BoundArch - The bound architecture. 
+  /// \param BoundArch - The bound architecture.
   /// \param AtTopLevel - Whether this is a "top-level" action.
   /// \param MultipleArchs - Whether multiple -arch options were supplied.
   /// \param NormalizedTriple - The normalized triple of the relevant target.
@@ -468,7 +463,7 @@ public:
                                  bool AtTopLevel, bool MultipleArchs,
                                  StringRef NormalizedTriple) const;
 
-  /// GetTemporaryPath - Return the pathname of a temporary file to use 
+  /// GetTemporaryPath - Return the pathname of a temporary file to use
   /// as part of compilation; the file will have the given prefix and suffix.
   ///
   /// GCC goes to extra lengths here to be a bit more robust.

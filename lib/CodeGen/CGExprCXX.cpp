@@ -290,10 +290,15 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
   if (CE)
     CallLoc = CE->getExprLoc();
 
-  EmitTypeCheck(isa<CXXConstructorDecl>(CalleeDecl)
-                ? CodeGenFunction::TCK_ConstructorCall
-                : CodeGenFunction::TCK_MemberCall,
-                CallLoc, This.getPointer(), C.getRecordType(CalleeDecl->getParent()));
+  SanitizerSet SkippedChecks;
+  if (const auto *CMCE = dyn_cast<CXXMemberCallExpr>(CE))
+    if (IsDeclRefOrWrappedCXXThis(CMCE->getImplicitObjectArgument()))
+      SkippedChecks.set(SanitizerKind::Null, true);
+  EmitTypeCheck(
+      isa<CXXConstructorDecl>(CalleeDecl) ? CodeGenFunction::TCK_ConstructorCall
+                                          : CodeGenFunction::TCK_MemberCall,
+      CallLoc, This.getPointer(), C.getRecordType(CalleeDecl->getParent()),
+      /*Alignment=*/CharUnits::Zero(), SkippedChecks);
 
   // FIXME: Uses of 'MD' past this point need to be audited. We may need to use
   // 'CalleeDecl' instead.
@@ -659,7 +664,10 @@ static llvm::Value *EmitCXXNewAllocSize(CodeGenFunction &CGF,
   // Emit the array size expression.
   // We multiply the size of all dimensions for NumElements.
   // e.g for 'int[2][3]', ElemType is 'int' and NumElements is 6.
-  numElements = CGF.EmitScalarExpr(e->getArraySize());
+  numElements = CGF.CGM.EmitConstantExpr(e->getArraySize(),
+                                         CGF.getContext().getSizeType(), &CGF);
+  if (!numElements)
+    numElements = CGF.EmitScalarExpr(e->getArraySize());
   assert(isa<llvm::IntegerType>(numElements->getType()));
 
   // The number of elements can be have an arbitrary integer type;

@@ -51,7 +51,7 @@ namespace N { int f(int, int) { static int b; return b; } }
 namespace N { int h(); void g() { static int a = h(); } }
 
 // CHECK-LABEL: define void @_Z1fno
-void f(__int128_t, __uint128_t) { } 
+void f(__int128_t, __uint128_t) { }
 
 template <typename T> struct S1 {};
 
@@ -101,13 +101,13 @@ namespace NS {
 void g1() {
   // CHECK: @_Z3ft1IidEvT0_T_
   ft1<int, double>(1, 0);
-  
+
   // CHECK: @_Z3ft2IcEvT_PFvS0_ES2_
   ft2<char>(1, 0, 0);
-  
+
   // CHECK: @_Z3ft3IiEvP2S4IT_2S1IS1_EE
   ft3<int>(0);
-  
+
   // CHECK: @_ZN2NS3ft1IiEEvT_
   NS::ft1<int>(1);
 }
@@ -119,14 +119,14 @@ template<int I> void ft4(S5<I>) { }
 void g2() {
   // CHECK: @_Z3ft4ILi10EEv2S5IXT_EE
   ft4(S5<10>());
-  
+
   // CHECK: @_Z3ft4ILi20EEv2S5IXT_EE
   ft4(S5<20>());
 }
 
 extern "C++" {
   // CHECK: @_Z1hv
- void h() { } 
+ void h() { }
 }
 
 // PR5019
@@ -208,7 +208,7 @@ void extern_f(void) { }
 
 struct S7 {
   S7();
-  
+
   struct S { S(); };
   struct {
     S s;
@@ -276,7 +276,7 @@ struct Ops {
   Ops& operator-(const Ops&);
   Ops& operator&(const Ops&);
   Ops& operator*(const Ops&);
-  
+
   void *v;
 };
 
@@ -493,7 +493,7 @@ namespace test11 {
   struct A {
     void f(...);
   };
-  
+
   // CHECK: @_ZN6test111A1fEz
   void A::f(...) { }
 }
@@ -832,7 +832,7 @@ namespace test34 {
 
 namespace test35 {
   // Dependent operator names of unknown arity.
-  struct A { 
+  struct A {
     template<typename U> A operator+(U) const;
   };
 
@@ -1124,4 +1124,16 @@ namespace test57 {
   template<int N> void f(decltype(x.f<0>() + N)) {}
   // CHECK-LABEL: @_ZN6test571fILi0EEEvDTplcldtL_ZNS_1xEE1fIXLi0EEEET_E
   template void f<0>(int);
+}
+
+namespace test58 {
+  struct State {
+   bool m_fn1();
+  } a;
+  template <class T> struct identity { typedef T type; };
+  struct A {
+   template <typename T> A(T, bool (identity<T>::type::*)());
+  };
+  // CHECK-LABEL: @_ZN6test581AC1INS_5StateEEET_MNS_8identityIS3_E4typeEFbvE
+  void fn1() { A(a, &State::m_fn1); }
 }

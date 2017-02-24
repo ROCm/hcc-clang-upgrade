@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 %s -triple=x86_64-pc-linux -emit-llvm -o %t
 // RUN: %clang_cc1 %s -triple=x86_64-pc-linux -emit-llvm -std=c++03 -o %t.03
 // RUN: %clang_cc1 %s -triple=x86_64-pc-linux -emit-llvm -std=c++11 -o %t.11
-// RUN: %clang_cc1 %s -triple=x86_64-apple-darwin10 -disable-llvm-optzns -O3 -emit-llvm -o %t.opt
+// RUN: %clang_cc1 %s -triple=x86_64-apple-darwin10 -disable-llvm-passes -O3 -emit-llvm -o %t.opt
 // RUN: FileCheck %s < %t
 // RUN: FileCheck %s < %t.03
 // RUN: FileCheck %s < %t.11
@@ -24,10 +24,10 @@ B::B() { }
 
 struct C : virtual B {
   C();
-  virtual void f() { } 
+  virtual void f() { }
 };
 
-C::C() { } 
+C::C() { }
 
 struct D {
   virtual void f();
@@ -160,7 +160,7 @@ void use_F() {
 // CHECK-DAG: @"_ZTS3$_0" = internal constant
 // CHECK-DAG: @"_ZTI3$_0" = internal constant
 
-// The A vtable should have internal linkage since it is inside an anonymous 
+// The A vtable should have internal linkage since it is inside an anonymous
 // namespace.
 // CHECK-DAG: @_ZTVN12_GLOBAL__N_11AE = internal unnamed_addr constant
 // CHECK-DAG: @_ZTSN12_GLOBAL__N_11AE = internal constant

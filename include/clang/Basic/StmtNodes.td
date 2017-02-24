@@ -43,7 +43,7 @@ def ObjCAtSynchronizedStmt : Stmt;
 def ObjCForCollectionStmt : Stmt;
 def ObjCAutoreleasePoolStmt : Stmt;
 
-// C++ statments
+// C++ statements
 def CXXCatchStmt : Stmt;
 def CXXTryStmt : Stmt;
 def CXXForRangeStmt : Stmt;
@@ -185,7 +185,7 @@ def TypoExpr : DStmt<Expr>;
 // Microsoft Extensions.
 def MSPropertyRefExpr : DStmt<Expr>;
 def MSPropertySubscriptExpr : DStmt<Expr>;
-def CXXUuidofExpr : DStmt<Expr>; 
+def CXXUuidofExpr : DStmt<Expr>;
 def SEHTryStmt : Stmt;
 def SEHExceptStmt : Stmt;
 def SEHFinallyStmt : Stmt;
@@ -241,3 +241,7 @@ def OMPTeamsDistributeSimdDirective : DStmt<OMPLoopDirective>;
 def OMPTeamsDistributeParallelForSimdDirective : DStmt<OMPLoopDirective>;
 def OMPTeamsDistributeParallelForDirective : DStmt<OMPLoopDirective>;
 def OMPTargetTeamsDirective : DStmt<OMPExecutableDirective>;
+def OMPTargetTeamsDistributeDirective : DStmt<OMPLoopDirective>;
+def OMPTargetTeamsDistributeParallelForDirective : DStmt<OMPLoopDirective>;
+def OMPTargetTeamsDistributeParallelForSimdDirective : DStmt<OMPLoopDirective>;
+def OMPTargetTeamsDistributeSimdDirective : DStmt<OMPLoopDirective>;
