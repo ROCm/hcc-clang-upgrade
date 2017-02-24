@@ -585,6 +585,8 @@ public:
 class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
 public:
   Linker(const ToolChain &TC) : GnuTool("GNU::Linker", "linker", TC) {}
+  Linker(const ToolChain &TC, const char* Name) : GnuTool(Name, "linker", TC) {}
+
 
   bool hasIntegratedCPP() const override { return false; }
   bool isLinkJob() const override { return true; }
@@ -593,7 +595,15 @@ public:
                     const InputInfo &Output, const InputInfoList &Inputs,
                     const llvm::opt::ArgList &TCArgs,
                     const char *LinkingOutput) const override;
+protected:
+  virtual void ConstructLinkerJob(Compilation &C, const JobAction &JA,
+                                  const InputInfo &Output,
+                                  const InputInfoList &Inputs,
+                                  const llvm::opt::ArgList &Args,
+                                  const char *LinkingOutput,
+                                  ArgStringList &CmdArgs) const;
 };
+
 } // end namespace gnutools
 
 namespace nacltools {
@@ -1002,6 +1012,73 @@ public:
                     const char *LinkingOutput) const override;
 };
 } // end namespace AVR
+
+namespace HCC {
+
+/// \brief C++AMP kernel assembler tool.
+class LLVM_LIBRARY_VISIBILITY CXXAMPAssemble : public Tool {
+public:
+  CXXAMPAssemble(const ToolChain &TC)
+      : Tool("clamp-assemble", "C++AMP kernel assembler", TC) {}
+
+  bool hasGoodDiagnostics() const override { return true; }
+  bool hasIntegratedAssembler() const override { return false; }
+  bool hasIntegratedCPP() const override { return false; }
+
+  void ConstructJob(Compilation &C, const JobAction &JA,
+                    const InputInfo &Output,
+                    const InputInfoList &Inputs,
+                    const llvm::opt::ArgList &TCArgs,
+                    const char *LinkingOuput) const override;
+};
+
+/// \brief HC mode kernel assembler tool.
+class LLVM_LIBRARY_VISIBILITY HCKernelAssemble : public Tool {
+public:
+  HCKernelAssemble(const ToolChain &TC)
+      : Tool("hc-kernel-assemble", "HC kernel assembler", TC) {}
+
+  bool hasGoodDiagnostics() const override { return true; }
+  bool hasIntegratedAssembler() const override { return false; }
+  bool hasIntegratedCPP() const override { return false; }
+
+  void ConstructJob(Compilation &C, const JobAction &JA,
+                    const InputInfo &Output,
+                    const InputInfoList &Inputs,
+                    const llvm::opt::ArgList &TCArgs,
+                    const char *LinkingOuput) const override;
+};
+
+/// \brief HC mode host code assembler tool.
+class LLVM_LIBRARY_VISIBILITY HCHostAssemble : public Tool {
+public:
+  HCHostAssemble(const ToolChain &TC)
+      : Tool("hc-host-assemble", "HC host assembler", TC) {}
+
+  bool hasGoodDiagnostics() const override { return true; }
+  bool hasIntegratedAssembler() const override { return false; }
+  bool hasIntegratedCPP() const override { return false; }
+
+  void ConstructJob(Compilation &C, const JobAction &JA,
+                    const InputInfo &Output,
+                    const InputInfoList &Inputs,
+                    const llvm::opt::ArgList &TCArgs,
+                    const char *LinkingOuput) const override;
+};
+
+// \brief C++AMP linker.
+class LLVM_LIBRARY_VISIBILITY CXXAMPLink : public gnutools::Linker {
+public:
+  CXXAMPLink(const ToolChain &TC) : Linker(TC, "clamp-link") {}
+
+  void ConstructJob(Compilation &C, const JobAction &JA,
+                    const InputInfo &Output,
+                    const InputInfoList &Inputs,
+                    const llvm::opt::ArgList &TCArgs,
+                    const char *LinkingOuput) const override;
+};
+
+} // end namespace HCC
 
 } // end namespace tools
 } // end namespace driver

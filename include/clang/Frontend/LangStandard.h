@@ -30,7 +30,8 @@ enum LangFeatures {
   GNUMode = (1 << 9),
   HexFloat = (1 << 10),
   ImplicitInt = (1 << 11),
-  OpenCL = (1 << 12)
+  OpenCL = (1 << 12),
+  CPluslusAMP = (1 << 13)
 };
 
 }
@@ -94,6 +95,9 @@ public:
 
   /// isOpenCL - Language is a OpenCL variant.
   bool isOpenCL() const { return Flags & frontend::OpenCL; }
+
+  /// isCPlusPlusAMP - Language is a C++AMP standard.
+  bool isCPlusPlusAMP() const { return Flags & frontend::CPlusPlusAMP; }
 
   static const LangStandard &getLangStandardForKind(Kind K);
   static const LangStandard *getLangStandardForName(StringRef Name);

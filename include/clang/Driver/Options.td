@@ -380,6 +380,7 @@ def ObjC : Flag<["-"], "ObjC">, Flags<[DriverOption]>,
 def O : Joined<["-"], "O">, Group<O_Group>, Flags<[CC1Option]>;
 def O_flag : Flag<["-"], "O">, Flags<[CC1Option]>, Alias<O>, AliasArgs<["2"]>;
 def Ofast : Joined<["-"], "Ofast">, Group<O_Group>, Flags<[CC1Option]>;
+def KO_flag : Joined<["-"], "KO">, Flags<[CC1Option]>, AliasArgs<["2"]>; // kernel path optimization flag
 def P : Flag<["-"], "P">, Flags<[CC1Option]>, Group<Preprocessor_Group>,
   HelpText<"Disable linemarker output in -E mode">;
 def Qn : Flag<["-"], "Qn">, IgnoredGCCCompat;
@@ -473,6 +474,14 @@ def bind__at__load : Flag<["-"], "bind_at_load">;
 def bundle__loader : Separate<["-"], "bundle_loader">;
 def bundle : Flag<["-"], "bundle">;
 def b : JoinedOrSeparate<["-"], "b">, Flags<[Unsupported]>;
+def hc_mode : Flag<["-"], "hc">, Flags<[DriverOption]>,
+  HelpText<"Enable Heterogeneous C++ (HC) mode">;
+def cxxamp_kernel_mode : Flag<["-"], "gpu">, Flags<[DriverOption]>,Group<cxxamp_Group>,
+  HelpText<"C++AMP only.  This option allows the compiler to emit kernel-specific artifacts"> ;
+def cxxamp_cpu_mode : Flag<["-"], "cpu">, Flags<[DriverOption]>,Group<cxxamp_Group>,
+  HelpText<"C++AMP only.  This option allows the compiler to emit CPU kernel-specific artifacts"> ;
+def amdgpu_target_EQ : Joined<["-", "--"], "amdgpu-target=">, Flags<[DriverOption]>,
+  HelpText<"Specify AMDGPU ISA version (ex: gfx803). Could be specified only once.">;
 def cl_opt_disable : Flag<["-"], "cl-opt-disable">, Group<opencl_Group>, Flags<[CC1Option]>,
   HelpText<"OpenCL only. This option disables all optimizations. By default optimizations are enabled.">;
 def cl_strict_aliasing : Flag<["-"], "cl-strict-aliasing">, Group<opencl_Group>, Flags<[CC1Option]>,

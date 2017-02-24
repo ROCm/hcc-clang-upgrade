@@ -440,25 +440,29 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   }
   Opts.OptimizationLevel = OptimizationLevel;
 
+  // Fetch HCC kernel path optimization flag
+  unsigned KernelPathOptimizationLevel = getLastArgIntValue(Args, OPT_KO_flag, 2, Diags);
+  Opts.KernelPathOptimizationLevel = KernelPathOptimizationLevel;
+
   // At O0 we want to fully disable inlining outside of cases marked with
   // 'alwaysinline' that are required for correctness.
   Opts.setInlining((Opts.OptimizationLevel == 0)
-                       ? CodeGenOptions::OnlyAlwaysInlining
-                       : CodeGenOptions::NormalInlining);
+                   ? CodeGenOptions::OnlyAlwaysInlining
+                   : CodeGenOptions::NormalInlining);
   // Explicit inlining flags can disable some or all inlining even at
   // optimization levels above zero.
   if (Arg *InlineArg = Args.getLastArg(
-          options::OPT_finline_functions, options::OPT_finline_hint_functions,
-          options::OPT_fno_inline_functions, options::OPT_fno_inline)) {
-    if (Opts.OptimizationLevel > 0) {
-      const Option &InlineOpt = InlineArg->getOption();
-      if (InlineOpt.matches(options::OPT_finline_functions))
-        Opts.setInlining(CodeGenOptions::NormalInlining);
-      else if (InlineOpt.matches(options::OPT_finline_hint_functions))
-        Opts.setInlining(CodeGenOptions::OnlyHintInlining);
-      else
-        Opts.setInlining(CodeGenOptions::OnlyAlwaysInlining);
-    }
+      options::OPT_finline_functions, options::OPT_finline_hint_functions,
+      options::OPT_fno_inline_functions, options::OPT_fno_inline)) {
+      if (Opts.OptimizationLevel > 0) {
+          const Option &InlineOpt = InlineArg->getOption();
+          if (InlineOpt.matches(options::OPT_finline_functions))
+              Opts.setInlining(CodeGenOptions::NormalInlining);
+          else if (InlineOpt.matches(options::OPT_finline_hint_functions))
+              Opts.setInlining(CodeGenOptions::OnlyHintInlining);
+          else
+              Opts.setInlining(CodeGenOptions::OnlyAlwaysInlining);
+      }
   }
 
   Opts.ExperimentalNewPassManager = Args.hasFlag(
@@ -563,6 +567,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.PreserveAsmComments = !Args.hasArg(OPT_fno_preserve_as_comments);
   Opts.AssumeSaneOperatorNew = !Args.hasArg(OPT_fno_assume_sane_operator_new);
   Opts.ObjCAutoRefCountExceptions = Args.hasArg(OPT_fobjc_arc_exceptions);
+  Opts.AMPIsDevice = Args.hasArg(OPT_famp_is_device);
+  Opts.AMPCPU = Args.hasArg(OPT_famp_cpu);
   Opts.CXAAtExit = !Args.hasArg(OPT_fno_use_cxa_atexit);
   Opts.CXXCtorDtorAliases = Args.hasArg(OPT_mconstructor_aliases);
   Opts.CodeModel = getCodeModel(Args, Diags);
@@ -1347,6 +1353,10 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
       .Case("cuda", IK_CUDA)
       .Case("c++", IK_CXX)
       .Case("c++-module", IK_CXX)
+      .Case("c++amp-kernel", IK_CXXAMP) // C++ AMP support
+      .Case("hc-kernel", IK_CXXAMP) // HC support
+      .Case("hc-host", IK_CXXAMP) // HC support
+      .Case("c++amp-kernel-cpu", IK_CXXAMP) // C++ AMP support
       .Case("objective-c", IK_ObjC)
       .Case("objective-c++", IK_ObjCXX)
       .Case("cpp-output", IK_PreprocessedC)
@@ -1578,6 +1588,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
     case IK_PreprocessedObjC:
       LangStd = LangStandard::lang_gnu11;
       break;
+    case IK_CXXAMP:
     case IK_CXX:
     case IK_PreprocessedCXX:
     case IK_ObjCXX:
@@ -1707,6 +1718,10 @@ static bool IsInputCompatibleWithStandard(InputKind IK,
     if (S.isCPlusPlus())
       return true;
     break;
+  case IK_CXXAMP:
+    if (S.isCPlusPlusAMP())
+      return true;
+    break;
   default:
     // For other inputs, accept (and ignore) all -std= values.
     return true;
@@ -1732,6 +1747,8 @@ static const StringRef GetInputKindName(InputKind IK) {
   case IK_CUDA:
   case IK_PreprocessedCuda:
     return "CUDA";
+  case IK_CXXAMP:
+    return "C++AMP";
   default:
     llvm_unreachable("Cannot decide on name for InputKind!");
   }
@@ -2234,6 +2251,19 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
       Diags.Report(clang::diag::err_drv_omp_host_ir_file_not_found)
           << Opts.OMPHostIRFile;
   }
+
+  // C++ AMP: Decide host path or device path
+  Opts.DevicePath = Args.hasArg(OPT_famp_is_device);
+  Opts.AMPCPU = Args.hasArg(OPT_famp_cpu);
+  Opts.HSAExtension = Args.hasArg(OPT_fhsa_extension);
+
+  // rules for auto-auto:
+  // disabled by default, or explicitly disabled by -fno-auto-auto
+  // enabled by -fauto-auto
+  Opts.AutoAuto = Args.hasArg(OPT_fauto_auto) && !Args.hasArg(OPT_fno_auto_auto);
+
+  // rules for auto-compile-for-accelerator:
+  Opts.AutoCompileForAccelerator = Args.hasArg(OPT_fauto_compile_for_accelerator);
 
   // Record whether the __DEPRECATED define was requested.
   Opts.Deprecated = Args.hasFlag(OPT_fdeprecated_macro,

@@ -48,6 +48,10 @@
 #include <unistd.h> // For getuid().
 #endif
 
+#include <algorithm>
+#include <cctype>
+#include <string>
+
 using namespace clang::driver;
 using namespace clang::driver::tools;
 using namespace clang;
@@ -427,6 +431,7 @@ static bool forwardToGCC(const Option &O) {
          !O.hasFlag(options::DriverOption) && !O.hasFlag(options::LinkerInput);
 }
 
+
 /// Apply \a Work on the current tool chain \a RegularToolChain and any other
 /// offloading tool chain that is associated with the current action \a JA.
 static void
@@ -441,6 +446,11 @@ forAllAssociatedToolChains(Compilation &C, const JobAction &JA,
   if (JA.isHostOffloading(Action::OFK_Cuda))
     Work(*C.getSingleOffloadToolChain<Action::OFK_Cuda>());
   else if (JA.isDeviceOffloading(Action::OFK_Cuda))
+    Work(*C.getSingleOffloadToolChain<Action::OFK_Host>());
+
+  if (JA.isHostOffloading(Action::OFK_HCC))
+    Work(*C.getSingleOffloadToolChain<Action::OFK_HCC>());
+  else if (JA.isDeviceOffloading(Action::OFK_HCC))
     Work(*C.getSingleOffloadToolChain<Action::OFK_Host>());
 
   //
@@ -4121,6 +4131,10 @@ void Clang::DumpCompilationDatabase(Compilation &C, StringRef Filename,
   CDB << ", \"" << escape(Buf) << "\"]},\n";
 }
 
+extern bool IsCXXAMPBackendJobAction(const JobAction* A);
+extern bool IsHCHostBackendJobAction(const JobAction* A);
+extern bool IsCXXAMPCPUBackendJobAction(const JobAction* A);
+
 void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                          const InputInfo &Output, const InputInfoList &Inputs,
                          const ArgList &Args, const char *LinkingOutput) const {
@@ -4174,6 +4188,44 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // FIXME: Implement custom jobs for internal actions.
   CmdArgs.push_back("-cc1");
 
+  // add HCC macros, based on compiler modes
+  if (Args.hasArg(options::OPT_hc_mode)) {
+    CmdArgs.push_back("-D__KALMAR_HC__=1");
+    CmdArgs.push_back("-D__HCC_HC__=1");
+  } else if (D.IsCXXAMP(Args)) {
+    CmdArgs.push_back("-D__KALMAR_AMP__=1");
+    CmdArgs.push_back("-D__HCC_AMP__=1");
+  }
+
+  // C++ AMP-specific
+  if (IsCXXAMPBackendJobAction(&JA)) {
+    // path to compile kernel codes on GPU
+    CmdArgs.push_back("-D__GPU__=1");
+    CmdArgs.push_back("-D__KALMAR_ACCELERATOR__=1");
+    CmdArgs.push_back("-D__HCC_ACCELERATOR__=1");
+    CmdArgs.push_back("-famp-is-device");
+    CmdArgs.push_back("-fno-builtin");
+    CmdArgs.push_back("-fno-common");
+    //CmdArgs.push_back("-m32"); // added below using -triple
+    CmdArgs.push_back("-O2");
+  } else if(IsCXXAMPCPUBackendJobAction(&JA)){
+    // path to compile kernel codes on CPU
+    CmdArgs.push_back("-famp-is-device");
+    CmdArgs.push_back("-famp-cpu");
+    CmdArgs.push_back("-D__AMP_CPU__=1");
+    CmdArgs.push_back("-D__KALMAR_ACCELERATOR__=2");
+    CmdArgs.push_back("-D__HCC_ACCELERATOR__=2");
+  } else if (Args.hasArg(options::OPT_cxxamp_cpu_mode)) {
+    // path to compile host codes, while kernel codes are to be compiled on CPU
+    CmdArgs.push_back("-D__AMP_CPU__=1");
+    CmdArgs.push_back("-D__KALMAR_CPU__=2");
+    CmdArgs.push_back("-D__HCC_CPU__=2");
+  } else {
+    // path to compile host codes, while kernel codes are to be compiled on GPU
+    CmdArgs.push_back("-D__KALMAR_CPU__=1");
+    CmdArgs.push_back("-D__HCC_CPU__=1");
+  }
+
   // Add the "effective" target triple.
   CmdArgs.push_back("-triple");
   CmdArgs.push_back(Args.MakeArgString(TripleStr));
@@ -4202,13 +4254,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   // Make sure host triple is specified for HCC kernel compilation path
   if (IsHCCKernelPath) {
-    if (&getToolChain() == C.getSingleOffloadToolChain<Action::OFK_HCC>())
-      AuxToolChain = C.getOffloadingHostToolChain();
+    // We have to pass the triple of the host if compiling for a HCC device
+    std::string NormalizedTriple;
+    NormalizedTriple = C.getSingleOffloadToolChain<Action::OFK_Host>()
+                         ->getTriple()
+                         .normalize();
 
-    if (AuxToolChain != nullptr) {
-      CmdArgs.push_back("-aux-triple");
-      CmdArgs.push_back(Args.MakeArgString(AuxToolChain->getTriple().str()));
-    }
+    CmdArgs.push_back("-aux-triple");
+    CmdArgs.push_back(Args.MakeArgString(NormalizedTriple));
   }
 
   if (Triple.isOSWindows() && (Triple.getArch() == llvm::Triple::arm ||
@@ -4925,6 +4978,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.ClaimAllArgs(options::OPT_g_Group);
   Arg *SplitDwarfArg = Args.getLastArg(options::OPT_gsplit_dwarf);
+
+  // disable debug output for HCC kernel path
+  if (!IsHCCKernelPath) {
+
   if (Arg *A = Args.getLastArg(options::OPT_g_Group)) {
     // If the last option explicitly specified a debug-info level, use it.
     if (A->getOption().matches(options::OPT_gN_Group)) {
@@ -5048,6 +5105,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-generate-type-units");
   }
 
+  } // if (!IsHCCKernelPath)
+
   bool UseSeparateSections = isUseSeparateSections(Triple);
 
   if (Args.hasFlag(options::OPT_ffunction_sections,
@@ -5066,8 +5125,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.AddAllArgs(CmdArgs, options::OPT_finstrument_functions);
 
-  if (Args.hasFlag(options::OPT_fxray_instrument,
-                   options::OPT_fnoxray_instrument, false)) {
+#if 0
+  if (Args.hasArg(options::OPT_fxray_instrument,
+                  options::OPT_fnoxray_instrument, false)) {
     const char *const XRayInstrumentOption = "-fxray-instrument";
     if (Triple.getOS() == llvm::Triple::Linux)
       switch (Triple.getArch()) {
@@ -5096,6 +5156,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back(A->getValue());
     }
   }
+#endif
 
   addPGOAndCoverageFlags(C, D, Output, Args, CmdArgs);
 
@@ -5209,7 +5270,23 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-O3");
       D.Diag(diag::warn_O4_is_O3);
     } else {
-      A->render(Args, CmdArgs);
+      // C++ AMP-specific
+      if (IsCXXAMPBackendJobAction(&JA)) {
+        // ignore -O0 and -O1 for GPU compilation paths
+        // because inliner would not be enabled and will cause compilation fail
+        if (A->getOption().matches(options::OPT_O0)) {
+          D.Diag(diag::warn_drv_O0_ignored_for_GPU);
+        } else if (A->containsValue("1")) {
+          D.Diag(diag::warn_drv_O1_ignored_for_GPU);
+        } else {
+          // let all other optimization levels pass
+          A->render(Args, CmdArgs);
+        }
+      } else {
+
+        // normal cases
+        A->render(Args, CmdArgs);
+      }
     }
   }
 
@@ -5825,7 +5902,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back(Args.MakeArgString(
           std::string("-fprebuilt-module-path=") + A->getValue()));
   }
-      
+
   // -fmodule-name specifies the module that is currently being built (or
   // used for header checking by -fmodule-maps).
   Args.AddLastArg(CmdArgs, options::OPT_fmodule_name_EQ);
@@ -6348,7 +6425,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fno-gnu-inline-asm");
 
   // Turn off vectorization support for GPU kernels for now
-  if (!IsCXXAMPCompileJobAction(&JA) && !IsCXXAMPCPUCompileJobAction(&JA))  {
+  if (!IsHCCKernelPath) {
 
   // Enable vectorization per default according to the optimization level
   // selected. For optimization levels that want vectorization we use the alias
@@ -6655,6 +6732,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
           << "-fwhole-program-vtables"
           << "-flto";
     CmdArgs.push_back("-fwhole-program-vtables");
+  }
+
+  // C++ AMP-specific
+  if (IsCXXAMPBackendJobAction(&JA) || IsCXXAMPCPUBackendJobAction(&JA) || IsHCHostBackendJobAction(&JA)) {
+    CmdArgs.push_back("-emit-llvm-bc");
   }
 
   // Finally add the compile command to the compilation.
@@ -10158,11 +10240,12 @@ static const char *getLDMOption(const llvm::Triple &T, const ArgList &Args) {
   }
 }
 
-void gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
+void gnutools::Linker::ConstructLinkerJob(Compilation &C, const JobAction &JA,
                                     const InputInfo &Output,
                                     const InputInfoList &Inputs,
                                     const ArgList &Args,
-                                    const char *LinkingOutput) const {
+                                    const char *LinkingOutput,
+                                    ArgStringList &CmdArgs) const {
   const toolchains::Linux &ToolChain =
       static_cast<const toolchains::Linux &>(getToolChain());
   const Driver &D = ToolChain.getDriver();
@@ -10178,8 +10261,6 @@ void gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   const bool HasCRTBeginEndFiles =
       ToolChain.getTriple().hasEnvironment() ||
       (ToolChain.getTriple().getVendor() != llvm::Triple::MipsTechnologies);
-
-  ArgStringList CmdArgs;
 
   // Silence warning for "clang -g foo.o -o foo"
   Args.ClaimAllArgs(options::OPT_g_Group);
@@ -10417,6 +10498,29 @@ void gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   // Add OpenMP offloading linker script args if required.
   AddOpenMPLinkerScript(getToolChain(), C, Output, Inputs, Args, CmdArgs, JA);
+}
+
+void gnutools::Linker::ConstructJob(Compilation &C,
+                                    const JobAction &JA,
+                                    const InputInfo &Output,
+                                    const InputInfoList &Inputs,
+                                    const ArgList &Args,
+                                    const char *LinkingOutput) const {
+  if (Driver::IsCXXAMP(C.getArgs())) {
+    HCC::CXXAMPLink{getToolChain()}.ConstructJob(C,
+                                                 JA,
+                                                 Output,
+                                                 Inputs,
+                                                 Args,
+                                                 LinkingOutput);
+  } else {
+    ArgStringList CmdArgs;
+
+    ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);
+
+    const char *Exec = Args.MakeArgString(getToolChain().GetLinkerPath());
+    C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
+  }
 }
 
 // NaCl ARM assembly (inline or standalone) can be written with a set of macros
@@ -12346,3 +12450,187 @@ void AVR::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                                           CmdArgs, Inputs));
 }
 // AVR tools end.
+
+static void HCPassOptions(const ArgList &Args, ArgStringList &CmdArgs) {
+
+  for(auto A : Args) {
+    Option ArgOpt = A->getOption();
+    // Avoid passing options that have already been processed by the compilation stage or will be used for the linking stage
+    bool hasOpts = ArgOpt.hasFlag(options::LinkerInput) || // omit linking options
+                   ArgOpt.hasFlag(options::DriverOption) || // omit --driver-mode -### -hc -o -Xclang
+                   ArgOpt.matches(options::OPT_L) || // omit -L
+                   ArgOpt.matches(options::OPT_I_Group) || // omit -I
+                   ArgOpt.matches(options::OPT_std_EQ) || // omit -std=
+                   ArgOpt.matches(options::OPT_stdlib_EQ) || // omit -stdlib=
+                   ArgOpt.matches(options::OPT_m_Group) || // omit -m
+                   ArgOpt.getKind() == Option::InputClass; // omit <input>
+    if (!hasOpts) {
+      std::string str = A->getSpelling().str();
+
+      // If this is a valued option
+      ArrayRef<const char *> Vals = A->getValues();
+      if(!Vals.empty()) {
+        for(auto V : Vals) {
+          str += V;
+        }
+      }
+      CmdArgs.push_back(Args.MakeArgString(str));
+    }
+  }
+}
+
+void HCC::HCKernelAssemble::ConstructJob(Compilation &C, const JobAction &JA,
+                                    const InputInfo &Output,
+                                    const InputInfoList &Inputs,
+                                    const ArgList &Args,
+                                    const char *LinkingOutput) const {
+  assert(Inputs.size() == 1 && "Unable to handle multiple inputs.");
+
+  ArgStringList CmdArgs;
+  for (InputInfoList::const_iterator
+         it = Inputs.begin(), ie = Inputs.end(); it != ie; ++it) {
+    const InputInfo &II = *it;
+    if (II.isFilename())
+      CmdArgs.push_back(II.getFilename());
+    else
+      II.getInputArg().renderAsInput(Args, CmdArgs);
+  }
+
+  if (Output.isFilename())
+    CmdArgs.push_back(Output.getFilename());
+  else
+    Output.getInputArg().renderAsInput(Args, CmdArgs);
+
+  // locate where the command is
+  const char *Exec = Args.MakeArgString(getToolChain().GetProgramPath("hc-kernel-assemble"));
+
+  C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
+}
+
+void HCC::HCHostAssemble::ConstructJob(Compilation &C, const JobAction &JA,
+                                  const InputInfo &Output,
+                                  const InputInfoList &Inputs,
+                                  const ArgList &Args,
+                                  const char *LinkingOutput) const {
+  assert(Inputs.size() == 1 && "Unable to handle multiple inputs.");
+
+  ArgStringList CmdArgs;
+  for (InputInfoList::const_iterator
+         it = Inputs.begin(), ie = Inputs.end(); it != ie; ++it) {
+    const InputInfo &II = *it;
+    if (II.isFilename())
+      CmdArgs.push_back(II.getFilename());
+    else
+      II.getInputArg().renderAsInput(Args, CmdArgs);
+  }
+
+  if (Output.isFilename())
+    CmdArgs.push_back(Output.getFilename());
+  else
+    Output.getInputArg().renderAsInput(Args, CmdArgs);
+
+  // decide which options gets passed through
+  HCPassOptions(Args, CmdArgs);
+
+  const char *Exec = Args.MakeArgString(getToolChain().GetProgramPath("hc-host-assemble"));
+
+  C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
+}
+
+void HCC::CXXAMPAssemble::ConstructJob(Compilation &C, const JobAction &JA,
+                                  const InputInfo &Output,
+                                  const InputInfoList &Inputs,
+                                  const ArgList &Args,
+                                  const char *LinkingOutput) const {
+  assert(Inputs.size() == 1 && "Unable to handle multiple inputs.");
+
+  ArgStringList CmdArgs;
+  for (InputInfoList::const_iterator
+         it = Inputs.begin(), ie = Inputs.end(); it != ie; ++it) {
+    const InputInfo &II = *it;
+    if (II.isFilename())
+      CmdArgs.push_back(II.getFilename());
+    else
+      II.getInputArg().renderAsInput(Args, CmdArgs);
+  }
+
+  if (Output.isFilename())
+    CmdArgs.push_back(Output.getFilename());
+  else
+    Output.getInputArg().renderAsInput(Args, CmdArgs);
+
+  const char *Exec = Args.MakeArgString(getToolChain().GetProgramPath("clamp-assemble"));
+
+  C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
+}
+
+std::string temporaryReplaceLongFormGFXIp(const Compilation& C, std::string l)
+{ // Precondition: l = "AMD:AMDGPU:\d:\d:\d"
+  // TODO: this should be removed once we have transitioned all users to using
+  //       the short form. It is purposefully inefficient.
+  const auto t = l;
+
+  l.replace(0u, 3u, {'g', 'f', 'x'});
+  l.erase(std::copy_if(l.begin() + 3u, l.end(), l.begin() + 3u, isdigit), l.end());
+  C.getDriver().Diag(diag::warn_drv_deprecated_arg) << t << l;
+
+  return l;
+}
+
+void HCC::CXXAMPLink::ConstructJob(Compilation &C,
+                                   const JobAction &JA,
+                                   const InputInfo &Output,
+                                   const InputInfoList &Inputs,
+                                   const ArgList &Args,
+                                   const char *LinkingOutput) const {
+  ArgStringList CmdArgs;
+
+  // add verbose flag to linker script if clang++ is invoked with --verbose flag
+  if (Args.hasArg(options::OPT_v))
+    CmdArgs.push_back("--verbose");
+
+  // specify AMDGPU target
+  if (Args.hasArg(options::OPT_amdgpu_target_EQ)) {
+    auto AMDGPUTargetVector = Args.getAllArgValues(options::OPT_amdgpu_target_EQ);
+
+    for (auto&& AMDGPUTarget : AMDGPUTargetVector) {
+      // TODO: the known GFXip list should probably reside in a constant
+      //       global variable so as to allow easy extension in the future.
+      static constexpr const char prefix[] = "--amdgpu-target=";
+      static constexpr unsigned int discard_sz = 3u;
+      static const std::string gfx_ip{"gfx"};
+      static const std::string long_gfx_ip_prefix{"AMD:AMDGPU:"}; // Temporary.
+
+      // TODO: this is temporary.
+      if (std::search(AMDGPUTarget.cbegin(), AMDGPUTarget.cend(), long_gfx_ip_prefix.cbegin(), long_gfx_ip_prefix.cend()) != AMDGPUTarget.cend()) {
+          AMDGPUTarget = temporaryReplaceLongFormGFXIp(C, AMDGPUTarget);
+      }
+
+      if (std::search(AMDGPUTarget.cbegin(), AMDGPUTarget.cend(), gfx_ip.cbegin(), gfx_ip.cend()) != AMDGPUTarget.cend()) {
+        std::string t{prefix};
+        switch (std::atoi(AMDGPUTarget.data() + discard_sz)) {
+        case 700: t += "kaveri";  break;
+        case 701: t += "hawaii";  break;
+        case 801: t += "carrizo"; break;
+        case 802: t += "tonga";   break;
+        case 803: t += "fiji";    break;
+        default:
+          C.getDriver().Diag(diag::warn_amdgpu_target_invalid) << AMDGPUTarget;
+        break;
+        }
+        CmdArgs.push_back(Args.MakeArgString(t));
+      }
+      else {
+        C.getDriver().Diag(diag::warn_amdgpu_target_invalid) << AMDGPUTarget;
+      }
+    }
+  }
+
+  // pass inputs to gnu ld for initial processing
+  Linker::ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);
+
+  const char *Exec = Args.MakeArgString(getToolChain().GetProgramPath("clamp-link"));
+
+  C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
+}
+

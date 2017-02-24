@@ -307,6 +307,12 @@ DerivedArgList *Driver::TranslateInputArgs(const InputArgList &Args) const {
   }
 #endif
 
+  // make -hc an alias of -std=c++amp -Xclang -fhsa-ext as of now
+  if (Args.hasArg(options::OPT_hc_mode)) {
+    DAL->AddJoinedArg(0, Opts->getOption(options::OPT_std_EQ), "c++amp");
+    DAL->AddPositionalArg(0, Opts->getOption(options::OPT_Xclang), "-fhsa-ext");
+  }
+
   return DAL;
 }
 
@@ -550,6 +556,21 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
     } else
       Diag(clang::diag::warn_drv_empty_joined_argument)
           << OpenMPTargets->getAsString(C.getInputArgs());
+  }
+
+  //
+  // HCC
+  //
+  // Initialize HCC device TC if we have HCC inputs.
+  if (llvm::any_of(Inputs, [](const std::pair<types::ID, const Arg *> &I) {
+        return I.first == types::TY_CXX_AMP ||
+               I.first == types::TY_CXX_AMP_CPU ||
+               I.first == types::TY_HC_HOST ||
+               I.first == types::TY_HC_KERNEL;
+      })) {
+    const ToolChain &TC = getToolChain(
+        C.getInputArgs(), llvm::Triple("amdgcn--amdhsa-hcc"));
+    C.addOffloadDeviceToolChain(&TC, Action::OFK_HCC);
   }
 
   //
@@ -1587,7 +1608,7 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
             break;
 
             // -S
-            case phases::Compile:
+            case phases::Backend:
               if (Args.hasArg(options::OPT_cxxamp_kernel_mode)) {
                 Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
               } else if (Args.hasArg(options::OPT_cxxamp_cpu_mode)) {
@@ -1601,16 +1622,26 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
             case phases::Assemble:
               if (Args.hasArg(options::OPT_cxxamp_cpu_mode))
                   Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
-              Inputs.push_back(std::make_pair(Ty, A));
-              Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              if(Args.hasArg(options::OPT_hc_mode)) {
+                Inputs.push_back(std::make_pair(types::TY_HC_HOST, A));
+                Inputs.push_back(std::make_pair(types::TY_HC_KERNEL, A));
+              } else {
+                Inputs.push_back(std::make_pair(Ty, A));
+                Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              }
             break;
 
             // build executable
             case phases::Link:
               if (Args.hasArg(options::OPT_cxxamp_cpu_mode))
                   Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
-              Inputs.push_back(std::make_pair(Ty, A));
-              Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              if(Args.hasArg(options::OPT_hc_mode)) {
+                Inputs.push_back(std::make_pair(types::TY_HC_HOST, A));
+                Inputs.push_back(std::make_pair(types::TY_HC_KERNEL, A));
+              } else {
+                Inputs.push_back(std::make_pair(Ty, A));
+                Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              }
             break;
 
             default:
@@ -2745,6 +2776,9 @@ Action *Driver::ConstructPhaseAction(Compilation &C, const ArgList &Args,
   llvm_unreachable("invalid phase in ConstructPhaseAction");
 }
 
+// UPGRADE_TBD: see if it's possible to get rid of this check
+extern bool IsCXXAMPBackendJobAction(const JobAction* A);
+
 void Driver::BuildJobs(Compilation &C) const {
   llvm::PrettyStackTraceString CrashInfo("Building compilation jobs");
 
@@ -2791,12 +2825,24 @@ void Driver::BuildJobs(Compilation &C) const {
         LinkingOutput = getDefaultImageName();
     }
 
-    BuildJobsForAction(C, A, &C.getDefaultToolChain(),
+    JobAction *JA = cast<JobAction>(A);
+    // UPGRADE_TBD: FIXME This is hack. Need to find a cleaner way
+    // The line is added so clang -emit-llvm would pick correct toolchain for HCC inputs
+    if (JA && IsCXXAMPBackendJobAction(JA)) {
+      BuildJobsForAction(C, A, C.getSingleOffloadToolChain<Action::OFK_HCC>(),
                        /*BoundArch*/ StringRef(),
                        /*AtTopLevel*/ true,
                        /*MultipleArchs*/ ArchNames.size() > 1,
                        /*LinkingOutput*/ LinkingOutput, CachedResults,
                        /*TargetDeviceOffloadKind*/ Action::OFK_None);
+    } else {
+      BuildJobsForAction(C, A, &C.getDefaultToolChain(),
+                       /*BoundArch*/ StringRef(),
+                       /*AtTopLevel*/ true,
+                       /*MultipleArchs*/ ArchNames.size() > 1,
+                       /*LinkingOutput*/ LinkingOutput, CachedResults,
+                       /*TargetDeviceOffloadKind*/ Action::OFK_None);
+    }
   }
 
   // If the user passed -Qunused-arguments or there were errors, don't warn
@@ -2837,6 +2883,14 @@ void Driver::BuildJobs(Compilation &C) const {
           continue;
       }
 
+      // Suppress the warning if this is -Xclang -fhsa-ext
+      if (Opt.getKind() == Option::SeparateClass) {
+        if (Opt.getName() == "Xclang" &&
+            A->containsValue("-fhsa-ext")) {
+          continue;
+        }
+      }
+
       // In clang-cl, don't mention unknown arguments here since they have
       // already been warned about.
       if (!IsCLMode() || !A->getOption().matches(options::OPT_UNKNOWN))
@@ -2845,6 +2899,93 @@ void Driver::BuildJobs(Compilation &C) const {
     }
   }
 }
+
+static bool IsBackendJobActionWithInputType(const JobAction* A, types::ID typesID) {
+  bool ret = false;
+  // detect if a backend job takes a particular kind of input
+  if (isa<BackendJobAction>(A)) {
+    const ActionList& al = dyn_cast<BackendJobAction>(A)->getInputs();
+    if ((al.size() == 1) && (isa<CompileJobAction>(*al[0]))) {
+      const ActionList& bl = dyn_cast<CompileJobAction>(al[0])->getInputs();
+      if ((bl.size() == 1) && (bl[0]->getType() == typesID)) {
+        ret = true;
+      }
+    }
+  }
+  return ret;
+}
+
+bool IsCXXAMPBackendJobAction(const JobAction* A) {
+  // detect if a compile job takes an C++ AMP input
+  return IsBackendJobActionWithInputType(A, types::TY_PP_CXX_AMP);
+}
+
+bool IsHCHostBackendJobAction(const JobAction* A) {
+  // detect if a compile job takes a HC input on host side
+  return IsBackendJobActionWithInputType(A, types::TY_PP_HC_HOST);
+}
+
+bool IsCXXAMPCPUBackendJobAction(const JobAction* A) {
+  return IsBackendJobActionWithInputType(A, types::TY_PP_CXX_AMP_CPU);
+}
+
+static bool IsAssembleJobActionWithInputType(const JobAction* A, types::ID typesID) {
+  bool ret = false;
+  if (isa<AssembleJobAction>(A)) {
+    const ActionList& al = dyn_cast<AssembleJobAction>(A)->getInputs();
+    if ((al.size() == 1) && (isa<BackendJobAction>(*al[0]))) {
+      const ActionList& bl = dyn_cast<BackendJobAction>(al[0])->getInputs();
+      if ((bl.size() == 1) && (isa<CompileJobAction>(*bl[0]))) {
+        const ActionList& cl = dyn_cast<CompileJobAction>(bl[0])->getInputs();
+        if ((cl.size() == 1) && (cl[0]->getType() == typesID)) {
+          ret = true;
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+bool IsCXXAMPCPUAssembleJobAction(const JobAction* A) {
+  // detect if an assemble job takes an C++ AMP input with CPU as target
+  return IsAssembleJobActionWithInputType(A, types::TY_PP_CXX_AMP_CPU);
+}
+
+bool IsCXXAMPAssembleJobAction(const JobAction* A) {
+  // detect if an assemble job takes an C++ AMP input
+  return IsAssembleJobActionWithInputType(A, types::TY_PP_CXX_AMP);
+}
+
+static bool IsHCAssembleJobActionWithInputType(const JobAction* A, types::ID typesID) {
+  bool ret = false;
+  if (isa<AssembleJobAction>(A)) {
+    const ActionList& al = dyn_cast<AssembleJobAction>(A)->getInputs();
+    if ((al.size() == 1) && (isa<BackendJobAction>(*al[0]))) {
+      const ActionList& bl = dyn_cast<BackendJobAction>(al[0])->getInputs();
+      if ((bl.size() == 1) && (isa<CompileJobAction>(*bl[0]))) {
+        const ActionList& cl = dyn_cast<CompileJobAction>(bl[0])->getInputs();
+        if ((cl.size() == 1) && (isa<PreprocessJobAction>(*cl[0]))) {
+          const ActionList& il = dyn_cast<PreprocessJobAction>(cl[0])->getInputs();
+          if((il.size() == 1) && (il[0]->getType() == typesID)) {
+            ret = true;
+          }
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+bool IsHCKernelAssembleJobAction(const JobAction* A) {
+  // detect if an assemble job takes a HC input on GPU side
+  return IsHCAssembleJobActionWithInputType(A, types::TY_HC_KERNEL);
+}
+
+bool IsHCHostAssembleJobAction(const JobAction* A) {
+  // detect if an assemble job takes a HC input on host side
+  return IsHCAssembleJobActionWithInputType(A, types::TY_HC_HOST);
+}
+
 
 namespace {
 /// Utility class to control the collapse of dependent actions and select the
@@ -3301,9 +3442,20 @@ InputInfo Driver::BuildJobsForActionNoCache(
     // FIXME: Clean this up.
     bool SubJobAtTopLevel =
         AtTopLevel && (isa<DsymutilJobAction>(A) || isa<VerifyJobAction>(A));
-    InputInfos.push_back(BuildJobsForAction(
+    // UPGRADE_TBD: Find a better way to check HCC-specific Action objects
+    // Find correct Tool for HCC-specific Actions in HCC ToolChain
+    if (IsCXXAMPBackendJobAction(JA) || IsCXXAMPCPUBackendJobAction(JA) ||
+        IsHCKernelAssembleJobAction(JA) ||
+        IsCXXAMPAssembleJobAction(JA) || IsCXXAMPCPUAssembleJobAction(JA)) {
+      InputInfos.push_back(BuildJobsForAction(
+        C, Input, C.getSingleOffloadToolChain<Action::OFK_HCC>(), BoundArch,
+        SubJobAtTopLevel, MultipleArchs, LinkingOutput, CachedResults,
+        A->getOffloadingDeviceKind()));
+    } else {
+      InputInfos.push_back(BuildJobsForAction(
         C, Input, TC, BoundArch, SubJobAtTopLevel, MultipleArchs, LinkingOutput,
         CachedResults, A->getOffloadingDeviceKind()));
+    }
   }
 
   // Always use the first input as the base input.
@@ -3510,6 +3662,8 @@ const char *Driver::GetNamedOutputPath(Compilation &C, const JobAction &JA,
     std::pair<StringRef, StringRef> Split = Name.split('.');
     std::string TmpName = GetTemporaryPath(
         Split.first, types::getTypeTempSuffix(JA.getType(), IsCLMode()));
+    if (IsCXXAMPCPUBackendJobAction(&JA) || IsCXXAMPCPUAssembleJobAction(&JA))
+      TmpName += ".cpu";
     return C.addTempFile(C.getArgs().MakeArgString(TmpName));
   }
 
@@ -3802,7 +3956,11 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
       TC = llvm::make_unique<toolchains::Solaris>(*this, Target, Args);
       break;
     case llvm::Triple::AMDHSA:
-      TC = llvm::make_unique<toolchains::AMDGPUToolChain>(*this, Target, Args);
+      if (Target.getEnvironment() == llvm::Triple::HCC) {
+        TC = llvm::make_unique<toolchains::HCCToolChain>(*this, Target, Args);
+      } else {
+        TC = llvm::make_unique<AMDGPUToolChain>(*this, Target, Args);
+      }
       break;
     case llvm::Triple::Win32:
       switch (Target.getEnvironment()) {

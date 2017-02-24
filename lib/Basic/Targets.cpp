@@ -2422,6 +2422,7 @@ bool AMDGPUTargetInfo::initFeatureMap(
       Features["gfx9-insts"] = true;
       LLVM_FALLTHROUGH;
     case GK_GFX8:
+    case GK_GFX9:
       Features["s-memrealtime"] = true;
       Features["16-bit-insts"] = true;
       break;

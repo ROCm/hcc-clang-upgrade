@@ -18,6 +18,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/ExprCXX.h"
 #include "CGCall.h"
+#include "TargetInfo.h"
 
 namespace clang {
 namespace CodeGen {
@@ -187,7 +188,7 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
   }
   // Emit code to call the deserializing constructor
   {
-    llvm::Value *Callee = CGM.getAddrOfCXXStructor(
+    llvm::Constant *Callee = CGM.getAddrOfCXXStructor(
       DeserializeConstructor, StructorType::Complete);
     const FunctionProtoType *FPT =
       DeserializeConstructor->getType()->castAs<FunctionProtoType>();
@@ -197,7 +198,7 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
     const CGFunctionInfo &DesFnInfo =
       CGM.getTypes().arrangeCXXMethodCall(
 	  DeserializerArgs, FPT, required);
-    CGF.EmitCall(DesFnInfo, Callee, ReturnValueSlot(), DeserializerArgs);
+    CGF.EmitCall(DesFnInfo, CGCallee::forDirect(Callee), ReturnValueSlot(), DeserializerArgs);
   }
   // Locate the type of Concurrency::index<1>
   // Locate the operator to call
@@ -256,10 +257,10 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
       llvm::FunctionType *indexInitType =
         CGM.getTypes().GetFunctionType(
           CGM.getTypes().arrangeCXXMethodDeclaration(IndexConstructor));
-      llvm::Value *indexInitAddr = CGM.GetAddrOfFunction(
+      llvm::Constant *indexInitAddr = CGM.GetAddrOfFunction(
         IndexConstructor, indexInitType);
 
-      CGF.EmitCXXMemberOrOperatorCall(IndexConstructor, indexInitAddr,
+      CGF.EmitCXXMemberOrOperatorCall(IndexConstructor, CGCallee::forDirect(indexInitAddr),
         ReturnValueSlot(), index.getPointer(), /*ImplicitParam=*/0, QualType(), /*CallExpr=*/nullptr, /*RtlArgs=*/nullptr);
     }
   }
@@ -267,7 +268,7 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
   // Prepate the operator() to call
   llvm::FunctionType *fnType =
     CGM.getTypes().GetFunctionType(CGM.getTypes().arrangeCXXMethodDeclaration(KernelDecl));
-  llvm::Value *fnAddr = CGM.GetAddrOfFunction(KernelDecl, fnType);
+  llvm::Constant *fnAddr = CGM.GetAddrOfFunction(KernelDecl, fnType);
   // Prepare argument
   CallArgList KArgs;
   // this
@@ -276,7 +277,8 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
   KArgs.add(RValue::getAggregate(index), IndexTy);
 
   const CGFunctionInfo &FnInfo = CGM.getTypes().arrangeFreeFunctionCall(KArgs, MT, false);
-  CGF.EmitCall(FnInfo, fnAddr, ReturnValueSlot(), KArgs);
+  CGF.EmitCall(FnInfo, CGCallee::forDirect(fnAddr), ReturnValueSlot(), KArgs);
+  CGM.getTargetCodeGenInfo().setTargetAttributes(KernelDecl, CGF.CurFn, CGM);
 }
 
 void CGAMPRuntime::EmitTrampolineNameBody(CodeGenFunction &CGF,

@@ -13588,10 +13588,6 @@ Sema::BuildCallToObjectOfClassType(Scope *S, Expr *Obj,
   if(getLangOpts().CPlusPlusAMP && Method && Method->getParent()->isLambda())
     DiagnoseCXXAMPMethodCallExpr(LParenLoc, Method);
 
-  // C++AMP
-  if(getLangOpts().CPlusPlusAMP && Method && Method->getParent()->isLambda())
-    DiagnoseCXXAMPMethodCallExpr(LParenLoc, Method);
-
   if (CheckCallReturnType(Method->getReturnType(), LParenLoc, TheCall, Method))
     return true;
 

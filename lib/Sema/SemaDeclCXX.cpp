@@ -11967,7 +11967,7 @@ void Sema::DeclareAMPTrampoline(CXXRecordDecl *ClassDecl,
                  "Only supporting taking reference of classes");
           CXXRecordDecl *MemberClass = MemberType.getTypePtr()->getAsCXXRecordDecl();
           if (!HasDeclaredAMPDeserializer(MemberClass)) {
-    	    DeclareAMPDeserializer(MemberClass, NULL);
+              DeclareAMPDeserializer(MemberClass, NULL);
           }
           CXXMethodDecl *MemberDeserializer =
             MemberClass->getCXXAMPDeserializationConstructor();
