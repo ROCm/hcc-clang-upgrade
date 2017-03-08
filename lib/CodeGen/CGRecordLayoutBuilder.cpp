@@ -130,6 +130,12 @@ struct CGRecordLowering {
     return NumBytes == CharUnits::One() ? Type :
         (llvm::Type *)llvm::ArrayType::get(Type, NumBytes.getQuantity());
   }
+  /// \brief return scalar type for padding when possible
+  llvm::Type *getScalarPaddingType(CharUnits NumBytes) {
+    return (NumBytes.isPowerOfTwo() && NumBytes.getQuantity() <= 16) ?
+      getIntNType(NumBytes.getQuantity() * 8) :
+      getByteArrayType(NumBytes);
+  }
   /// \brief Gets the storage type for a field decl and handles storage
   /// for itanium bitfields that are smaller than their declared type.
   llvm::Type *getStorageType(const FieldDecl *FD) {
@@ -620,7 +626,7 @@ void CGRecordLowering::insertPadding() {
   for (std::vector<std::pair<CharUnits, CharUnits> >::const_iterator
         Pad = Padding.begin(), PadEnd = Padding.end();
         Pad != PadEnd; ++Pad)
-    Members.push_back(StorageInfo(Pad->first, getByteArrayType(Pad->second)));
+    Members.push_back(StorageInfo(Pad->first, getScalarPaddingType(Pad->second)));
   std::stable_sort(Members.begin(), Members.end());
 }
 
