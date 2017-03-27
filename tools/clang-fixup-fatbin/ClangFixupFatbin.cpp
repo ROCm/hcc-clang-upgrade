@@ -55,7 +55,10 @@ static cl::list<std::string>
     ArchNames("offload-archs", cl::Required, cl::CommaSeparated, cl::OneOrMore,
                 cl::desc("[<offload arch>,...]"),
                 cl::cat(ClangFixupFatbinCategory));
-
+static cl::opt<bool>
+    Elf("elf",
+                cl::desc("Treat input file as full ELF file, not just FatBin section"),
+                cl::init(false), cl::cat(ClangFixupFatbinCategory));
 
 int main(int argc, const char **argv) {
   cl::HideUnrelatedOptions(ClangFixupFatbinCategory);
@@ -115,64 +118,78 @@ int main(int argc, const char **argv) {
   inputFile.read(buffer, sizeFile);
   inputFile.close();
 
+  uint32_t sh_size, sh_offset;
+
+// Different treating of full ELF file and FatBin section only file
+  if(Elf) {
+
 // Actually the header size is 52 for 32-bit
-  if(sizeFile < 64) {
-    status = "Error: Not ELF file: too short";
-  }
-  else if(buffer[0] != 0x7F && buffer[1] != 0x45 && buffer[2] != 0x4C && buffer[3] != 0x46) {
-    status = "Error: Not ELF file: wrong signature";
-  }
-  else if((unsigned short)buffer[4] != 2){
-    status = "Error: Not supported ELF file: not 64-bit";
-  }
-  else if((unsigned short)buffer[5] != 1){
-    status = "Error: Not supported ELF file: not little endian";
-  }
-  if(status.compare("") != 0) {
-    llvm::errs() << status <<"\n";
-    outputFile.close();
-    return -3;
-  }
-
-  uint64_t e_shoff = read64le(&buffer[40]);
-  uint16_t e_shentsize = read16le(&buffer[58]);
-  uint16_t e_shnum = read16le(&buffer[60]);
-  uint16_t e_shstrndx = read16le(&buffer[62]);
-  uint64_t shstr = e_shoff + e_shstrndx * e_shentsize;
-
-  if(sizeFile < e_shoff + e_shnum * e_shentsize) {
-    status = "Error: Broken ELF file: too short";
-    llvm::errs() << status <<"\n";
-    outputFile.close();
-    return -3;
-  }
-
-  uint64_t sh_names_offset = read64le(&buffer[shstr] + 24);
-
-  uint64_t sh;
-  uint32_t sh_name, sh_size, sh_offset;
-  std::string name;
-  int idx;
-  int idx_check = 0;
-
-  for (idx = 0; idx < e_shnum; ++idx) {
-    sh = e_shoff + idx * e_shentsize;
-    sh_name = read32le(&buffer[sh]);
-    name = &buffer[sh_names_offset + sh_name];
-    if(!name.compare(FatBin_Section_Name)) {
-     ++idx_check;
-     break;
+    if(sizeFile < 64) {
+      status = "Error: Not ELF file: too short";
     }
-  }
-  if(idx_check != 1) {
-    llvm::errs() << "Error: Not supported ELF file: number of " << FatBin_Section_Name << " sections is " << idx_check <<"\n";
-    outputFile.close();
-    return -4;
-  }
+    else if(buffer[0] != 0x7F && buffer[1] != 0x45 && buffer[2] != 0x4C && buffer[3] != 0x46) {
+      status = "Error: Not ELF file: wrong signature";
+    }
+    else if((unsigned short)buffer[4] != 2){
+      status = "Error: Not supported ELF file: not 64-bit";
+    }
+    else if((unsigned short)buffer[5] != 1){
+      status = "Error: Not supported ELF file: not little endian";
+    }
+    if(status.compare("") != 0) {
+      llvm::errs() << status <<"\n";
+      outputFile.close();
+      return -3;
+    }
+
+    uint64_t e_shoff = read64le(&buffer[40]);
+    uint16_t e_shentsize = read16le(&buffer[58]);
+    uint16_t e_shnum = read16le(&buffer[60]);
+    uint16_t e_shstrndx = read16le(&buffer[62]);
+    uint64_t shstr = e_shoff + e_shstrndx * e_shentsize;
+
+    if(sizeFile < e_shoff + e_shnum * e_shentsize) {
+      status = "Error: Broken ELF file: too short";
+      llvm::errs() << status <<"\n";
+      outputFile.close();
+      return -3;
+    }
+
+    uint64_t sh_names_offset = read64le(&buffer[shstr] + 24);
+
+    uint64_t sh;
+    uint32_t sh_name;
+    std::string name;
+    int idx;
+    int idx_check = 0;
+
+    for (idx = 0; idx < e_shnum; ++idx) {
+      sh = e_shoff + idx * e_shentsize;
+      sh_name = read32le(&buffer[sh]);
+      name = &buffer[sh_names_offset + sh_name];
+      if(!name.compare(FatBin_Section_Name)) {
+       ++idx_check;
+       break;
+      }
+    }
+    if(idx_check != 1) {
+      llvm::errs() << "Error: Not supported ELF file: number of " << FatBin_Section_Name << " sections is " << idx_check <<"\n";
+      outputFile.close();
+      return -4;
+    }
 
   sh_offset = read64le(&buffer[sh] + 24);
   sh_size = read64le(&buffer[sh] + 32);
 
+// If FatBib section only file
+  } else {
+
+    sh_offset = 0;
+    sh_size = sizeFile;
+
+  }
+
+// For both full ELF and FatBin section only files
   uint16_t fatbin_sec_id, fatbin_sec_header_size, fatbin_sec_arch;
   uint64_t fatbin_sec_size;
   uint64_t fatbin_sec_start = sh_offset + FatBin_Section_Internal_Offset;
