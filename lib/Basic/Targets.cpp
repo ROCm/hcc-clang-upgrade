@@ -2103,7 +2103,6 @@ class AMDGPUTargetInfo final : public TargetInfo {
   bool hasFMAF:1;
   bool hasLDEXPF:1;
   bool hasFullSpeedFP32Denorms:1;
-  const AddrSpace AS;
 
   static bool isAMDGCN(const llvm::Triple &TT) {
     return TT.getArch() == llvm::Triple::amdgcn;
@@ -2120,8 +2119,7 @@ public:
       hasFP64(false),
       hasFMAF(false),
       hasLDEXPF(false),
-      hasFullSpeedFP32Denorms(false),
-      AS(isGenericZero(Triple)){
+      hasFullSpeedFP32Denorms(false){
     if (getTriple().getArch() == llvm::Triple::amdgcn) {
       hasFP64 = true;
       hasFMAF = true;
@@ -2204,7 +2202,7 @@ public:
     if (GPU <= GK_CAYMAN)
       return 32;
 
-    if (AddrSpace == AS.Private || AddrSpace == AS.Local) {
+    if (AddrSpace == AS_Private || AddrSpace == AS_Local) {
       return 32;
     }
     return 64;
@@ -2418,9 +2416,9 @@ public:
       unsigned AddressSpace) const override {
     const unsigned DWARF_Private = 1;
     const unsigned DWARF_Local   = 2;
-    if (AddressSpace == AS.Private) {
+    if (AddressSpace == AS_Private) {
       return DWARF_Private;
-    } else if (AddressSpace == AS.Local) {
+    } else if (AddressSpace == AS_Local) {
       return DWARF_Local;
     } else {
       return None;
