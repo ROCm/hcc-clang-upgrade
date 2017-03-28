@@ -137,6 +137,8 @@ public:
     /// our CodeGenOptions, much as we set attrs on functions that we generate
     /// ourselves.
     bool PropagateAttrs = false;
+    /// If true, we use LLVM module internalizer.
+    bool Internalize = false;
     /// Bitwise combination of llvm::Linker::Flags, passed to the LLVM linker.
     unsigned LinkFlags = 0;
   };
@@ -185,6 +187,11 @@ public:
   /// Name of the function summary index file to use for ThinLTO function
   /// importing.
   std::string ThinLTOIndexFile;
+
+  /// Name of a file that can optionally be written with minimized bitcode
+  /// to be used as input for the ThinLTO thin link step, which only needs
+  /// the summary and module symbol table (and not, e.g. any debug metadata).
+  std::string ThinLinkBitcodeFile;
 
   /// A list of file names passed with -fcuda-include-gpubinary options to
   /// forward to CUDA runtime back-end for incorporating them into host-side
