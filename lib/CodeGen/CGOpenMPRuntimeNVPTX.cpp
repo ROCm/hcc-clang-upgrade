@@ -160,10 +160,17 @@ static llvm::Value *getNVPTXWarpSize(CodeGenFunction &CGF) {
 /// Get the id of the current thread on the GPU.
 static llvm::Value *getNVPTXThreadID(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  return Bld.CreateCall(
-      llvm::Intrinsic::getDeclaration(
-          &CGF.CGM.getModule(), llvm::Intrinsic::nvvm_read_ptx_sreg_tid_x),
-      llvm::None, "nvptx_tid");
+  llvm::Module* M = &CGF.CGM.getModule();
+  llvm::Function * F;
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    F = M->getFunction("nvvm.read.ptx.sreg.tid.x");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.Int32Ty, None, false),
+      llvm::GlobalVariable::ExternalLinkage,
+      "nvvm.read.ptx.sreg.tid.x",M);
+  } else
+    F = llvm::Intrinsic::getDeclaration(M,llvm::Intrinsic::nvvm_read_ptx_sreg_tid_x);
+  return Bld.CreateCall(F,llvm::None, "nvptx_tid");
 }
 
 /// Get the id of the warp in the block.
@@ -186,17 +193,34 @@ static llvm::Value *getNVPTXLaneID(CodeGenFunction &CGF) {
 /// Get the maximum number of threads in a block of the GPU.
 static llvm::Value *getNVPTXNumThreads(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  return Bld.CreateCall(
-      llvm::Intrinsic::getDeclaration(
-          &CGF.CGM.getModule(), llvm::Intrinsic::nvvm_read_ptx_sreg_ntid_x),
-      llvm::None, "nvptx_num_threads");
+  llvm::Module* M = &CGF.CGM.getModule();
+  llvm::Function * F;
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    F = M->getFunction("nvvm.read.ptx.sreg.ntid.x");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.Int32Ty, None, false),
+      llvm::GlobalVariable::ExternalLinkage,
+      "nvvm.read.ptx.sreg.ntid.x",M);
+  } else {
+    F = llvm::Intrinsic::getDeclaration(M,llvm::Intrinsic::nvvm_read_ptx_sreg_ntid_x);
+  }
+  return Bld.CreateCall(F,llvm::None, "nvptx_num_threads");
 }
 
 /// Get barrier to synchronize all threads in a block.
 static void getNVPTXCTABarrier(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  Bld.CreateCall(llvm::Intrinsic::getDeclaration(
-      &CGF.CGM.getModule(), llvm::Intrinsic::nvvm_barrier0));
+  llvm::Module* M = &CGF.CGM.getModule();
+  llvm::Function * F;
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    F = M->getFunction("nvvm.barrier0");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.VoidTy, None, false),
+      llvm::GlobalVariable::ExternalLinkage,
+      "nvvm.barrier0",M);
+  } else
+    F = llvm::Intrinsic::getDeclaration(M,llvm::Intrinsic::nvvm_barrier0);
+  Bld.CreateCall(F);
 }
 
 /// Get barrier #ID to synchronize selected (multiple of warp size) threads in
@@ -205,9 +229,17 @@ static void getNVPTXBarrier(CodeGenFunction &CGF, int ID,
                             llvm::Value *NumThreads) {
   CGBuilderTy &Bld = CGF.Builder;
   llvm::Value *Args[] = {Bld.getInt32(ID), NumThreads};
-  Bld.CreateCall(llvm::Intrinsic::getDeclaration(&CGF.CGM.getModule(),
-                                                 llvm::Intrinsic::nvvm_barrier),
-                 Args);
+  llvm::Module* M = &CGF.CGM.getModule();
+  llvm::Function * F;
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    F = M->getFunction("nvvm.barrier");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.VoidTy,{CGF.Int32Ty,CGF.Int32Ty}, false),
+      llvm::GlobalVariable::ExternalLinkage,
+      "nvvm.barrier",M);
+  } else
+    F = llvm::Intrinsic::getDeclaration(M,llvm::Intrinsic::nvvm_barrier);
+  Bld.CreateCall(F,Args);
 }
 
 /// Synchronize all GPU threads in a block.
