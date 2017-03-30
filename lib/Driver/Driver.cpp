@@ -17,6 +17,7 @@
 #include "ToolChains/Contiki.h"
 #include "ToolChains/CrossWindows.h"
 #include "ToolChains/Cuda.h"
+#include "ToolChains/OmpDevice.h"
 #include "ToolChains/Darwin.h"
 #include "ToolChains/DragonFly.h"
 #include "ToolChains/FreeBSD.h"
@@ -511,6 +512,9 @@ Driver::OpenMPRuntimeKind Driver::getOpenMPRuntime(const ArgList &Args) const {
 void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
                                               InputList &Inputs) {
 
+  const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
+  const llvm::Triple &HostTriple = HostTC->getTriple();
+
   //
   // CUDA
   //
@@ -518,8 +522,6 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
   if (llvm::any_of(Inputs, [](std::pair<types::ID, const llvm::opt::Arg *> &I) {
         return types::isCuda(I.first);
       })) {
-    const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
-    const llvm::Triple &HostTriple = HostTC->getTriple();
     llvm::Triple CudaTriple(HostTriple.isArch64Bit() ? "nvptx64-nvidia-cuda"
                                                      : "nvptx-nvidia-cuda");
     // Use the CUDA and host triples as the key into the ToolChains map, because
@@ -574,8 +576,11 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
           if (TT.getArch() == llvm::Triple::UnknownArch)
             Diag(clang::diag::err_drv_invalid_omp_target) << Val;
           else {
-            const ToolChain &TC = getToolChain(C.getInputArgs(), TT);
-            C.addOffloadDeviceToolChain(&TC, Action::OFK_OpenMP);
+            auto &OMPTC = ToolChains[TT.str() + "/" + HostTriple.str()];
+            if (!OMPTC)
+              OMPTC = llvm::make_unique<toolchains::OmpDeviceToolChain>(
+               *this, TT , *HostTC, C.getInputArgs());
+            C.addOffloadDeviceToolChain(OMPTC.get(), Action::OFK_OpenMP);
           }
         }
       } else
@@ -2099,6 +2104,9 @@ class OffloadingActionBuilder final {
     /// The OpenMP actions for the current input.
     ActionList OpenMPDeviceActions;
 
+    /// List of GPU architectures to use in this compilation.
+    SmallVector<CudaArch, 4> GpuArchList;
+
     /// The linker inputs obtained for each toolchain.
     SmallVector<ActionList, 8> DeviceLinkerInputs;
 
@@ -2142,6 +2150,9 @@ class OffloadingActionBuilder final {
 
     ActionBuilderReturnCode addDeviceDepences(Action *HostAction) override {
 
+      assert(!GpuArchList.empty() &&
+               "We should have at least one GPU architecture.");
+
       // If this is an input action replicate it for each OpenMP toolchain.
       if (auto *IA = dyn_cast<InputAction>(HostAction)) {
         OpenMPDeviceActions.clear();
@@ -2156,6 +2167,7 @@ class OffloadingActionBuilder final {
         OpenMPDeviceActions.clear();
         for (unsigned I = 0; I < ToolChains.size(); ++I) {
           OpenMPDeviceActions.push_back(UA);
+          printf("addDeviceDepences: RegisterDependentActionInfo No BoundArch \n");
           UA->registerDependentActionInfo(
               ToolChains[I], /*BoundArch=*/StringRef(), Action::OFK_OpenMP);
         }
@@ -2177,7 +2189,9 @@ class OffloadingActionBuilder final {
         for (Action *&A : OpenMPDeviceActions) {
           assert(isa<CompileJobAction>(A));
           OffloadAction::DeviceDependences DDep;
-          DDep.add(*A, **TC, /*BoundArch=*/nullptr, Action::OFK_OpenMP);
+          for (unsigned I = 0, E = GpuArchList.size(); I != E; ++I)
+            DDep.add(*A, **TC, CudaArchToString(GpuArchList[I]),
+              Action::OFK_OpenMP);
           A = C.MakeAction<OffloadAction>(HDep, DDep);
           ++TC;
         }
@@ -2197,7 +2211,9 @@ class OffloadingActionBuilder final {
       auto TI = ToolChains.begin();
       for (auto *A : OpenMPDeviceActions) {
         OffloadAction::DeviceDependences Dep;
-        Dep.add(*A, **TI, /*BoundArch=*/nullptr, Action::OFK_OpenMP);
+        for (unsigned I = 0, E = GpuArchList.size(); I != E; ++I)
+          Dep.add(*A, **TI, CudaArchToString(GpuArchList[I]),
+            Action::OFK_OpenMP);
         AL.push_back(C.MakeAction<OffloadAction>(Dep, A->getType()));
         ++TI;
       }
@@ -2212,10 +2228,12 @@ class OffloadingActionBuilder final {
       // Append a new link action for each device.
       auto TC = ToolChains.begin();
       for (auto &LI : DeviceLinkerInputs) {
-        auto *DeviceLinkAction =
+        for (unsigned I = 0, E = GpuArchList.size(); I != E; ++I) {
+          auto *DeviceLinkAction =
             C.MakeAction<LinkJobAction>(LI, types::TY_Image);
-        DA.add(*DeviceLinkAction, **TC, /*BoundArch=*/nullptr,
-               Action::OFK_OpenMP);
+          DA.add(*DeviceLinkAction, **TC, CudaArchToString(GpuArchList[I]),
+            Action::OFK_OpenMP);
+        }
         ++TC;
       }
     }
@@ -2229,7 +2247,45 @@ class OffloadingActionBuilder final {
         ToolChains.push_back(TI->second);
 
       DeviceLinkerInputs.resize(ToolChains.size());
-      return false;
+
+      // Collect all cuda_gpu_arch parameters, removing duplicates.
+      std::set<CudaArch> GpuArchs;
+      bool Error = false;
+      for (Arg *A : Args) {
+        if (!(A->getOption().matches(options::OPT_cuda_gpu_arch_EQ) ||
+              A->getOption().matches(options::OPT_no_cuda_gpu_arch_EQ)))
+          continue;
+        A->claim();
+
+        const StringRef ArchStr = A->getValue();
+        if (A->getOption().matches(options::OPT_no_cuda_gpu_arch_EQ) &&
+            ArchStr == "all") {
+          GpuArchs.clear();
+          continue;
+        }
+        CudaArch Arch = StringToCudaArch(ArchStr);
+        if (Arch == CudaArch::UNKNOWN) {
+          C.getDriver().Diag(clang::diag::err_drv_cuda_bad_gpu_arch) << ArchStr;
+          Error = true;
+        } else if (A->getOption().matches(options::OPT_cuda_gpu_arch_EQ))
+          GpuArchs.insert(Arch);
+        else if (A->getOption().matches(options::OPT_no_cuda_gpu_arch_EQ))
+          GpuArchs.erase(Arch);
+        else
+          llvm_unreachable("Unexpected option.");
+      }
+
+      // Collect list of GPUs remaining in the set.
+      for (CudaArch Arch : GpuArchs)
+        GpuArchList.push_back(Arch);
+
+      // Default to sm_20 which is the lowest common denominator for
+      // supported GPUs.  sm_20 code should work correctly, if
+      // suboptimally, on all newer GPUs.
+      if (GpuArchList.empty())
+        GpuArchList.push_back(CudaArch::SM_20);
+
+      return Error;
     }
 
     bool canUseBundlerUnbundler() const override {
@@ -3142,6 +3198,12 @@ class ToolSelector final {
     if (!AJ || !BJ || !CJ)
       return nullptr;
 
+    // Cannot combine compilation with backend for amdgcn backend
+    if(( AJ->isOffloading(Action::OFK_Cuda) ||
+         AJ->isOffloading(Action::OFK_OpenMP)) &&
+      StringRef(AJ->getOffloadingArch()).startswith("gfx"))
+      return nullptr;
+
     // Get compiler tool.
     const Tool *T = TC.SelectTool(*CJ);
     if (!T)
@@ -3171,6 +3233,12 @@ class ToolSelector final {
     auto *AJ = dyn_cast<AssembleJobAction>(ActionInfo[0].JA);
     auto *BJ = dyn_cast<BackendJobAction>(ActionInfo[1].JA);
     if (!AJ || !BJ)
+      return nullptr;
+
+    // Cannot combine assemble with backend for amdgcn backend
+    if(( AJ->isOffloading(Action::OFK_Cuda) ||
+         AJ->isOffloading(Action::OFK_OpenMP)) &&
+      StringRef(AJ->getOffloadingArch()).startswith("gfx"))
       return nullptr;
 
     // Retrieve the compile job, backend action must always be preceded by one.
@@ -3204,6 +3272,12 @@ class ToolSelector final {
     auto *BJ = dyn_cast<BackendJobAction>(ActionInfo[0].JA);
     auto *CJ = dyn_cast<CompileJobAction>(ActionInfo[1].JA);
     if (!BJ || !CJ)
+      return nullptr;
+
+    // Cannot combine compilation with backend for amdgcn backend
+    if((BJ->isOffloading(Action::OFK_Cuda) ||
+         BJ->isOffloading(Action::OFK_OpenMP)) &&
+      StringRef(BJ->getOffloadingArch()).startswith("gfx"))
       return nullptr;
 
     // Get compiler tool.

@@ -58,6 +58,7 @@ add_clang_library(clangDriver
   ToolChains/TCE.cpp
   ToolChains/WebAssembly.cpp
   ToolChains/XCore.cpp
+  ToolChains/OmpDevice.cpp
   Types.cpp
 
   DEPENDS

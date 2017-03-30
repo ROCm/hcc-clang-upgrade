@@ -1,4 +1,4 @@
-//===--- Cuda.h - Cuda ToolChain Implementations ----------------*- C++ -*-===//
+//===--- OmpDevice.h - OpenMP Device ToolChain Implementations --*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,10 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_CUDA_H
-#define LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_CUDA_H
+#ifndef LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_OMPDEVICE_H
+#define LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_OMPDEVICE_H
 
-#include "clang/Basic/Cuda.h"
+#include "Cuda.h"
 #include "clang/Basic/VersionTuple.h"
 #include "clang/Driver/Action.h"
 #include "clang/Driver/Multilib.h"
@@ -25,67 +25,14 @@
 namespace clang {
 namespace driver {
 
-/// A class to find a viable CUDA installation
-class CudaInstallationDetector {
-private:
-  const Driver &D;
-  bool IsValid = false;
-  CudaVersion Version = CudaVersion::UNKNOWN;
-  std::string InstallPath;
-  std::string BinPath;
-  std::string LibPath;
-  std::string LibDevicePath;
-  std::string IncludePath;
-  llvm::StringMap<std::string> LibDeviceMap;
-
-  // CUDA architectures for which we have raised an error in
-  // CheckCudaVersionSupportsArch.
-  mutable llvm::SmallSet<CudaArch, 4> ArchsWithVersionTooLowErrors;
-
-public:
-  CudaInstallationDetector(const Driver &D, const llvm::Triple &HostTriple,
-                           const llvm::opt::ArgList &Args);
-
-  void AddCudaIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                          llvm::opt::ArgStringList &CC1Args) const;
-
-  /// \brief Emit an error if Version does not support the given Arch.
-  ///
-  /// If either Version or Arch is unknown, does not emit an error.  Emits at
-  /// most one error per Arch.
-  void CheckCudaVersionSupportsArch(CudaArch Arch) const;
-
-  /// \brief Check whether we detected a valid Cuda install.
-  bool isValid() const { return IsValid; }
-  /// \brief Print information about the detected CUDA installation.
-  void print(raw_ostream &OS) const;
-
-  /// \brief Get the detected Cuda install's version.
-  CudaVersion version() const { return Version; }
-  /// \brief Get the detected Cuda installation path.
-  StringRef getInstallPath() const { return InstallPath; }
-  /// \brief Get the detected path to Cuda's bin directory.
-  StringRef getBinPath() const { return BinPath; }
-  /// \brief Get the detected Cuda Include path.
-  StringRef getIncludePath() const { return IncludePath; }
-  /// \brief Get the detected Cuda library path.
-  StringRef getLibPath() const { return LibPath; }
-  /// \brief Get the detected Cuda device library path.
-  StringRef getLibDevicePath() const { return LibDevicePath; }
-  /// \brief Get libdevice file for given architecture
-  std::string getLibDeviceFile(StringRef Gpu) const {
-    return LibDeviceMap.lookup(Gpu);
-  }
-};
-
 namespace tools {
-namespace NVPTX {
+namespace OMPDEV {
 
 // for amdgcn the backend is llvm-link + opt
 class LLVM_LIBRARY_VISIBILITY Backend : public Tool {
   public:
     Backend(const ToolChain &TC)
-      : Tool("NVPTX::Backend", "GPU-backend", TC, RF_Full, llvm::sys::WEM_UTF8,
+      : Tool("OMPDEV::Backend", "GPU-backend", TC, RF_Full, llvm::sys::WEM_UTF8,
               "--options-file") {}
     virtual bool hasIntegratedCPP() const override { return false; }
     //virtual bool isLinkJob() const { return false; }
@@ -96,11 +43,11 @@ class LLVM_LIBRARY_VISIBILITY Backend : public Tool {
                               const char *LinkingOutput) const override;
 };
 
-// Run ptxas, the NVPTX assembler.
+// Run ptxas, the OMPDEV assembler.
 class LLVM_LIBRARY_VISIBILITY Assembler : public Tool {
  public:
    Assembler(const ToolChain &TC)
-       : Tool("NVPTX::Assembler", "ptxas", TC, RF_Full, llvm::sys::WEM_UTF8,
+       : Tool("OMPDEV::Assembler", "ptxas", TC, RF_Full, llvm::sys::WEM_UTF8,
               "--options-file") {}
 
    bool hasIntegratedCPP() const override { return false; }
@@ -116,7 +63,7 @@ class LLVM_LIBRARY_VISIBILITY Assembler : public Tool {
 class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
  public:
    Linker(const ToolChain &TC)
-       : Tool("NVPTX::Linker", "fatbinary", TC, RF_Full, llvm::sys::WEM_UTF8,
+       : Tool("OMPDEV::Linker", "fatbinary", TC, RF_Full, llvm::sys::WEM_UTF8,
               "--options-file") {}
 
    bool hasIntegratedCPP() const override { return false; }
@@ -127,14 +74,14 @@ class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
                      const char *LinkingOutput) const override;
 };
 
-} // end namespace NVPTX
+} // end namespace OMPDEV
 } // end namespace tools
 
 namespace toolchains {
 
-class LLVM_LIBRARY_VISIBILITY CudaToolChain : public ToolChain {
+class LLVM_LIBRARY_VISIBILITY OmpDeviceToolChain : public ToolChain {
 public:
-  CudaToolChain(const Driver &D, const llvm::Triple &Triple,
+  OmpDeviceToolChain(const Driver &D, const llvm::Triple &Triple,
                 const ToolChain &HostTC, const llvm::opt::ArgList &Args);
 
   virtual const llvm::Triple *getAuxTriple() const override {
@@ -156,27 +103,8 @@ public:
   bool isPICDefaultForced() const override { return false; }
   bool SupportsProfiling() const override { return false; }
   bool SupportsObjCGC() const override { return false; }
-
   void AddCudaIncludeArgs(const llvm::opt::ArgList &DriverArgs,
                           llvm::opt::ArgStringList &CC1Args) const override;
-
-  void addClangWarningOptions(llvm::opt::ArgStringList &CC1Args) const override;
-  CXXStdlibType GetCXXStdlibType(const llvm::opt::ArgList &Args) const override;
-  void
-  AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                            llvm::opt::ArgStringList &CC1Args) const override;
-  void AddClangCXXStdlibIncludeArgs(
-      const llvm::opt::ArgList &Args,
-      llvm::opt::ArgStringList &CC1Args) const override;
-  void AddIAMCUIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                           llvm::opt::ArgStringList &CC1Args) const override;
-
-  SanitizerMask getSupportedSanitizers() const override;
-
-  VersionTuple
-  computeMSVCVersion(const Driver *D,
-                     const llvm::opt::ArgList &Args) const override;
-
   const ToolChain &HostTC;
   CudaInstallationDetector CudaInstallation;
 
@@ -190,4 +118,4 @@ protected:
 } // end namespace driver
 } // end namespace clang
 
-#endif // LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_CUDA_H
+#endif // LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_OMPDEVICE_H

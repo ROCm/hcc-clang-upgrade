@@ -88,6 +88,28 @@ void handleTargetFeaturesGroup(const llvm::opt::ArgList &Args,
                                std::vector<StringRef> &Features,
                                llvm::opt::OptSpecifier Group);
 
+void addBCLib(Compilation &C, const llvm::opt::ArgList &Args,
+              llvm::opt::ArgStringList &CmdArgs,
+              llvm::opt::ArgStringList LibraryPaths,
+              const char *BCName) ;
+
+void addEnvListWithSpaces(const llvm::opt::ArgList &Args,
+                          llvm::opt::ArgStringList &CmdArgs,
+                          const char *EnvVar) ;
+
+/// Add OpenMP linker script arguments at the end of the argument list so that
+/// the fat binary is built by embedding each of the device images into the
+/// host. The linker script also defines a few symbols required by the code
+/// generation so that the images can be easily retrieved at runtime by the
+/// offloading library. This should be used only in tool chains that support
+/// linker scripts.
+void AddOpenMPLinkerScript(const ToolChain &TC, Compilation &C,
+                                  const InputInfo &Output,
+                                  const InputInfoList &Inputs,
+                                  const llvm::opt::ArgList &Args,
+                                  llvm::opt::ArgStringList &CmdArgs,
+                                  const JobAction &JA) ;
+
 } // end namespace tools
 } // end namespace driver
 } // end namespace clang

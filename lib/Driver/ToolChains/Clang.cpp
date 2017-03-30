@@ -1901,7 +1901,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                          const InputInfo &Output, const InputInfoList &Inputs,
                          const ArgList &Args, const char *LinkingOutput) const {
   const llvm::Triple &Triple = getToolChain().getEffectiveTriple();
-  const std::string &TripleStr = Triple.getTriple();
+  const std::string &TripleStr = (JA.isOffloading(Action::OFK_Cuda) &&
+     StringRef(JA.getOffloadingArch()).startswith("gfx")) ?
+    "amdgcn--cuda" : Triple.getTriple();
 
   bool KernelOrKext =
       Args.hasArg(options::OPT_mkernel, options::OPT_fapple_kext);
@@ -2555,6 +2557,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // a linker bug (see <rdar://problem/7651567>), and CUDA device code, where
   // aliases aren't supported.
   if (!getToolChain().getTriple().isOSDarwin() &&
+      !(getToolChain().getArch() == llvm::Triple::amdgcn) &&
       !getToolChain().getTriple().isNVPTX())
     CmdArgs.push_back("-mconstructor-aliases");
 
