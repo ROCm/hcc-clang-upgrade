@@ -84,10 +84,12 @@ private:
   path_list ProgramPaths;
 
   mutable std::unique_ptr<Tool> Clang;
+  mutable std::unique_ptr<Tool> Backend;
   mutable std::unique_ptr<Tool> Assemble;
   mutable std::unique_ptr<Tool> Link;
   mutable std::unique_ptr<Tool> OffloadBundler;
   Tool *getClang() const;
+  Tool *getBackend() const;
   Tool *getAssemble() const;
   Tool *getLink() const;
   Tool *getClangAs() const;
@@ -110,6 +112,7 @@ protected:
             const llvm::opt::ArgList &Args);
 
   virtual Tool *buildAssembler() const;
+  virtual Tool *buildBackend() const;
   virtual Tool *buildLinker() const;
   virtual Tool *getTool(Action::ActionClass AC) const;
 

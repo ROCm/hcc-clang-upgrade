@@ -221,6 +221,10 @@ Tool *ToolChain::getClang() const {
   return Clang.get();
 }
 
+Tool *ToolChain::buildBackend() const {
+  return new tools::Clang(*this);
+}
+
 Tool *ToolChain::buildAssembler() const {
   return new tools::ClangAs(*this);
 }
@@ -233,6 +237,12 @@ Tool *ToolChain::getAssemble() const {
   if (!Assemble)
     Assemble.reset(buildAssembler());
   return Assemble.get();
+}
+
+Tool *ToolChain::getBackend() const {
+  if(!Backend)
+    Backend.reset(buildBackend());
+  return Backend.get();
 }
 
 Tool *ToolChain::getClangAs() const {
@@ -275,8 +285,9 @@ Tool *ToolChain::getTool(Action::ActionClass AC) const {
   case Action::AnalyzeJobClass:
   case Action::MigrateJobClass:
   case Action::VerifyPCHJobClass:
-  case Action::BackendJobClass:
     return getClang();
+  case Action::BackendJobClass:
+    return getBackend();
 
   case Action::OffloadBundlingJobClass:
   case Action::OffloadUnbundlingJobClass:
@@ -352,7 +363,16 @@ bool ToolChain::needsProfileRT(const ArgList &Args) {
 
 Tool *ToolChain::SelectTool(const JobAction &JA) const {
   Action::ActionClass AC = JA.getKind();
-
+  // The cuda amdgcn Backend needs buildBackend()
+  if ( JA.isOffloading(Action::OFK_Cuda)  &&
+       StringRef(JA.getOffloadingArch()).startswith("gfx") &&
+       (AC == Action::BackendJobClass) ) {
+    if ( (Args.hasArg(options::OPT_emit_llvm)) ||
+          (Args.hasArg(options::OPT_emit_llvm_bc)) )
+      return getClang(); // Dont run amdgcn backend if we just want LLVM IR
+    else
+      return getTool(AC);
+  };
   if (getDriver().ShouldUseClangCompiler(JA)) return getClang();
   if (AC == Action::AssembleJobClass && useIntegratedAs())
     return getClangAs();
