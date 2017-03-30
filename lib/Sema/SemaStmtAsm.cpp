@@ -205,9 +205,14 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
   // The parser verifies that there is a string literal here.
   assert(AsmString->isAscii());
 
+  bool found_gcn_cuda =
+    ( (this->getASTContext().getTargetInfo().getTriple().getArch() == llvm::Triple::amdgcn) &&
+      (this->getASTContext().getTargetInfo().getTriple().getOS() == llvm::Triple::CUDA) ) ;
   // If we're compiling CUDA file and function attributes indicate that it's not
   // for this compilation side, skip all the checks.
-  if (!DeclAttrsMatchCUDAMode(getLangOpts(), getCurFunctionDecl())) {
+  // Also skip ptx ASM checks if cuda for amdgcn
+  if (!DeclAttrsMatchCUDAMode(getLangOpts(), getCurFunctionDecl())
+    || found_gcn_cuda) {
     GCCAsmStmt *NS = new (Context) GCCAsmStmt(
         Context, AsmLoc, IsSimple, IsVolatile, NumOutputs, NumInputs, Names,
         Constraints, Exprs.data(), AsmString, NumClobbers, Clobbers, RParenLoc);

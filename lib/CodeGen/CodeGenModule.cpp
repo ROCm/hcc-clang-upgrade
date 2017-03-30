@@ -195,6 +195,7 @@ void CodeGenModule::createOpenMPRuntime() {
   // Select a specialized code generation class based on the target, if any.
   // If it does not exist use the default implementation.
   switch (getTriple().getArch()) {
+  case llvm::Triple::amdgcn:
   case llvm::Triple::nvptx:
   case llvm::Triple::nvptx64:
     assert(getLangOpts().OpenMPIsDevice &&
@@ -3212,6 +3213,8 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
   maybeSetTrivialComdat(*D, *Fn);
 
   CodeGenFunction(*this).GenerateCode(D, Fn, FI);
+  if((getTriple().getArch() == llvm::Triple::amdgcn) && D->hasAttr<CUDAGlobalAttr>())
+     Fn->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
 
   setFunctionDefinitionAttributes(D, Fn);
   SetLLVMFunctionAttributesForDefinition(D, Fn);
@@ -4284,7 +4287,8 @@ static void EmitGlobalDeclMetadata(CodeGenModule &CGM,
 void CodeGenModule::EmitStaticExternCAliases() {
   // Don't do anything if we're generating CUDA device code -- the NVPTX
   // assembly target doesn't support aliases.
-  if (Context.getTargetInfo().getTriple().isNVPTX())
+  if (Context.getTargetInfo().getTriple().isNVPTX() ||
+    (Context.getTargetInfo().getTriple().getArch()==llvm::Triple::amdgcn))
     return;
   for (auto &I : StaticExternCValues) {
     IdentifierInfo *Name = I.first;

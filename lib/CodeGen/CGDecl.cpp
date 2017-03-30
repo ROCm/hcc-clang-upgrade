@@ -407,6 +407,11 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   if (D.getInit() && !isCudaSharedVar && !isHCCTileStaticVar)
     var = AddInitializerToStaticVarDecl(D, var);
 
+  if(getLangOpts().CUDA && getLangOpts().CUDAIsDevice &&
+    (getContext().getTargetInfo().getTriple().getArch()==llvm::Triple::amdgcn))
+    var->setInitializer(
+      llvm::UndefValue::get(getTypes().ConvertType(D.getType())));
+
   var->setAlignment(alignment.getQuantity());
 
   if (D.hasAttr<AnnotateAttr>())

@@ -425,6 +425,23 @@ CodeGenTypes::arrangeFunctionDeclaration(const FunctionDecl *FD) {
 
   assert(isa<FunctionType>(FTy));
 
+  if ((getContext().getTargetInfo().getTriple().getArch() == llvm::Triple::amdgcn)
+      && FD->hasAttr<CUDAGlobalAttr>()) {
+    SmallVector<CanQualType, 16> argCanQualTypes;
+    for (ParmVarDecl * Arg : FD->parameters()) {
+      if (Arg->getType().getTypePtr()->isPointerType()) {
+        Arg->setType(getContext().getAddrSpaceQualType(
+          Arg->getType(),LangAS::cuda_device));
+        argCanQualTypes.push_back(CanQualType::CreateUnsafe(
+          getContext().getAddrSpaceQualType( getContext().getCanonicalParamType(Arg->getType()),
+          LangAS::cuda_device)));
+      } else
+        argCanQualTypes.push_back(getContext().getCanonicalParamType(Arg->getType()));
+    }
+    return arrangeLLVMFunctionInfo( getContext().VoidTy, false,
+      false, argCanQualTypes, FunctionType::ExtInfo(), {}, RequiredArgs::All);
+  }
+
   // When declaring a function without a prototype, always use a
   // non-variadic type.
   if (CanQual<FunctionNoProtoType> noProto = FTy.getAs<FunctionNoProtoType>()) {

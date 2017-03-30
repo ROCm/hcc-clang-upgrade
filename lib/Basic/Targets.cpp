@@ -1903,6 +1903,13 @@ public:
           return "610";
         case CudaArch::SM_62:
           return "620";
+        case CudaArch::GFX700: return "700";
+        case CudaArch::GFX701: return "701";
+        case CudaArch::GFX800: return "800";
+        case CudaArch::GFX801: return "801";
+        case CudaArch::GFX802: return "802";
+        case CudaArch::GFX803: return "803";
+        case CudaArch::GFX810: return "810";
         }
         llvm_unreachable("unhandled CudaArch");
       }();
@@ -2043,6 +2050,20 @@ class AMDGPUTargetInfo final : public TargetInfo {
     GK_GFX9
   } GPU;
 
+  /// \brief The GPU profiles supported by CUDA for GCN
+/*
+  enum GCNKind {
+    GFXNONE,
+    GFX700,
+    GFX701,
+    GFX800,
+    GFX801,
+    GFX802,
+    GFX803,
+    GFX810
+  } GCN;
+*/
+
   bool hasFP64:1;
   bool hasFMAF:1;
   bool hasLDEXPF:1;
@@ -2051,6 +2072,7 @@ class AMDGPUTargetInfo final : public TargetInfo {
   static bool isAMDGCN(const llvm::Triple &TT) {
     return TT.getArch() == llvm::Triple::amdgcn;
   }
+  CudaArch GCN_Subarch;
 
 public:
   AMDGPUTargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
@@ -2066,6 +2088,8 @@ public:
       hasFMAF = true;
       hasLDEXPF = true;
     }
+    
+    GCN_Subarch = CudaArch::GFX803; /*default to Fiji */
 
     resetDataLayout(getTriple().getArch() == llvm::Triple::amdgcn ?
                     DataLayoutStringSI : DataLayoutStringR600);
@@ -2146,7 +2170,7 @@ public:
     IntMaxType  = Is32Bit ? SignedLongLong   : SignedLong;
     Int64Type   = Is32Bit ? SignedLongLong   : SignedLong;
   }
-
+  
   uint64_t getPointerWidthV(unsigned AddrSpace) const override {
     if (GPU <= GK_CAYMAN)
       return 32;
@@ -2234,6 +2258,40 @@ public:
       Builder.defineMacro("__HAS_LDEXPF__");
     if (hasFP64)
       Builder.defineMacro("__HAS_FP64__");
+
+    if(getTriple().getOS() == llvm::Triple::CUDA) {
+      // Set __CUDA_ARCH__ for the GPU specified.
+      std::string CUDAArchCode = [this] {
+        switch (GCN_Subarch) {
+        case CudaArch::UNKNOWN:
+          assert(false && "No GPU arch when compiling CUDA device code.");
+          return "";
+        case CudaArch::SM_20: return "200";
+        case CudaArch::SM_21: return "210";
+        case CudaArch::SM_30: return "300";
+        case CudaArch::SM_32: return "320";
+        case CudaArch::SM_35: return "350";
+        case CudaArch::SM_37: return "370";
+        case CudaArch::SM_50: return "500";
+        case CudaArch::SM_52: return "520";
+        case CudaArch::SM_53: return "530";
+        case CudaArch::SM_60: return "600";
+        case CudaArch::SM_61: return "610";
+        case CudaArch::SM_62: return "620";
+        case CudaArch::GFX700: return "700";
+        case CudaArch::GFX701: return "701";
+        case CudaArch::GFX800: return "800";
+        case CudaArch::GFX801: return "801";
+        case CudaArch::GFX802: return "802";
+        case CudaArch::GFX803: return "803";
+        case CudaArch::GFX810: return "810";
+        }
+        llvm_unreachable("unhandled CudaArch");
+      }();
+      // Set __CUDA_ARCH__ for the GPU specified.
+      Builder.defineMacro("__CUDA_ARCH__", CUDAArchCode);
+    }
+
   }
 
   BuiltinVaListKind getBuiltinVaListKind() const override {
@@ -2391,6 +2449,7 @@ public:
   // In amdgcn target the null pointer in local and private address spaces has
   // value ~0 and in other address spaces has value 0
   uint64_t getNullPointerValue(unsigned AS) const override {
+    if(getTriple().getOS()==llvm::Triple::CUDA) return 0;
     return AS != AS_Local && AS != AS_Private ? 0 : ~0;
   }
 

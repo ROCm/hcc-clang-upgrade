@@ -137,5 +137,7 @@ BUILTIN(__builtin_r600_read_tidig_z, "Ui", "nc")
 BUILTIN(__builtin_r600_recipsqrt_ieee, "dd", "nc")
 BUILTIN(__builtin_r600_recipsqrt_ieeef, "ff", "nc")
 
+#include "clang/Basic/BuiltinsNVPTX.def"
+
 #undef BUILTIN
 #undef TARGET_BUILTIN
