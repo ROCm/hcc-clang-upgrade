@@ -224,6 +224,14 @@ public:
   /// and/or incomplete argument types, this will return the opaque type.
   llvm::Type *GetFunctionTypeForVTable(GlobalDecl GD);
 
+  /// GetDeterminedAS - If the Address Space of a parent or subordinate type
+  /// is determined (non-Generic and non-Private) then return this value.
+  /// If a conflict exists, return the AS of the subordinate. This is used to
+  /// correctly propogate the QualType address space through the recursion in
+  /// ConvertType. If both parent and subordinate cannot be determined,
+  /// return 0 which indicates TBD (to be determined).
+  unsigned GetDeterminedAS(QualType T, QualType Sub);
+
   const CGRecordLayout &getCGRecordLayout(const RecordDecl*);
 
   /// UpdateCompletedType - When we find the full definition for a TagDecl,
