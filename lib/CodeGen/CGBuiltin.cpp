@@ -8809,7 +8809,6 @@ Value *CodeGenFunction::EmitSystemZBuiltinExpr(unsigned BuiltinID,
 // These Builtins are converted to AMDGCN with libcuda2gcn.ll
 Value *CodeGenFunction::EmitNVPTX4GCNBuiltinExpr(unsigned BuiltinID,
                                              const CallExpr *E) {
-  E->dump();
   auto MakeLdg = [&](unsigned IntrinsicID) {
     Value *Ptr = EmitScalarExpr(E->getArg(0));
     AlignmentSource AlignSource;
