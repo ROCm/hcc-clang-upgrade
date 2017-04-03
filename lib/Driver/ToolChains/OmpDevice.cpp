@@ -216,6 +216,9 @@ void OMPDEV::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
   for (const auto& A : Args.getAllArgValues(options::OPT_Xcuda_ptxas))
     CmdArgs.push_back(Args.MakeArgString(A));
 
+  if(JA.isOffloading(Action::OFK_OpenMP))
+    CmdArgs.push_back("-c");
+
   const char *Exec;
   if (Arg *A = Args.getLastArg(options::OPT_ptxas_path_EQ))
     Exec = A->getValue();
@@ -405,8 +408,6 @@ void OmpDeviceToolChain::addClangTargetOptions(
     const llvm::opt::ArgList &DriverArgs,
     llvm::opt::ArgStringList &CC1Args) const {
   HostTC.addClangTargetOptions(DriverArgs, CC1Args);
-
-  CC1Args.push_back("-fcuda-is-device");
 
   if (DriverArgs.hasFlag(options::OPT_fcuda_flush_denormals_to_zero,
                          options::OPT_fno_cuda_flush_denormals_to_zero, false))
