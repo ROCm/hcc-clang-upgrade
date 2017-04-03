@@ -60,6 +60,7 @@ add_clang_library(clangDriver
   ToolChains/XCore.cpp
   ToolChains/OmpDevice.cpp
   Types.cpp
+  XRayArgs.cpp
 
   DEPENDS
   ClangDriverOptions

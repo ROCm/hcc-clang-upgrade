@@ -44,6 +44,7 @@ namespace driver {
   class RegisterEffectiveTriple;
   class SanitizerArgs;
   class Tool;
+  class XRayArgs;
 
 /// ToolChain - Access to tools for a single platform.
 class ToolChain {
@@ -96,12 +97,15 @@ private:
   Tool *getOffloadBundler() const;
 
   mutable std::unique_ptr<SanitizerArgs> SanitizerArguments;
+  mutable std::unique_ptr<XRayArgs> XRayArguments;
 
   /// The effective clang triple for the current Job.
   mutable llvm::Triple EffectiveTriple;
 
   /// Set the toolchain's effective clang triple.
-  void setEffectiveTriple(llvm::Triple ET) const { EffectiveTriple = ET; }
+  void setEffectiveTriple(llvm::Triple ET) const {
+    EffectiveTriple = std::move(ET);
+  }
 
   friend class RegisterEffectiveTriple;
 
@@ -177,6 +181,8 @@ public:
   const MultilibSet &getMultilibs() const { return Multilibs; }
 
   const SanitizerArgs& getSanitizerArgs() const;
+
+  const XRayArgs& getXRayArgs() const;
 
   // Returns the Arg * that explicitly turned on/off rtti, or nullptr.
   const llvm::opt::Arg *getRTTIArg() const { return CachedRTTIArg; }
@@ -479,7 +485,7 @@ class RegisterEffectiveTriple {
 
 public:
   RegisterEffectiveTriple(const ToolChain &TC, llvm::Triple T) : TC(TC) {
-    TC.setEffectiveTriple(T);
+    TC.setEffectiveTriple(std::move(T));
   }
 
   ~RegisterEffectiveTriple() { TC.setEffectiveTriple(llvm::Triple()); }
