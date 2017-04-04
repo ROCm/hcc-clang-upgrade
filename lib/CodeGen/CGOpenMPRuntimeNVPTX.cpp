@@ -151,10 +151,17 @@ enum NamedBarrier : unsigned {
 /// Get the GPU warp size.
 static llvm::Value *getNVPTXWarpSize(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  return Bld.CreateCall(
-      llvm::Intrinsic::getDeclaration(
-          &CGF.CGM.getModule(), llvm::Intrinsic::nvvm_read_ptx_sreg_warpsize),
-      llvm::None, "nvptx_warp_size");
+  llvm::Module* M = &CGF.CGM.getModule();
+  llvm::Function * F;
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    F = M->getFunction("nvvm.read.ptx.sreg.warpsize");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.Int32Ty, None, false),
+      llvm::GlobalVariable::ExternalLinkage,
+      "nvvm.read.ptx.sreg.warpsize",M);
+  } else
+    F = llvm::Intrinsic::getDeclaration(M,llvm::Intrinsic::nvvm_read_ptx_sreg_warpsize);
+  return Bld.CreateCall(F,llvm::None, "nvptx_warp_size");
 }
 
 /// Get the id of the current thread on the GPU.
