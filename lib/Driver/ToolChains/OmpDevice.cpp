@@ -135,7 +135,7 @@ void OMPDEV::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
                                     const char *LinkingOutput) const {
   const auto &TC =
       static_cast<const toolchains::OmpDeviceToolChain &>(getToolChain());
-  assert( (TC.getTriple().isOMPDEV() || TC.getTriple().isAMDGCN())
+  assert( (TC.getTriple().isOMPDEV() || (TC.getTriple().getArch()==llvm::Triple::amdgcn))
     && "Wrong platform");
 
   // Obtain architecture from the action.
