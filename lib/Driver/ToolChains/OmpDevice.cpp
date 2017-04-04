@@ -63,13 +63,15 @@ void OMPDEV::Backend::ConstructJob(Compilation &C, const JobAction &JA,
   LibraryPaths.push_back(Args.MakeArgString(
     "-L" + std::string(libamdgcn) + "/" + std::string(GFXNAME)  + "/lib"));
 
-  //  Remove hcc2 search when libcuda2gcn.bc moves to LIBAMDGCN
-  const char * hcc2;
-  hcc2 = getenv("HCC2");
-  if (!hcc2) hcc2 = "/opt/rocm/hcc2";
-  LibraryPaths.push_back(Args.MakeArgString( "-L" + std::string(hcc2) + "/lib"));
+  const char * amdllvm = getenv("AMDLLVM");
+  if (!amdllvm) amdllvm = "/opt/amd/llvm";
+  LibraryPaths.push_back(Args.MakeArgString( "-L" + std::string(amdllvm) + 
+    "/lib/libdevice"));
 
-  // As of now based on AMD ROCm 1.4.0
+  addBCLib(C, Args, CmdArgs, LibraryPaths,
+    Args.MakeArgString("libomptarget-amdgcn-" + std::string(GFXNAME) + ".bc"));
+  addBCLib(C, Args, CmdArgs, LibraryPaths,
+    Args.MakeArgString("libicuda2gcn-" + std::string(GFXNAME)  + ".bc"));
   addBCLib(C, Args, CmdArgs, LibraryPaths, "libcuda2gcn.bc");
   addBCLib(C, Args, CmdArgs, LibraryPaths, "opencl.amdgcn.bc");
   addBCLib(C, Args, CmdArgs, LibraryPaths, "ockl.amdgcn.bc");
@@ -257,8 +259,7 @@ void OMPDEV::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       }
     }
 
-    const char * amdllvm;
-    amdllvm = getenv("AMDLLVM");
+    const char * amdllvm = getenv("AMDLLVM");
     if (!amdllvm) amdllvm = "/opt/amd/llvm";
     const char *Exec = Args.MakeArgString(std::string(amdllvm) + "/bin/lld");
     C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
