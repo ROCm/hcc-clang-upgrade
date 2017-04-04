@@ -72,7 +72,7 @@ void OMPDEV::Backend::ConstructJob(Compilation &C, const JobAction &JA,
     Args.MakeArgString("libomptarget-amdgcn-" + std::string(GFXNAME) + ".bc"));
   addBCLib(C, Args, CmdArgs, LibraryPaths,
     Args.MakeArgString("libicuda2gcn-" + std::string(GFXNAME)  + ".bc"));
-  addBCLib(C, Args, CmdArgs, LibraryPaths, "libcuda2gcn.bc");
+  addBCLib(C, Args, CmdArgs, LibraryPaths, "cuda2gcn.amdgcn.bc");
   addBCLib(C, Args, CmdArgs, LibraryPaths, "opencl.amdgcn.bc");
   addBCLib(C, Args, CmdArgs, LibraryPaths, "ockl.amdgcn.bc");
   addBCLib(C, Args, CmdArgs, LibraryPaths, "irif.amdgcn.bc");
