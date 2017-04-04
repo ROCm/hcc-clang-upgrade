@@ -16,6 +16,8 @@
 #include "clang/AST/DeclOpenMP.h"
 #include "CodeGenFunction.h"
 #include "clang/AST/StmtOpenMP.h"
+#include "clang/AST/ASTContext.h"
+#include "clang/Basic/GpuGridValues.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -125,21 +127,6 @@ public:
   ~ExecutionModeRAII() { Mode = SavedMode; }
 };
 
-/// GPU Configuration:  This information can be derived from cuda registers,
-/// however, providing compile time constants helps generate more efficient
-/// code.  For all practical purposes this is fine because the configuration
-/// is the same for all known NVPTX architectures.
-enum MachineConfiguration : unsigned {
-  WarpSize = 32,
-  /// Number of bits required to represent a lane identifier, which is
-  /// computed as log_2(WarpSize).
-  LaneIDBits = 5,
-  LaneIDMask = WarpSize - 1,
-
-  /// Global memory alignment for performance.
-  GlobalMemoryAlignment = 256,
-};
-
 enum NamedBarrier : unsigned {
   /// Synchronize on this barrier #ID using a named barrier primitive.
   /// Only the subset of active threads in a parallel region arrive at the
@@ -185,6 +172,8 @@ static llvm::Value *getNVPTXThreadID(CodeGenFunction &CGF) {
 /// on the NVPTX device, to generate more efficient code.
 static llvm::Value *getNVPTXWarpID(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
+  unsigned LaneIDBits = CGF.getContext().getTargetInfo().getGridValue(
+    GPU::GVIDX::GV_Warp_Size_Log2);
   return Bld.CreateAShr(getNVPTXThreadID(CGF), LaneIDBits, "nvptx_warp_id");
 }
 
@@ -193,6 +182,8 @@ static llvm::Value *getNVPTXWarpID(CodeGenFunction &CGF) {
 /// on the NVPTX device, to generate more efficient code.
 static llvm::Value *getNVPTXLaneID(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
+  unsigned LaneIDMask = CGF.getContext().getTargetInfo().getGridValue(
+    GPU::GVIDX::GV_Warp_Size) - 1 ;
   return Bld.CreateAnd(getNVPTXThreadID(CGF), Bld.getInt32(LaneIDMask),
                        "nvptx_lane_id");
 }
@@ -511,7 +502,6 @@ static void setPropertyExecutionMode(CodeGenModule &CGM, StringRef Name,
 
 void CGOpenMPRuntimeNVPTX::emitWorkerFunction(WorkerFunctionState &WST) {
   auto &Ctx = CGM.getContext();
-
   CodeGenFunction CGF(CGM, /*suppressNewContext=*/true);
   CGF.disableDebugInfo();
   CGF.StartFunction(GlobalDecl(), Ctx.VoidTy, WST.WorkerFn, *WST.CGFI, {});
@@ -1252,6 +1242,8 @@ static void emitReductionListCopy(
       // Take care of global memory alignment for performance
       ScratchpadBasePtr = Bld.CreateSub(ScratchpadBasePtr,
                                         llvm::ConstantInt::get(CGM.SizeTy, 1));
+      unsigned GlobalMemoryAlignment =
+        CGM.getContext().getTargetInfo().getGridValue(GPU::GVIDX::GV_Mem_Align);
       ScratchpadBasePtr = Bld.CreateSDiv(
           ScratchpadBasePtr,
           llvm::ConstantInt::get(CGM.SizeTy, GlobalMemoryAlignment));
@@ -1549,6 +1541,8 @@ static llvm::Value *emitInterWarpCopyFunction(CodeGenModule &CGM,
   llvm::GlobalVariable *TransferMedium =
       M.getGlobalVariable(TransferMediumName);
   if (!TransferMedium) {
+    unsigned WarpSize = 
+      CGF.getContext().getTargetInfo().getGridValue(GPU::GVIDX::GV_Warp_Size);
     auto *Ty = llvm::ArrayType::get(CGM.Int64Ty, WarpSize);
     unsigned SharedAddressSpace = C.getTargetAddressSpace(LangAS::cuda_shared);
     TransferMedium = new llvm::GlobalVariable(

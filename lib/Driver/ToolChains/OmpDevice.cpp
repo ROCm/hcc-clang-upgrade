@@ -102,18 +102,18 @@ void OMPDEV::Backend::ConstructJob(Compilation &C, const JobAction &JA,
   // Add CLANG_TARGETOPT_OPTS override options to opt
   if (getenv("CLANG_TARGET_OPT_OPTS"))
     addEnvListWithSpaces(Args, OptArgs, "CLANG_TARGET_OPT_OPTS");
-  else
+  else {
     OptArgs.push_back(Args.MakeArgString("-O2"));
-
-  OptArgs.push_back("-S");
-  const char *mcpustr = Args.MakeArgString("-mcpu=" + GFXNAME);
-  OptArgs.push_back(mcpustr);
-  OptArgs.push_back("-infer-address-spaces");
-  //OptArgs.push_back("-load");
-  //OptArgs.push_back("LLVMSugarAddrSpaceCast.so");
-  //OptArgs.push_back("-sugar-addrspacecast");
-  OptArgs.push_back("-dce");
-  OptArgs.push_back("-globaldce");
+    OptArgs.push_back("-S");
+    const char *mcpustr = Args.MakeArgString("-mcpu=" + GFXNAME);
+    OptArgs.push_back(mcpustr);
+    OptArgs.push_back("-infer-address-spaces");
+    //OptArgs.push_back("-load");
+    //OptArgs.push_back("LLVMSugarAddrSpaceCast.so");
+    //OptArgs.push_back("-sugar-addrspacecast");
+    OptArgs.push_back("-dce");
+    OptArgs.push_back("-globaldce");
+  }
   OptArgs.push_back("-o");
   OptArgs.push_back(Output.getFilename());
   const char *OptExec = Args.MakeArgString(C.getDriver().Dir + "/opt");
@@ -135,8 +135,8 @@ void OMPDEV::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
                                     const char *LinkingOutput) const {
   const auto &TC =
       static_cast<const toolchains::OmpDeviceToolChain &>(getToolChain());
-  assert( (TC.getTriple().isOMPDEV() || (TC.getTriple().getArch()==llvm::Triple::amdgcn))
-    && "Wrong platform");
+  assert( (TC.getTriple().isNVPTX() ||
+    (TC.getTriple().getArch() == llvm::Triple::amdgcn)) && "Wrong platform");
 
   // Obtain architecture from the action.
   CudaArch gpu_arch = StringToCudaArch(JA.getOffloadingArch());
@@ -268,7 +268,7 @@ void OMPDEV::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   const auto &TC =
       static_cast<const toolchains::OmpDeviceToolChain &>(getToolChain());
-  assert(TC.getTriple().isOMPDEV() && "Wrong platform");
+  assert(TC.getTriple().isNVPTX() && "Wrong platform");
 
   ArgStringList CmdArgs;
 

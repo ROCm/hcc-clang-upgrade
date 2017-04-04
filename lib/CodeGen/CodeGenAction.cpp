@@ -230,9 +230,9 @@ namespace clang {
       Ctx.setDiagnosticHandler(DiagnosticHandler, this);
       Ctx.setDiagnosticHotnessRequested(CodeGenOpts.DiagnosticsWithHotness);
 
-      PerformPrelinkPasses(Diags, HeaderSearchOpts, CodeGenOpts, TargetOpts,
-                           LangOpts, C.getTargetInfo().getDataLayout(),
-                           getModule(), Action);
+      //PerformPrelinkPasses(Diags, HeaderSearchOpts, CodeGenOpts, TargetOpts,
+      //                     LangOpts, C.getTargetInfo().getDataLayout(),
+      //                     getModule(), Action);
 
       std::unique_ptr<llvm::tool_output_file> OptRecordFile;
       if (!CodeGenOpts.OptRecordFile.empty()) {

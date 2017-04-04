@@ -207,9 +207,13 @@ static Address castValueFromUintptr(CodeGenFunction &CGF, QualType DstType,
                                     bool isReferenceType = false) {
   ASTContext &Ctx = CGF.getContext();
 
+  QualType DstPtrQT = Ctx.getAddrSpaceQualType(
+    Ctx.getPointerType(DstType),
+    Ctx.getTargetAddressSpace(Ctx.getUIntPtrType())
+  );
   auto *CastedPtr = CGF.EmitScalarConversion(
       AddrLV.getAddress().getPointer(), Ctx.getUIntPtrType(),
-      Ctx.getPointerType(DstType), SourceLocation());
+      DstPtrQT, SourceLocation());
   auto TmpAddr =
       CGF.MakeNaturalAlignAddrLValue(CastedPtr, Ctx.getPointerType(DstType))
           .getAddress();
@@ -274,6 +278,35 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S) {
             ArgType, /*SpelledAsLValue=*/false);
       }
     }
+
+    if ( CapVar && CGM.getLangOpts().OpenMPIsDevice &&
+        (Ctx.getTargetInfo().getTriple().getArch()==llvm::Triple::amdgcn)
+      ) {
+      const clang::Type* ty  = ArgType.getTypePtr();
+      const clang::Type* pty = ty->isReferenceType() ?
+        ty->getPointeeType().getTypePtr() :
+        nullptr;
+
+      if( ty->isAnyPointerType() ||
+          (ty->isReferenceType() && pty->isArrayType()) ||
+          (ty->isReferenceType() && pty->isAnyPointerType()) || ty->isReferenceType() ||
+          CapVar->getType().getAddressSpace()
+        ) {
+        unsigned LLVM_AS = CapVar->getType().getAddressSpace();
+        unsigned LANG_AS = LangAS::cuda_device; // default
+        switch(LLVM_AS) {
+          case 0: break;
+          case 4/*AMDGPU_CONSTANT_ADDRSPACE*/: LANG_AS = LangAS::cuda_constant; break;
+          case 3/*AMDGPU_SHARED_ADDRSAPCE*/: LANG_AS = LangAS::cuda_shared; break;
+          default: assert("Unsupported address space in captured variable!"); break;
+        }
+        CapVar->setType(Ctx.getAddrSpaceQualType(CapVar->getType().getUnqualifiedType(),LANG_AS));
+        // FIXME: needed?
+        FD->setType(Ctx.getAddrSpaceQualType(FD->getType(),LangAS::cuda_device));
+        ArgType = Ctx.getAddrSpaceQualType(ArgType,LANG_AS);
+      }
+    }
+
     Args.push_back(ImplicitParamDecl::Create(getContext(), nullptr,
                                              FD->getLocation(), II, ArgType));
     ++I;
@@ -282,10 +315,20 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S) {
       std::next(CD->param_begin(), CD->getContextParamPosition() + 1),
       CD->param_end());
 
+  SmallVector<CanQualType, 16> argCanQualTypes;
+  for (const auto &Arg : Args) {
+    if (unsigned address_space = Arg->getType().getAddressSpace() )
+      argCanQualTypes.push_back(CanQualType::CreateUnsafe(
+          Ctx.getAddrSpaceQualType( Ctx.getCanonicalParamType(Arg->getType()),
+              address_space)));
+    else
+      argCanQualTypes.push_back(Ctx.getCanonicalParamType(Arg->getType()));
+  }
   // Create the function declaration.
-  FunctionType::ExtInfo ExtInfo;
-  const CGFunctionInfo &FuncInfo =
-      CGM.getTypes().arrangeBuiltinFunctionDeclaration(Ctx.VoidTy, Args);
+  const CGFunctionInfo &FuncInfo = CGM.getTypes().arrangeLLVMFunctionInfo(
+      getContext().VoidTy, false, false, argCanQualTypes,
+      FunctionType::ExtInfo(), {}, RequiredArgs::All);
+
   llvm::FunctionType *FuncLLVMTy = CGM.getTypes().GetFunctionType(FuncInfo);
 
   llvm::Function *F = llvm::Function::Create(
@@ -294,6 +337,11 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S) {
   CGM.SetInternalFunctionAttributes(CD, F, FuncInfo);
   if (CD->isNothrow())
     F->addFnAttr(llvm::Attribute::NoUnwind);
+
+  if ((Ctx.getTargetInfo().getTriple().getArch()==llvm::Triple::amdgcn) &&
+      F->getName().str().find("__omp_offloading_") != std::string::npos &&
+      CGM.getLangOpts().OpenMPIsDevice )
+    F->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
 
   // Generate the function.
   StartFunction(CD, Ctx.VoidTy, F, FuncInfo, Args, CD->getLocation(),

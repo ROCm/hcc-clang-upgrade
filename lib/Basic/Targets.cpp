@@ -19,6 +19,7 @@
 #include "clang/Basic/MacroBuilder.h"
 #include "clang/Basic/TargetBuiltins.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Basic/GpuGridValues.h"
 #include "clang/Basic/TargetOptions.h"
 #include "clang/Basic/Version.h"
 #include "clang/Frontend/CodeGenOptions.h"
@@ -1806,6 +1807,8 @@ public:
 
     TLSSupported = false;
     AddrSpaceMap = &NVPTXAddrSpaceMap;
+    GridValues = (const int*) &(NVPTXGpuGridValues[0]);
+    LongGridValues = (const long long *) &(NVPTXGpuLongGridValues[0]);
     UseAddrSpaceMapMangling = true;
 
     // Define available target features
@@ -2182,6 +2185,8 @@ public:
 
     AddrSpaceMap = IsGenericZero ? &AMDGPUGenericIsZeroMap :
         &AMDGPUPrivateIsZeroMap;
+    GridValues = (const int*) &(AMDGPUGpuGridValues[0]);
+    LongGridValues = (const long long *) &(AMDGPUGpuLongGridValues[0]);
     UseAddrSpaceMapMangling = true;
 
     // If possible, get a TargetInfo for our host triple, so we can match its
