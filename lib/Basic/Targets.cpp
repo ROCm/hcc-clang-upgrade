@@ -2153,6 +2153,7 @@ class AMDGPUTargetInfo final : public TargetInfo {
   static bool isGenericZero(const llvm::Triple &TT) {
     return TT.getEnvironmentName() == "amdgiz" ||
         TT.getEnvironmentName() == "amdgizcl" ||
+        TT.getOS() == llvm::Triple::CUDA ||
         TT.getEnvironment() == llvm::Triple::HCC;
   }
 public:
