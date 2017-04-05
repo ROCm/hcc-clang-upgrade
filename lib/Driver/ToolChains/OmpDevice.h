@@ -47,7 +47,7 @@ class LLVM_LIBRARY_VISIBILITY Backend : public Tool {
 class LLVM_LIBRARY_VISIBILITY Assembler : public Tool {
  public:
    Assembler(const ToolChain &TC)
-       : Tool("OMPDEV::Assembler", "ptxas", TC, RF_Full, llvm::sys::WEM_UTF8,
+       : Tool("OMPDEV::Assembler", "GPU-assembler", TC, RF_Full, llvm::sys::WEM_UTF8,
               "--options-file") {}
 
    bool hasIntegratedCPP() const override { return false; }
@@ -63,7 +63,7 @@ class LLVM_LIBRARY_VISIBILITY Assembler : public Tool {
 class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
  public:
    Linker(const ToolChain &TC)
-       : Tool("OMPDEV::Linker", "fatbinary", TC, RF_Full, llvm::sys::WEM_UTF8,
+       : Tool("OMPDEV::Linker", "GPU-linker", TC, RF_Full, llvm::sys::WEM_UTF8,
               "--options-file") {}
 
    bool hasIntegratedCPP() const override { return false; }

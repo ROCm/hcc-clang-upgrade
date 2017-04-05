@@ -86,7 +86,7 @@ void OMPDEV::Backend::ConstructJob(Compilation &C, const JobAction &JA,
   addBCLib(C, Args, CmdArgs, LibraryPaths, "oclc_isa_version.amdgcn.bc");
 
   addEnvListWithSpaces(Args, CmdArgs, "CLANG_TARGET_LINK_OPTS");
-  CmdArgs.push_back("-suppress-warnings");
+  //  CmdArgs.push_back("-suppress-warnings");
 
   // Add an intermediate output file which is input to opt
   CmdArgs.push_back("-o");
@@ -108,9 +108,9 @@ void OMPDEV::Backend::ConstructJob(Compilation &C, const JobAction &JA,
     const char *mcpustr = Args.MakeArgString("-mcpu=" + GFXNAME);
     OptArgs.push_back(mcpustr);
     OptArgs.push_back("-infer-address-spaces");
-    //OptArgs.push_back("-load");
-    //OptArgs.push_back("LLVMSugarAddrSpaceCast.so");
-    //OptArgs.push_back("-sugar-addrspacecast");
+    OptArgs.push_back("-load");
+    OptArgs.push_back("LLVMSugarAddrSpaceCast.so");
+    OptArgs.push_back("-sugar-addrspacecast");
     OptArgs.push_back("-dce");
     OptArgs.push_back("-globaldce");
   }
