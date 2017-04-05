@@ -355,7 +355,7 @@ void NVPTX::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
                                     const char *LinkingOutput) const {
   const auto &TC =
       static_cast<const toolchains::CudaToolChain &>(getToolChain());
-  assert( (TC.getTriple().isNVPTX() || (TC.getTriple().getArch()==llvm::Triple:amdgcn))
+  assert( (TC.getTriple().isNVPTX() || (TC.getTriple().getArch()==llvm::Triple::amdgcn))
     && "Wrong platform");
 
   // Obtain architecture from the action.
