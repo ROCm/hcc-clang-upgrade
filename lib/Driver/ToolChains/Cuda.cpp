@@ -322,18 +322,18 @@ void NVPTX::Backend::ConstructJob(Compilation &C, const JobAction &JA,
   // Add CLANG_TARGETOPT_OPTS override options to opt
   if (getenv("CLANG_TARGET_OPT_OPTS"))
     addEnvListWithSpaces(Args, OptArgs, "CLANG_TARGET_OPT_OPTS");
-  else
+  else {
     OptArgs.push_back(Args.MakeArgString("-O2"));
-
-  OptArgs.push_back("-S");
-  const char *mcpustr = Args.MakeArgString("-mcpu=" + GFXNAME);
-  OptArgs.push_back(mcpustr);
-  OptArgs.push_back("-infer-address-spaces");
-  //OptArgs.push_back("-load");
-  //OptArgs.push_back("LLVMSugarAddrSpaceCast.so");
-  //OptArgs.push_back("-sugar-addrspacecast");
-  OptArgs.push_back("-dce");
-  OptArgs.push_back("-globaldce");
+    OptArgs.push_back("-S");
+    const char *mcpustr = Args.MakeArgString("-mcpu=" + GFXNAME);
+    OptArgs.push_back(mcpustr);
+    OptArgs.push_back("-infer-address-spaces");
+    OptArgs.push_back("-load");
+    OptArgs.push_back("LLVMSugarAddrSpaceCast.so");
+    OptArgs.push_back("-sugar-addrspacecast");
+    OptArgs.push_back("-dce");
+    OptArgs.push_back("-globaldce");
+  }
   OptArgs.push_back("-o");
   OptArgs.push_back(Output.getFilename());
   const char *OptExec = Args.MakeArgString(C.getDriver().Dir + "/opt");
