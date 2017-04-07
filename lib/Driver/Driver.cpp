@@ -2167,9 +2167,10 @@ class OffloadingActionBuilder final {
         OpenMPDeviceActions.clear();
         for (unsigned I = 0; I < ToolChains.size(); ++I) {
           OpenMPDeviceActions.push_back(UA);
-          printf("addDeviceDepences: RegisterDependentActionInfo No BoundArch \n");
-          UA->registerDependentActionInfo(
-              ToolChains[I], /*BoundArch=*/StringRef(), Action::OFK_OpenMP);
+          for (unsigned I = 0, E = GpuArchList.size(); I != E; ++I) {
+            UA->registerDependentActionInfo(
+              ToolChains[I], CudaArchToString(GpuArchList[I]), Action::OFK_OpenMP);
+          }
         }
         return ABRT_Success;
       }
@@ -3096,6 +3097,8 @@ class ToolSelector final {
   bool SaveTemps;
   bool EmbedBitcode;
 
+  types::ID InputType;
+
   /// Get previous dependent action or null if that does not exist. If
   /// \a CanBeCollapsed is false, that action must be legal to collapse or
   /// null will be returned.
@@ -3153,6 +3156,8 @@ class ToolSelector final {
   bool canCollapsePreprocessorAction() const {
     return !C.getArgs().hasArg(options::OPT_no_integrated_cpp) &&
            !C.getArgs().hasArg(options::OPT_traditional_cpp) && !SaveTemps &&
+           (InputType != types::TY_LLVM_IR) &&  
+           (InputType != types::TY_LLVM_BC) &&
            !C.getArgs().hasArg(options::OPT_rewrite_objc);
   }
 
@@ -3323,6 +3328,15 @@ public:
         EmbedBitcode(EmbedBitcode) {
     assert(BaseAction && "Invalid base action.");
     IsHostSelector = BaseAction->getOffloadingDeviceKind() == Action::OFK_None;
+
+    // Store the InputType to check if Compile and Backend can collapse
+    for(Arg* A : C.getInputArgs()) {
+      if (A->getOption().getKind() == Option::InputClass) {
+        const char *Value = A->getValue();
+        if (const char *Ext = strrchr(Value, '.'))
+          InputType = TC.LookupTypeForExtension(Ext + 1);
+      }
+    }
   }
 
   /// Check if a chain of actions can be combined and return the tool that can

@@ -399,10 +399,6 @@ OmpDeviceToolChain::OmpDeviceToolChain(const Driver &D, const llvm::Triple &Trip
       CudaInstallation(D, HostTC.getTriple(), Args) {
   if (CudaInstallation.isValid())
     getProgramPaths().push_back(CudaInstallation.getBinPath());
-
-  printf("OmpDeviceToolChain created Triple:%s Host Triple:%s\n",
-    Triple.str().c_str(),HostTC.getTripleString().c_str());
-
 }
 
 void OmpDeviceToolChain::addClangTargetOptions(
@@ -422,7 +418,6 @@ void OmpDeviceToolChain::addClangTargetOptions(
     return;
 
   StringRef GpuArch = DriverArgs.getLastArgValue(options::OPT_march_EQ);
-  printf("OmpDeviceToolChain::addClangTargetOptions - GpuArch:%s\n ", GpuArch.str().c_str());
   assert(!GpuArch.empty() && "Must have an explicit GPU arch.");
   std::string LibDeviceFile = CudaInstallation.getLibDeviceFile(GpuArch);
 
@@ -505,7 +500,6 @@ OmpDeviceToolChain::TranslateArgs(const llvm::opt::DerivedArgList &Args,
   }
 
   if (!BoundArch.empty()) {
-    printf("OmpDeviceToolChain::TranslateArgs setting BoundArch %s\n",BoundArch.str().c_str());
     DAL->eraseArg(options::OPT_march_EQ);
     DAL->AddJoinedArg(nullptr, Opts.getOption(options::OPT_march_EQ), BoundArch);
   }

@@ -669,14 +669,17 @@ CudaToolChain::TranslateArgs(const llvm::opt::DerivedArgList &Args,
 }
 
 Tool *CudaToolChain::buildBackend() const {
+  printf("CUDA:buildBackend used\n");
   return new tools::NVPTX::Backend(*this);
 }
 
 Tool *CudaToolChain::buildAssembler() const {
+  printf("CUDA:buildAssembler used\n");
   return new tools::NVPTX::Assembler(*this);
 }
 
 Tool *CudaToolChain::buildLinker() const {
+  printf("CUDA:buildLinker used\n");
   return new tools::NVPTX::Linker(*this);
 }
 
