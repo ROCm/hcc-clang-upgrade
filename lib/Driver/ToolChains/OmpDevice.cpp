@@ -103,7 +103,7 @@ void OMPDEV::Backend::ConstructJob(Compilation &C, const JobAction &JA,
   if (getenv("CLANG_TARGET_OPT_OPTS"))
     addEnvListWithSpaces(Args, OptArgs, "CLANG_TARGET_OPT_OPTS");
   else {
-    OptArgs.push_back(Args.MakeArgString("-O2"));
+    OptArgs.push_back(Args.MakeArgString("-O1"));
     OptArgs.push_back("-S");
     const char *mcpustr = Args.MakeArgString("-mcpu=" + GFXNAME);
     OptArgs.push_back(mcpustr);
