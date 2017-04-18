@@ -520,7 +520,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
       T, cast<ComplexType>(Ty)->getElementType());
     llvm::Type *EltTy = DAS ?
        ConvertType(Context.getAddrSpaceQualType(
-         cast<ComplexType>(Ty)->getElementType(), DAS)) :
+         cast<ComplexType>(Ty)->getElementType().getUnqualifiedType(),DAS)) :
        ConvertType(cast<ComplexType>(Ty)->getElementType());
     ResultType = llvm::StructType::get(EltTy, EltTy, nullptr);
     break;
@@ -530,7 +530,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     const ReferenceType *RTy = cast<ReferenceType>(Ty);
     unsigned DAS = GetDeterminedAS(T,RTy->getPointeeType());
     QualType ETy = DAS ?
-      Context.getAddrSpaceQualType(RTy->getPointeeType(),DAS):
+      Context.getAddrSpaceQualType(RTy->getPointeeType().getUnqualifiedType(),DAS):
       RTy->getPointeeType();
     llvm::Type *PointeeType = ConvertTypeForMem(ETy);
     unsigned AS = Context.getTargetAddressSpace(ETy);
@@ -541,7 +541,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     const PointerType *PTy = cast<PointerType>(Ty);
     unsigned DAS = GetDeterminedAS(T,PTy->getPointeeType());
     QualType ETy = DAS ?
-      Context.getAddrSpaceQualType(PTy->getPointeeType(),DAS):
+      Context.getAddrSpaceQualType(PTy->getPointeeType().getUnqualifiedType(),DAS):
       PTy->getPointeeType();
     llvm::Type *PointeeType = ConvertTypeForMem(ETy);
     if (PointeeType->isVoidTy())
@@ -560,7 +560,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     unsigned DAS = GetDeterminedAS(T,A->getElementType());
     ResultType = DAS ?
       ConvertTypeForMem(
-        Context.getAddrSpaceQualType(A->getElementType(),DAS)) :
+        Context.getAddrSpaceQualType(A->getElementType().getUnqualifiedType(),DAS)) :
       ConvertTypeForMem(A->getElementType());
     break;
   }
@@ -573,7 +573,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     unsigned DAS = GetDeterminedAS(T,A->getElementType());
     ResultType = DAS ?
       ConvertTypeForMem(
-        Context.getAddrSpaceQualType(A->getElementType(),DAS)) :
+        Context.getAddrSpaceQualType(A->getElementType().getUnqualifiedType(),DAS)) :
       ConvertTypeForMem(A->getElementType());
     if (!ResultType->isSized()) {
       SkippedLayout = true;
@@ -587,7 +587,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     unsigned DAS = GetDeterminedAS(T,A->getElementType());
     llvm::Type *EltTy = DAS ?
       ConvertTypeForMem(
-        Context.getAddrSpaceQualType(A->getElementType(),DAS)) :
+        Context.getAddrSpaceQualType(A->getElementType().getUnqualifiedType(),DAS)) :
       ConvertTypeForMem(A->getElementType());
     
     // Lower arrays of undefined struct type to arrays of i8 just to have a 
@@ -606,7 +606,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     unsigned DAS = GetDeterminedAS(T,VT->getElementType());
     ResultType = DAS            ?
       llvm::VectorType::get(ConvertType(
-        Context.getAddrSpaceQualType(VT->getElementType(),DAS)),
+        Context.getAddrSpaceQualType(VT->getElementType().getUnqualifiedType(),DAS)),
         VT->getNumElements())   :
       llvm::VectorType::get(ConvertType(VT->getElementType()),
         VT->getNumElements());
@@ -620,7 +620,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     unsigned DAS = GetDeterminedAS(T,cast<ObjCObjectType>(Ty)->getBaseType());
     ResultType = DAS ?
       ConvertType(
-        Context.getAddrSpaceQualType(cast<ObjCObjectType>(Ty)->getBaseType(),DAS) 
+        Context.getAddrSpaceQualType(cast<ObjCObjectType>(Ty)->getBaseType().getUnqualifiedType(),DAS) 
       ) :
       ConvertType(cast<ObjCObjectType>(Ty)->getBaseType());
     break;
@@ -645,7 +645,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     llvm::Type *T = DAS ?
       ConvertTypeForMem(
         Context.getAddrSpaceQualType(
-          cast<ObjCObjectPointerType>(Ty)->getPointeeType(),DAS)) :
+          cast<ObjCObjectPointerType>(Ty)->getPointeeType().getUnqualifiedType(),DAS)) :
       ConvertTypeForMem(cast<ObjCObjectPointerType>(Ty)->getPointeeType());
     ResultType = T->getPointerTo();
     break;
@@ -657,7 +657,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
       unsigned DAS = GetDeterminedAS(T,ED->getIntegerType());
       return DAS ?
         ConvertType( Context.getAddrSpaceQualType(
-          ED->getIntegerType(),DAS)) :
+          ED->getIntegerType().getUnqualifiedType(),DAS)) :
         ConvertType(ED->getIntegerType());
     }
     // Return a placeholder 'i32' type.  This can be changed later when the
@@ -672,7 +672,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
       cast<BlockPointerType>(Ty)->getPointeeType());
     const QualType FTy = DAS ?
       Context.getAddrSpaceQualType(
-        cast<BlockPointerType>(Ty)->getPointeeType(),DAS) :
+        cast<BlockPointerType>(Ty)->getPointeeType().getUnqualifiedType(),DAS) :
       cast<BlockPointerType>(Ty)->getPointeeType();
     llvm::Type *PointeeType = ConvertTypeForMem(FTy);
     unsigned AS = Context.getTargetAddressSpace(FTy);
@@ -695,7 +695,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
     QualType valueType = cast<AtomicType>(Ty)->getValueType();
     unsigned DAS = GetDeterminedAS(T,valueType);
     ResultType = DAS ?
-      ConvertTypeForMem(Context.getAddrSpaceQualType(valueType,DAS)) :
+      ConvertTypeForMem(Context.getAddrSpaceQualType(valueType.getUnqualifiedType(),DAS)) :
       ConvertTypeForMem(valueType);
 
     // Pad out to the inflated size if necessary.
