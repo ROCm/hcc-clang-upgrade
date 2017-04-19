@@ -41,6 +41,24 @@ static llvm::Function *GetVprintfDeclaration(CodeGenModule &CGM) {
       VprintfFuncType, llvm::GlobalVariable::ExternalLinkage, "vprintf", &M);
 }
 
+//  vprintfl is same as vprintf but with length of both structures.
+//  Since these are known constant at compile time, this makes it easier
+//  to construct a GPU device routine that all threads may be executing. 
+static llvm::Function *GetVprintflDeclaration(CodeGenModule &CGM) {
+  auto &M = CGM.getModule();
+  llvm::Type *ArgTypes[] = 
+    {CGM.Int8PtrTy, CGM.Int8PtrTy, CGM.Int32Ty, CGM.Int32Ty};
+  llvm::FunctionType *VprintflFuncType = llvm::FunctionType::get(
+      llvm::Type::getInt32Ty(M.getContext()), ArgTypes, false);
+
+  if (auto* F = M.getFunction("vprintfl")) {
+    assert(F->getFunctionType() == VprintflFuncType);
+    return F;
+  }
+  return llvm::Function::Create(
+      VprintflFuncType, llvm::GlobalVariable::ExternalLinkage, "vprintfl", &M);
+}
+
 // Transforms a call to printf into a call to the NVPTX vprintf syscall (which
 // isn't particularly special; it's invoked just like a regular function).
 // vprintf takes two args: A format string, and a pointer to a buffer containing
@@ -69,9 +87,7 @@ static llvm::Function *GetVprintfDeclaration(CodeGenModule &CGM) {
 RValue
 CodeGenFunction::EmitNVPTXDevicePrintfCallExpr(const CallExpr *E,
                                                ReturnValueSlot ReturnValue) {
-  assert(getTarget().getTriple().isNVPTX() ||
-        (getTarget().getTriple().getArch() == llvm::Triple::amdgcn &&
-         getLangOpts().CUDA));
+  assert(getLangOpts().CUDAIsDevice || getLangOpts().OpenMPIsDevice);
   assert(E->getBuiltinCallee() == Builtin::BIprintf);
   assert(E->getNumArgs() >= 1); // printf always has at least one arg.
 
@@ -92,10 +108,13 @@ CodeGenFunction::EmitNVPTXDevicePrintfCallExpr(const CallExpr *E,
 
   // Construct and fill the args buffer that we'll pass to vprintf.
   llvm::Value *BufferPtr;
+  llvm::Value *BufferLen;
   if (Args.size() <= 1) {
     // If there are no args, pass a null pointer to vprintf.
     BufferPtr = llvm::ConstantPointerNull::get(CGM.Int8PtrTy);
+    BufferLen = llvm::ConstantInt::get(Int32Ty, 0);
   } else {
+    int CompileTimeBufLen = 0;
     llvm::SmallVector<llvm::Type *, 8> ArgTypes;
     for (unsigned I = 1, NumArgs = Args.size(); I < NumArgs; ++I)
       ArgTypes.push_back(Args[I].RV.getScalarVal()->getType());
@@ -112,12 +131,26 @@ CodeGenFunction::EmitNVPTXDevicePrintfCallExpr(const CallExpr *E,
       llvm::Value *P = Builder.CreateStructGEP(AllocaTy, Alloca, I - 1);
       llvm::Value *Arg = Args[I].RV.getScalarVal();
       Builder.CreateAlignedStore(Arg, P, DL.getPrefTypeAlignment(Arg->getType()));
+      CompileTimeBufLen += 4;  // FIXME: get real size
     }
     BufferPtr = Builder.CreatePointerCast(Alloca, CGM.Int8PtrTy);
+    BufferLen = llvm::ConstantInt::get(Int32Ty, CompileTimeBufLen);
   }
 
-  // Invoke vprintf and return.
-  llvm::Function* VprintfFunc = GetVprintfDeclaration(CGM);
-  return RValue::get(
+  // Invoke vprintfl for amdgcn or vprintf for CUDA and return.
+  if (this->getTarget().getTriple().getArch() == llvm::Triple::amdgcn)  {
+    const Expr * FormatStringExpr = E->getArg(0)->IgnoreParenCasts();
+    StringRef FormatString = cast<StringLiteral>(FormatStringExpr)->getString();
+    llvm::Value *FmtStrLen = llvm::ConstantInt::get(Int32Ty,
+      (int)FormatString.size()+1);
+    llvm::Function* VprintflFunc = GetVprintflDeclaration(CGM);
+    return RValue::get(
+      Builder.CreateCall(
+        VprintflFunc, {Args[0].RV.getScalarVal(),BufferPtr,FmtStrLen,BufferLen }
+      ));
+  } else {
+    llvm::Function* VprintfFunc = GetVprintfDeclaration(CGM);
+    return RValue::get(
       Builder.CreateCall(VprintfFunc, {Args[0].RV.getScalarVal(), BufferPtr}));
+  }
 }

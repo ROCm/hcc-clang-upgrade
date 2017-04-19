@@ -2669,7 +2669,7 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
   case Builtin::BIprintf:
     if (getTarget().getTriple().isNVPTX() ||
         (getTarget().getTriple().getArch() == Triple::amdgcn &&
-         getLangOpts().CUDA))
+         (getLangOpts().CUDA || getLangOpts().OpenMPIsDevice)))
       return EmitNVPTXDevicePrintfCallExpr(E, ReturnValue);
     break;
   case Builtin::BI__builtin_canonicalize:
