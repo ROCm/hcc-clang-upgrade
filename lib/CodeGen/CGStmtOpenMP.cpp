@@ -206,13 +206,20 @@ static Address castValueFromUintptr(CodeGenFunction &CGF, QualType DstType,
                                     StringRef Name, LValue AddrLV,
                                     bool isReferenceType = false) {
   ASTContext &Ctx = CGF.getContext();
-
+  // FIXME: Address space of unsigned int by Ctx.getUIntPtrType() could be always 0
   QualType DstPtrQT = Ctx.getAddrSpaceQualType(
     Ctx.getPointerType(DstType),
     Ctx.getTargetAddressSpace(Ctx.getUIntPtrType())
   );
+  auto* Ty = CGF.ConvertType(Ctx.getPointerType(DstType));
+  Address Addr = AddrLV.getAddress();
+  auto *PTy = dyn_cast<llvm::PointerType>(Ty);
+  auto *Addr_PTy = dyn_cast<llvm::PointerType>(Addr.getPointer()->getType());
+  // For device path, add addrspacecast if needed before emit scalar conversion
+  if (PTy && PTy->getAddressSpace() != Addr_PTy->getAddressSpace())
+    Addr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, Ty);
   auto *CastedPtr = CGF.EmitScalarConversion(
-      AddrLV.getAddress().getPointer(), Ctx.getUIntPtrType(),
+      Addr.getPointer(), Ctx.getUIntPtrType(),
       DstPtrQT, SourceLocation());
   auto TmpAddr =
       CGF.MakeNaturalAlignAddrLValue(CastedPtr, Ctx.getPointerType(DstType))
