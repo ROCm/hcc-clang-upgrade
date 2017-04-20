@@ -737,9 +737,6 @@ CodeGenTypes::arrangeLLVMFunctionInfo(CanQualType resultType,
                                       RequiredArgs required) {
   if (CGM.getTriple().getArch()==llvm::Triple::amdgcn &&
      CGM.getLangOpts().OpenMPIsDevice) {
-    assert(std::all_of(argTypes.begin(), argTypes.end(),
-                     [](CanQualType T) {
-      return QualType(T)->isAnyPointerType() || T.isCanonicalAsParam(); }));
   } else
   assert(std::all_of(argTypes.begin(), argTypes.end(),
                      [](CanQualType T) { return T.isCanonicalAsParam(); }));
