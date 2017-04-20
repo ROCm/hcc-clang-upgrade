@@ -735,8 +735,14 @@ CodeGenTypes::arrangeLLVMFunctionInfo(CanQualType resultType,
                                       FunctionType::ExtInfo info,
                      ArrayRef<FunctionProtoType::ExtParameterInfo> paramInfos,
                                       RequiredArgs required) {
-  assert(std::all_of(argTypes.begin(), argTypes.end(),
-                     [](CanQualType T) { return T.isCanonicalAsParam(); }));
+  // All args should be cannonical except for address space qual 
+  assert(std::all_of( argTypes.begin(), argTypes.end(),
+    [&](CanQualType QT){
+      Qualifiers qs = QT.getQualifiers();
+      qs.removeAddressSpace();
+      return (QualType(QT.getTypePtr(), qs.getAsOpaqueValue()).isCanonicalAsParam());
+    }
+  ));
 
   // Lookup or create unique function info.
   llvm::FoldingSetNodeID ID;

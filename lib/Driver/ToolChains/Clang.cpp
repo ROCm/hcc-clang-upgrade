@@ -124,10 +124,17 @@ forAllAssociatedToolChains(Compilation &C, const JobAction &JA,
 
   // Apply Work on all the offloading tool chains associated with the current
   // action.
-  if (JA.isHostOffloading(Action::OFK_Cuda))
+  if (JA.isHostOffloading(Action::OFK_Cuda)) {
     Work(*C.getSingleOffloadToolChain<Action::OFK_Cuda>());
-  else if (JA.isDeviceOffloading(Action::OFK_Cuda))
+    return;
+  } else if (JA.isDeviceOffloading(Action::OFK_Cuda))
     Work(*C.getSingleOffloadToolChain<Action::OFK_Host>());
+
+  if (JA.isHostOffloading(Action::OFK_OpenMP)) {
+    Work(*C.getSingleOffloadToolChain<Action::OFK_OpenMP>());
+    return;
+  } else if (JA.isDeviceOffloading(Action::OFK_OpenMP))
+      Work(*C.getSingleOffloadToolChain<Action::OFK_OpenMP>());
 
   if (JA.isHostOffloading(Action::OFK_HCC))
     Work(*C.getSingleOffloadToolChain<Action::OFK_HCC>());
@@ -1902,9 +1909,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                          const InputInfo &Output, const InputInfoList &Inputs,
                          const ArgList &Args, const char *LinkingOutput) const {
   const llvm::Triple &Triple = getToolChain().getEffectiveTriple();
-  const std::string &TripleStr = (JA.isOffloading(Action::OFK_Cuda) &&
-     StringRef(JA.getOffloadingArch()).startswith("gfx")) ?
-    "amdgcn--cuda" : Triple.getTriple();
+  const std::string &TripleStr =
+    ( (JA.isOffloading(Action::OFK_Cuda) || JA.isOffloading(Action::OFK_OpenMP))
+     && StringRef(JA.getOffloadingArch()).startswith("gfx") ) 
+    ?  "amdgcn--cuda" : Triple.getTriple();
 
   bool KernelOrKext =
       Args.hasArg(options::OPT_mkernel, options::OPT_fapple_kext);
