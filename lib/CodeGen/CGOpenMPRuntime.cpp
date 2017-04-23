@@ -4795,8 +4795,9 @@ static void getTargetEntryUniqueInfo(ASTContext &C, SourceLocation Loc,
   // #pragma directives in macros)
 
   assert(Loc.isValid() && "Source location is expected to be always valid.");
+#if 0
   assert(Loc.isFileID() && "Source location is expected to refer to a file.");
-
+#endif
   PresumedLoc PLoc = SM.getPresumedLoc(Loc);
   assert(PLoc.isValid() && "Source location is expected to be always valid.");
 
