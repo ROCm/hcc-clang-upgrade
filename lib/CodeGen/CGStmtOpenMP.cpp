@@ -182,8 +182,16 @@ void CodeGenFunction::GenerateOpenMPCapturedVars(
             Twine(CurCap->getCapturedVar()->getName()) + ".casted");
         LValue DstLV = MakeAddrLValue(DstAddr, Ctx.getUIntPtrType());
 
+        auto* Ty = ConvertType(Ctx.getPointerType(CurField->getType()));
+        Address Addr = DstAddr;
+        auto *PTy = dyn_cast<llvm::PointerType>(Ty);
+        auto *Addr_PTy = dyn_cast<llvm::PointerType>(Addr.getPointer()->getType());
+        // For device path, add addrspacecast if needed before emit scalar conversion
+        if (PTy && PTy->getAddressSpace() != Addr_PTy->getAddressSpace())
+          Addr = Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, Ty);
+
         auto *SrcAddrVal = EmitScalarConversion(
-            DstAddr.getPointer(), Ctx.getPointerType(Ctx.getUIntPtrType()),
+            Addr.getPointer(), Ctx.getPointerType(Ctx.getUIntPtrType()),
             Ctx.getPointerType(CurField->getType()), SourceLocation());
         LValue SrcLV =
             MakeNaturalAlignAddrLValue(SrcAddrVal, CurField->getType());
