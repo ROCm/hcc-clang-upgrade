@@ -365,7 +365,12 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S) {
       if (CurVD->getType()->isReferenceType()) {
         Address RefAddr = CreateMemTemp(CurVD->getType(), getPointerAlign(),
                                         ".materialized_ref");
-        EmitStoreOfScalar(LocalAddr.getPointer(), RefAddr, /*Volatile=*/false,
+        auto* PTy = RefAddr.getType();
+        Address Addr = LocalAddr;
+        // For device path, there might be some address space mismatch
+        if (PTy->getElementType() != Addr.getType())
+          Addr = Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, PTy->getElementType());
+        EmitStoreOfScalar(Addr.getPointer(), RefAddr, /*Volatile=*/false,
                           CurVD->getType());
         LocalAddr = RefAddr;
       }
