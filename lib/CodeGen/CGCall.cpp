@@ -3921,9 +3921,13 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
         // If the argument doesn't match, perform a bitcast to coerce it.  This
         // can happen due to trivial type mismatches.
         if (FirstIRArg < IRFuncTy->getNumParams() &&
-            V->getType() != IRFuncTy->getParamType(FirstIRArg))
+            V->getType() != IRFuncTy->getParamType(FirstIRArg)) {
+          if (CGM.getTriple().getArch() == llvm::Triple::amdgcn &&
+            CGM.getLangOpts().OpenMPIsDevice && V->getType()->isPtrOrPtrVectorTy()) {
+            V = Builder.CreatePointerBitCastOrAddrSpaceCast(V, IRFuncTy->getParamType(FirstIRArg));
+          } else
           V = Builder.CreateBitCast(V, IRFuncTy->getParamType(FirstIRArg));
-
+        }
         IRCallArgs[FirstIRArg] = V;
         break;
       }
