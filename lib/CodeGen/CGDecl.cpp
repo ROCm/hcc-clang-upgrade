@@ -406,12 +406,10 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   // If this value has an initializer, emit it.
   if (D.getInit() && !isCudaSharedVar && !isHCCTileStaticVar)
     var = AddInitializerToStaticVarDecl(D, var);
-
-  if(getLangOpts().CUDA && getLangOpts().CUDAIsDevice &&
-    (getContext().getTargetInfo().getTriple().getArch()==llvm::Triple::amdgcn))
-    var->setInitializer(
-      llvm::UndefValue::get(getTypes().ConvertType(D.getType())));
-
+  else if (isCudaSharedVar && !isHCCTileStaticVar &&
+    (getContext().getTargetInfo().getTriple().getArch()==llvm::Triple::amdgcn)) {
+    var->setInitializer(llvm::UndefValue::get(var->getType()->getElementType()));
+  }
   var->setAlignment(alignment.getQuantity());
 
   if (D.hasAttr<AnnotateAttr>())
