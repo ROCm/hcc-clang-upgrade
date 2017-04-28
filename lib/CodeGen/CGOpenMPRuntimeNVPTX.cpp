@@ -908,7 +908,8 @@ void CGOpenMPRuntimeNVPTX::emitTeamsCall(CodeGenFunction &CGF,
                            /*Name*/ ".zero.addr");
   CGF.InitTempAlloca(ZeroAddr, CGF.Builder.getInt32(/*C*/ 0));
 
-  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn &&
+     CGM.getLangOpts().OpenMPIsDevice) {
     auto* Func = dyn_cast<llvm::Function>(OutlinedFn);
     assert(Func && "Invalid function pointer!");
     auto* FuncTy = Func->getFunctionType();
