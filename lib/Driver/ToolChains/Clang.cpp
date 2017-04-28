@@ -2792,7 +2792,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       DebugInfoKind = codegenoptions::LimitedDebugInfo;
   }
 
-  // disable debug output for HCC kernel path
+  // disable debun outpt for HCC kernel path
   if (!IsHCCKernelPath) {
 
   // If a debugger tuning argument appeared, remember it.
@@ -4401,6 +4401,31 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       llvm::sys::path::replace_extension(KernelPreprocessFile, ".gpu.i");
     }
     CmdArgs.push_back(Args.MakeArgString(KernelPreprocessFile));
+  } else if (Output.isFilename() &&
+      !isa<PreprocessJobAction>(JA) &&
+      (((JA.isOffloading(Action::OFK_Cuda) && types::isLLVMIR(Input.getType()))) ||
+       JA.isOffloading(Action::OFK_OpenMP)) &&
+       StringRef(JA.getOffloadingArch()).startswith("gfx")) {
+
+    /*
+       llvm::errs() << "Input Type: " << InputType << "\n";
+       llvm::errs() << "Output type: " << Output.getType() << "\n";
+       llvm::errs() << "JA type: " << JA.getType() << "\n";
+
+       llvm::errs() << "TY_PP_Asm: " << types::TY_PP_Asm << "\n";
+       llvm::errs() << "types::TY_LLVM_IR: " << types::TY_LLVM_IR << "\n";
+       llvm::errs() << "types::TY_LLVM_BC: " << types::TY_LLVM_BC << "\n";
+       */
+
+    SmallString<128> KernelPostprocessFile(Output.getFilename());
+
+    if (JA.getType() == types::TY_LLVM_IR)
+      llvm::sys::path::replace_extension(KernelPostprocessFile, ".pre.ll");
+    else
+      llvm::sys::path::replace_extension(KernelPostprocessFile, ".pre.bc");
+
+    CmdArgs.push_back("-o");
+    CmdArgs.push_back(Args.MakeArgString(KernelPostprocessFile));
   } else if (Output.isFilename()) {
     CmdArgs.push_back("-o");
     CmdArgs.push_back(Output.getFilename());
@@ -4552,6 +4577,66 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   // Disable warnings for clang -E -emit-llvm foo.c
   Args.ClaimAllArgs(options::OPT_emit_llvm);
+
+  if (Output.getType() == types::TY_Dependencies) {
+  } else if (Output.isFilename() &&
+      !isa<PreprocessJobAction>(JA) &&
+      (((JA.isOffloading(Action::OFK_Cuda) && types::isLLVMIR(Input.getType()))) ||
+       JA.isOffloading(Action::OFK_OpenMP)) &&
+       StringRef(JA.getOffloadingArch()).startswith("gfx")) {
+
+    /*
+       llvm::errs() << "Input Type: " << InputType << "\n";
+       llvm::errs() << "Output type: " << Output.getType() << "\n";
+       llvm::errs() << "JA type: " << JA.getType() << "\n";
+
+       llvm::errs() << "TY_PP_Asm: " << types::TY_PP_Asm << "\n";
+       llvm::errs() << "types::TY_LLVM_IR: " << types::TY_LLVM_IR << "\n";
+       llvm::errs() << "types::TY_LLVM_BC: " << types::TY_LLVM_BC << "\n";
+       */
+
+    SmallString<128> KernelPostprocessFile(Output.getFilename());
+
+    if (JA.getType() == types::TY_LLVM_IR)
+      llvm::sys::path::replace_extension(KernelPostprocessFile, ".pre.ll");
+    else
+      llvm::sys::path::replace_extension(KernelPostprocessFile, ".pre.bc");
+
+    //llvm::errs() << "Adding post processing for: " << KernelPostprocessFile << "\n";
+
+    std::string GFXNAME = JA.getOffloadingArch();
+
+    ArgStringList OptArgs;
+    // The input to opt is the output from clang
+    OptArgs.push_back(Args.MakeArgString(KernelPostprocessFile));
+
+    // Add CLANG_TARGETOPT_OPTS override options to opt
+    if (getenv("CUDA_CLANG_OPT_OPTS"))
+      addEnvListWithSpaces(Args, OptArgs, "CUDA_CLANG_OPT_OPTS");
+    else {
+      //OptArgs.push_back(Args.MakeArgString("-O1"));
+      const char *mcpustr = Args.MakeArgString("-mcpu=" + GFXNAME);
+      OptArgs.push_back(mcpustr);
+      OptArgs.push_back("-infer-address-spaces");
+      OptArgs.push_back("-load");
+      OptArgs.push_back("LLVMSugarAddrSpaceCast.so");
+      OptArgs.push_back("-sugar-addrspacecast");
+      //OptArgs.push_back("-dce");
+      //OptArgs.push_back("-globaldce");
+    }
+
+    if (Output.getType() == types::TY_LLVM_IR)
+      OptArgs.push_back("-S");
+
+    OptArgs.push_back("-o");
+    OptArgs.push_back(Output.getFilename());
+    const char *OptExec = Args.MakeArgString(C.getDriver().Dir + "/opt");
+    C.addCommand(llvm::make_unique<Command>(JA, *this, OptExec, OptArgs, Inputs ));
+
+    if (!C.getDriver().isSaveTempsEnabled())
+      C.addTempFile(Args.MakeArgString(KernelPostprocessFile));
+
+  }
 }
 
 Clang::Clang(const ToolChain &TC)
