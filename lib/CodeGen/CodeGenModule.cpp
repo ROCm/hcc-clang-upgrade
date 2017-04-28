@@ -912,8 +912,11 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
     // explicitly marked as alwaysinline for semantic reasons, and inlining is
     // disabled, mark the function as noinline.
     if (!F->hasFnAttribute(llvm::Attribute::AlwaysInline) &&
-        CodeGenOpts.getInlining() == CodeGenOptions::OnlyAlwaysInlining)
-      B.addAttribute(llvm::Attribute::NoInline);
+        CodeGenOpts.getInlining() == CodeGenOptions::OnlyAlwaysInlining) {
+      // In case of AMDGCN, do not mark as noinline by default
+      if (Context.getTargetInfo().getTriple().getArch()!=llvm::Triple::amdgcn)
+        B.addAttribute(llvm::Attribute::NoInline);
+    }
 
     F->addAttributes(
         llvm::AttributeList::FunctionIndex,
