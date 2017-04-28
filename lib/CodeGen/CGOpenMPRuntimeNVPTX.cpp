@@ -907,6 +907,16 @@ void CGOpenMPRuntimeNVPTX::emitTeamsCall(CodeGenFunction &CGF,
       CGF.CreateTempAlloca(CGF.Int32Ty, CharUnits::fromQuantity(4),
                            /*Name*/ ".zero.addr");
   CGF.InitTempAlloca(ZeroAddr, CGF.Builder.getInt32(/*C*/ 0));
+
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    auto* Func = dyn_cast<llvm::Function>(OutlinedFn);
+    assert(Func && "Invalid function pointer!");
+    auto* FuncTy = Func->getFunctionType();
+    // In device path, ZeroAddr shall be allocated in AS1, otherwise make an explicit casting
+    if (ZeroAddr.getType() != FuncTy->getParamType(0))
+      ZeroAddr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
+           ZeroAddr, FuncTy->getParamType(0));
+  }
   llvm::SmallVector<llvm::Value *, 16> OutlinedFnArgs;
   OutlinedFnArgs.push_back(ZeroAddr.getPointer());
   OutlinedFnArgs.push_back(ZeroAddr.getPointer());
