@@ -172,7 +172,12 @@ void CodeGenFunction::GenerateOpenMPCapturedVars(
     else if (CurCap->capturesVariableByCopy()) {
       llvm::Value *CV =
           EmitLoadOfLValue(EmitLValue(*I), SourceLocation()).getScalarVal();
-
+      if (CGM.getTriple().getArch() == llvm::Triple::amdgcn &&
+         CGM.getLangOpts().OpenMPIsDevice &&
+         CurField->getType()->isAnyPointerType()) {
+        CV = Builder.CreateAddrSpaceCast(CV,
+           getTypes().ConvertType(CurField->getType()));
+      }
       // If the field is not a pointer, we need to save the actual value
       // and load it as a void pointer.
       if (!CurField->getType()->isAnyPointerType()) {
@@ -180,18 +185,17 @@ void CodeGenFunction::GenerateOpenMPCapturedVars(
         auto DstAddr = CreateMemTemp(
             Ctx.getUIntPtrType(),
             Twine(CurCap->getCapturedVar()->getName()) + ".casted");
+        if (CGM.getTriple().getArch() == llvm::Triple::amdgcn &&
+           CGM.getLangOpts().OpenMPIsDevice) {
+          auto* Ty = ConvertType(Ctx.getPointerType(CurField->getType()));
+          auto *PTy = dyn_cast<llvm::PointerType>(Ty);
+          if (PTy && DstAddr.getAddressSpace() != PTy->getAddressSpace())
+            DstAddr = Builder.CreatePointerBitCastOrAddrSpaceCast(DstAddr, Ty);
+        }
         LValue DstLV = MakeAddrLValue(DstAddr, Ctx.getUIntPtrType());
 
-        auto* Ty = ConvertType(Ctx.getPointerType(CurField->getType()));
-        Address Addr = DstAddr;
-        auto *PTy = dyn_cast<llvm::PointerType>(Ty);
-        auto *Addr_PTy = dyn_cast<llvm::PointerType>(Addr.getPointer()->getType());
-        // For device path, add addrspacecast if needed before emit scalar conversion
-        if (PTy && PTy->getAddressSpace() != Addr_PTy->getAddressSpace())
-          Addr = Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, Ty);
-
         auto *SrcAddrVal = EmitScalarConversion(
-            Addr.getPointer(), Ctx.getPointerType(Ctx.getUIntPtrType()),
+            DstAddr.getPointer(), Ctx.getPointerType(Ctx.getUIntPtrType()),
             Ctx.getPointerType(CurField->getType()), SourceLocation());
         LValue SrcLV =
             MakeNaturalAlignAddrLValue(SrcAddrVal, CurField->getType());
@@ -205,7 +209,16 @@ void CodeGenFunction::GenerateOpenMPCapturedVars(
       CapturedVars.push_back(CV);
     } else {
       assert(CurCap->capturesVariable() && "Expected capture by reference.");
-      CapturedVars.push_back(EmitLValue(*I).getAddress().getPointer());
+      Address Addr = EmitLValue(*I).getAddress();
+      if (CGM.getTriple().getArch() == llvm::Triple::amdgcn &&
+         CGM.getLangOpts().OpenMPIsDevice) {
+        // CurField is a clang PointerType?
+        auto* Ty = ConvertType(CurField->getType());
+        auto *PTy = dyn_cast<llvm::PointerType>(Ty);
+        if (PTy && Addr.getAddressSpace() != PTy->getAddressSpace())
+          Addr = Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, Ty);
+      }
+      CapturedVars.push_back(Addr.getPointer());
     }
   }
 }
@@ -219,13 +232,15 @@ static Address castValueFromUintptr(CodeGenFunction &CGF, QualType DstType,
     Ctx.getPointerType(DstType),
     Ctx.getTargetAddressSpace(Ctx.getUIntPtrType())
   );
-  auto* Ty = CGF.ConvertType(Ctx.getPointerType(DstType));
   Address Addr = AddrLV.getAddress();
-  auto *PTy = dyn_cast<llvm::PointerType>(Ty);
-  auto *Addr_PTy = dyn_cast<llvm::PointerType>(Addr.getPointer()->getType());
-  // For device path, add addrspacecast if needed before emit scalar conversion
-  if (PTy && PTy->getAddressSpace() != Addr_PTy->getAddressSpace())
-    Addr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, Ty);
+  if (Ctx.getTargetInfo().getTriple().getArch()==llvm::Triple::amdgcn &&
+     CGF.CGM.getLangOpts().OpenMPIsDevice) {
+    auto* Ty = CGF.ConvertType(Ctx.getPointerType(DstType));
+    auto *PTy = dyn_cast<llvm::PointerType>(Ty);
+    // For device path, add addrspacecast if needed before emit scalar conversion
+    if (PTy && PTy->getAddressSpace() != Addr.getAddressSpace())
+      Addr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, Ty);
+  }
   auto *CastedPtr = CGF.EmitScalarConversion(
       Addr.getPointer(), Ctx.getUIntPtrType(),
       DstPtrQT, SourceLocation());
@@ -373,11 +388,14 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S) {
       if (CurVD->getType()->isReferenceType()) {
         Address RefAddr = CreateMemTemp(CurVD->getType(), getPointerAlign(),
                                         ".materialized_ref");
-        auto* PTy = RefAddr.getType();
-        Address Addr = LocalAddr;
-        // For device path, there might be some address space mismatch
-        if (PTy->getElementType() != Addr.getType())
-          Addr = Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, PTy->getElementType());
+        if (CGM.getTriple().getArch()==llvm::Triple::amdgcn &&
+            CGM.getLangOpts().OpenMPIsDevice) {
+          auto* PTy = RefAddr.getType();
+          // For device path, there might be some address space mismatch
+          if (PTy->getElementType() != RefAddr.getType())
+            RefAddr = Builder.CreatePointerBitCastOrAddrSpaceCast(
+                   RefAddr, PTy->getElementType());
+        }
         EmitStoreOfScalar(Addr.getPointer(), RefAddr, /*Volatile=*/false,
                           CurVD->getType());
         LocalAddr = RefAddr;
