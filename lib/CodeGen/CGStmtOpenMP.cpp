@@ -396,7 +396,7 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S) {
             RefAddr = Builder.CreatePointerBitCastOrAddrSpaceCast(
                    RefAddr, PTy->getElementType());
         }
-        EmitStoreOfScalar(Addr.getPointer(), RefAddr, /*Volatile=*/false,
+        EmitStoreOfScalar(RefAddr.getPointer(), RefAddr, /*Volatile=*/false,
                           CurVD->getType());
         LocalAddr = RefAddr;
       }
