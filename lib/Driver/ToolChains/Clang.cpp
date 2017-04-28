@@ -4401,7 +4401,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       llvm::sys::path::replace_extension(KernelPreprocessFile, ".gpu.i");
     }
     CmdArgs.push_back(Args.MakeArgString(KernelPreprocessFile));
-  } else if (Output.isFilename() &&
+  } else if (getenv("EXTRAINFER") && Output.isFilename() &&
       !isa<PreprocessJobAction>(JA) &&
       (((JA.isOffloading(Action::OFK_Cuda) && types::isLLVMIR(Input.getType()))) ||
        JA.isOffloading(Action::OFK_OpenMP)) &&
@@ -4579,7 +4579,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   Args.ClaimAllArgs(options::OPT_emit_llvm);
 
   if (Output.getType() == types::TY_Dependencies) {
-  } else if (Output.isFilename() &&
+  } else if (getenv("EXTRAINFER") && Output.isFilename() &&
       !isa<PreprocessJobAction>(JA) &&
       (((JA.isOffloading(Action::OFK_Cuda) && types::isLLVMIR(Input.getType()))) ||
        JA.isOffloading(Action::OFK_OpenMP)) &&
