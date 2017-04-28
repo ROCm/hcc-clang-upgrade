@@ -6058,6 +6058,11 @@ void CGOpenMPRuntime::emitTargetCall(CodeGenFunction &CGF,
 
     // The kernel args are always the first elements of the base pointers
     // associated with a capture.
+    if (CGF.CGM.getTriple().getArch() == llvm::Triple::amdgcn &&
+       CGF.CGM.getLangOpts().OpenMPIsDevice) {
+      // FIXME: Do not use the mapping
+      KernelArgs.push_back(*CV);
+    } else
     KernelArgs.push_back(*CurBasePointers.front());
     // We need to append the results of this capture to what we already have.
     BasePointers.append(CurBasePointers.begin(), CurBasePointers.end());
