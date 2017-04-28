@@ -172,7 +172,12 @@ void CodeGenFunction::GenerateOpenMPCapturedVars(
     else if (CurCap->capturesVariableByCopy()) {
       llvm::Value *CV =
           EmitLoadOfLValue(EmitLValue(*I), SourceLocation()).getScalarVal();
-
+      if (CGM.getTriple().getArch() == llvm::Triple::amdgcn &&
+         CGM.getLangOpts().OpenMPIsDevice &&
+         CurField->getType()->isAnyPointerType()) {
+        CV = Builder.CreateAddrSpaceCast(CV,
+           getTypes().ConvertType(CurField->getType()));
+      }
       // If the field is not a pointer, we need to save the actual value
       // and load it as a void pointer.
       if (!CurField->getType()->isAnyPointerType()) {
@@ -204,7 +209,16 @@ void CodeGenFunction::GenerateOpenMPCapturedVars(
       CapturedVars.push_back(CV);
     } else {
       assert(CurCap->capturesVariable() && "Expected capture by reference.");
-      CapturedVars.push_back(EmitLValue(*I).getAddress().getPointer());
+      Address Addr = EmitLValue(*I).getAddress();
+      if (CGM.getTriple().getArch() == llvm::Triple::amdgcn &&
+         CGM.getLangOpts().OpenMPIsDevice) {
+        // CurField is a clang PointerType?
+        auto* Ty = ConvertType(CurField->getType());
+        auto *PTy = dyn_cast<llvm::PointerType>(Ty);
+        if (PTy && Addr.getAddressSpace() != PTy->getAddressSpace())
+          Addr = Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, Ty);
+      }
+      CapturedVars.push_back(Addr.getPointer());
     }
   }
 }
