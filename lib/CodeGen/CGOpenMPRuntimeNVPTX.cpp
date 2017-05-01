@@ -1556,6 +1556,14 @@ static llvm::Value *emitInterWarpCopyFunction(CodeGenModule &CGM,
       CGF.getContext().getTargetInfo().getGridValue(GPU::GVIDX::GV_Warp_Size);
     auto *Ty = llvm::ArrayType::get(CGM.Int64Ty, WarpSize);
     unsigned SharedAddressSpace = C.getTargetAddressSpace(LangAS::cuda_shared);
+    if (CGM.getTriple().getArch() == llvm::Triple::amdgcn) {
+      TransferMedium = new llvm::GlobalVariable(
+        M, Ty,
+        /*isConstant=*/false, llvm::GlobalVariable::WeakAnyLinkage,
+        llvm::UndefValue::get(Ty), TransferMediumName,
+        /*InsertBefore=*/nullptr, llvm::GlobalVariable::NotThreadLocal,
+        SharedAddressSpace);
+    } else
     TransferMedium = new llvm::GlobalVariable(
         M, Ty,
         /*isConstant=*/false, llvm::GlobalVariable::CommonLinkage,
