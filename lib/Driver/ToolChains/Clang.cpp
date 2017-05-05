@@ -1993,7 +1993,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-D__AMP_CPU__=1");
     CmdArgs.push_back("-D__KALMAR_CPU__=2");
     CmdArgs.push_back("-D__HCC_CPU__=2");
-  } else {
+  } else if ( !JA.isOffloading(Action::OFK_Cuda) &&
+    !JA.isOffloading(Action::OFK_OpenMP)) {
+
     // path to compile host codes, while kernel codes are to be compiled on GPU
     CmdArgs.push_back("-D__KALMAR_CPU__=1");
     CmdArgs.push_back("-D__HCC_CPU__=1");

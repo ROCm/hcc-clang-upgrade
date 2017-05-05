@@ -1756,7 +1756,8 @@ void CodeGenModule::ConstructDefaultFnAttrList(StringRef Name, bool HasOptnone,
       FuncAttrs.addAttribute("backchain");
   }
 
-  if (getLangOpts().CUDA && getLangOpts().CUDAIsDevice) {
+  if ( (getLangOpts().CUDA && getLangOpts().CUDAIsDevice) || 
+        getLangOpts().OpenMPIsDevice ) { 
     // Conservatively, mark all functions and calls in CUDA as convergent
     // (meaning, they may call an intrinsically convergent op, such as
     // __syncthreads(), and so can't have certain optimizations applied around
@@ -1767,7 +1768,8 @@ void CodeGenModule::ConstructDefaultFnAttrList(StringRef Name, bool HasOptnone,
     FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
 
     // Respect -fcuda-flush-denormals-to-zero.
-    if (getLangOpts().CUDADeviceFlushDenormalsToZero)
+    if (getLangOpts().CUDADeviceFlushDenormalsToZero &&
+    (getContext().getTargetInfo().getTriple().getArch()!=llvm::Triple::amdgcn))
       FuncAttrs.addAttribute("nvptx-f32ftz", "true");
   }
 }
