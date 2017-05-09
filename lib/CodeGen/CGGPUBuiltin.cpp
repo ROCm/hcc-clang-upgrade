@@ -169,17 +169,19 @@ CodeGenFunction::EmitNVPTXDevicePrintfCallExpr(const CallExpr *E,
     llvm::Value *DataStructPtr = Builder.CreateCall(FN, 
                                  {Args[0].RV.getScalarVal(), FmtStrLen, DataLen});
 
-    // Declare struct to be built in device global memory
-    llvm::StructType *DataStructTy = llvm::StructType::create(ArgTypes, "printf_args");
-    unsigned AS = getContext().getTargetAddressSpace(LangAS::cuda_device);
-    llvm::Value* BufferPtr = Builder.CreatePointerCast(DataStructPtr,
-       llvm::PointerType::get(DataStructTy,AS));
- 
-    // Write thread specific values into the data structure
-    for (unsigned I = 1, NumArgs = Args.size(); I < NumArgs; ++I) {
-      llvm::Value *P = Builder.CreateStructGEP(DataStructTy, BufferPtr , I - 1);
-      llvm::Value *Arg = Args[I].RV.getScalarVal();
-      Builder.CreateAlignedStore(Arg, P, DL.getPrefTypeAlignment(Arg->getType()));
+    if (!ArgTypes.empty()) {
+      // Declare struct to be built in device global memory
+      llvm::StructType *DataStructTy = llvm::StructType::create(ArgTypes, "printf_args");
+      unsigned AS = getContext().getTargetAddressSpace(LangAS::cuda_device);
+      llvm::Value* BufferPtr = Builder.CreatePointerCast(DataStructPtr,
+          llvm::PointerType::get(DataStructTy,AS));
+
+      // Write thread specific values into the data structure
+      for (unsigned I = 1, NumArgs = Args.size(); I < NumArgs; ++I) {
+        llvm::Value *P = Builder.CreateStructGEP(DataStructTy, BufferPtr , I - 1);
+        llvm::Value *Arg = Args[I].RV.getScalarVal();
+        Builder.CreateAlignedStore(Arg, P, DL.getPrefTypeAlignment(Arg->getType()));
+      }
     }
 
     return RValue::get(llvm::ConstantInt::get(Int32Ty,0));
