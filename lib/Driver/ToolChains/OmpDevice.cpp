@@ -520,3 +520,22 @@ Tool *OmpDeviceToolChain::buildLinker() const {
   printf("OMPDEV::Linker used\n");
   return new tools::OMPDEV::Linker(*this);
 }
+
+void OmpDeviceToolChain::addClangWarningOptions(ArgStringList &CC1Args) const {
+  HostTC.addClangWarningOptions(CC1Args);
+}
+
+void OmpDeviceToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
+                                              ArgStringList &CC1Args) const {
+  HostTC.AddClangSystemIncludeArgs(DriverArgs, CC1Args);
+}
+
+void OmpDeviceToolChain::AddClangCXXStdlibIncludeArgs(const ArgList &Args,
+                                                 ArgStringList &CC1Args) const {
+  HostTC.AddClangCXXStdlibIncludeArgs(Args, CC1Args);
+}
+
+void OmpDeviceToolChain::AddIAMCUIncludeArgs(const ArgList &Args,
+                                        ArgStringList &CC1Args) const {
+  HostTC.AddIAMCUIncludeArgs(Args, CC1Args);
+}
