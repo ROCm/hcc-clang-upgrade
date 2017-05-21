@@ -2559,6 +2559,8 @@ void ASTStmtReader::VisitOMPLoopDirective(OMPLoopDirective *D) {
   D->setPreCond(Record.readSubExpr());
   D->setCond(Record.readSubExpr());
   D->setInit(Record.readSubExpr());
+  D->setLaneInit(Record.readSubExpr());
+  D->setNumLanes(Record.readSubExpr());
   D->setInc(Record.readSubExpr());
   D->setPreInits(Record.readSubStmt());
   if (isOpenMPWorksharingDirective(D->getDirectiveKind()) ||
@@ -2571,13 +2573,13 @@ void ASTStmtReader::VisitOMPLoopDirective(OMPLoopDirective *D) {
     D->setEnsureUpperBound(Record.readSubExpr());
     D->setNextLowerBound(Record.readSubExpr());
     D->setNextUpperBound(Record.readSubExpr());
-    D->setNumIterations(Record.readSubExpr());
-  }
-  if (isOpenMPLoopBoundSharingDirective(D->getDirectiveKind())) {
     D->setPrevLowerBoundVariable(Record.readSubExpr());
     D->setPrevUpperBoundVariable(Record.readSubExpr());
+    D->setDistCond(Record.readSubExpr());
     D->setDistInc(Record.readSubExpr());
     D->setPrevEnsureUpperBound(Record.readSubExpr());
+    D->setInnermostIterationVariable(Record.readSubExpr());
+    D->setNumIterations(Record.readSubExpr());
   }
   SmallVector<Expr *, 4> Sub;
   unsigned CollapsedNum = D->getCollapsedNumber();

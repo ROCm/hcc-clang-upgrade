@@ -2595,9 +2595,14 @@ public:
   llvm::Function *EmitCapturedStmt(const CapturedStmt &S, CapturedRegionKind K);
   llvm::Function *GenerateCapturedStmtFunction(const CapturedStmt &S);
   Address GenerateCapturedStmtArgument(const CapturedStmt &S);
-  llvm::Function *GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S);
+  llvm::Function *GenerateOpenMPCapturedStmtFunction(
+      const CapturedStmt &S, bool UseCapturedArgumentsOnly = false,
+      unsigned CaptureLevel = 1, unsigned ImplicitParamStop = 0,
+      bool NonAliasedMaps = false);
   void GenerateOpenMPCapturedVars(const CapturedStmt &S,
-                                  SmallVectorImpl<llvm::Value *> &CapturedVars);
+                                  SmallVectorImpl<llvm::Value *> &CapturedVars,
+                                  unsigned CaptureLevel = 1);
+
   void emitOMPSimpleStore(LValue LVal, RValue RVal, QualType RValTy,
                           SourceLocation Loc);
   /// \brief Perform element by element copying of arrays with type \a
@@ -2761,7 +2766,9 @@ public:
   void EmitOMPTaskLoopDirective(const OMPTaskLoopDirective &S);
   void EmitOMPTaskLoopSimdDirective(const OMPTaskLoopSimdDirective &S);
   void EmitOMPDistributeDirective(const OMPDistributeDirective &S);
-  void EmitOMPDistributeLoop(const OMPDistributeDirective &S);
+  void EmitOMPSimdLoop(const OMPLoopDirective &S, bool OutlinedSimd);
+  void EmitOMPDistributeLoop(const OMPLoopDirective &S,
+                       const RegionCodeGenTy &CodeGenDistributeLoopContent);
   void EmitOMPDistributeParallelForDirective(
       const OMPDistributeParallelForDirective &S);
   void EmitOMPDistributeParallelForSimdDirective(
@@ -2792,11 +2799,43 @@ public:
                                           StringRef ParentName,
                                           const OMPTargetDirective &S);
   static void
-  EmitOMPTargetParallelDeviceFunction(CodeGenModule &CGM, StringRef ParentName,
-                                      const OMPTargetParallelDirective &S);
-  static void
   EmitOMPTargetTeamsDeviceFunction(CodeGenModule &CGM, StringRef ParentName,
                                    const OMPTargetTeamsDirective &S);
+
+  /// Emit device code for the target teams distribute directive.
+  static void EmitOMPTargetTeamsDistributeDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetTeamsDistributeDirective &S);
+
+  /// Emit device code for the target teams distribute simd directive.
+  static void EmitOMPTargetTeamsDistributeSimdDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetTeamsDistributeSimdDirective &S);
+
+  /// Emit device code for the target parallel directive.
+  static void
+  EmitOMPTargetParallelDeviceFunction(CodeGenModule &CGM, StringRef ParentName,
+                                      const OMPTargetParallelDirective &S);
+  /// Emit device code for the target parallel directive.
+  static void EmitOMPTargetSimdDeviceFunction(CodeGenModule &CGM,
+                                              StringRef ParentName,
+                                              const OMPTargetSimdDirective &S);
+  /// Emit device code for the target parallel for directive.
+  static void EmitOMPTargetParallelForDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetParallelForDirective &S);
+  /// Emit device code for the target parallel for simd directive.
+  static void EmitOMPTargetParallelForSimdDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetParallelForSimdDirective &S);
+  /// Emit device code for the target teams distribute parallel for directive.
+  static void EmitOMPTargetTeamsDistributeParallelForDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetTeamsDistributeParallelForDirective &S);
+  static void EmitOMPTargetTeamsDistributeParallelForSimdDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetTeamsDistributeParallelForSimdDirective &S);
+
   /// \brief Emit inner loop of the worksharing/simd construct.
   ///
   /// \param S Directive, for which the inner loop must be emitted.
@@ -2818,6 +2857,10 @@ public:
   void EmitOMPPrivateLoopCounters(const OMPLoopDirective &S,
                                   OMPPrivateScope &LoopScope);
 
+  /// \brief Emit a helper variable and return corresponding lvalue.
+  LValue EmitOMPHelperVar(const DeclRefExpr *Helper);
+  void EmitOMPHelperVar(const VarDecl *VDecl);
+
 private:
   /// Helpers for blocks
   llvm::Value *EmitBlockLiteral(const CGBlockInfo &Info);
@@ -2828,22 +2871,30 @@ private:
   void EmitOMPSimdFinal(
       const OMPLoopDirective &D,
       const llvm::function_ref<llvm::Value *(CodeGenFunction &)> &CondGen);
+
+public:
   /// \brief Emit code for the worksharing loop-based directive.
   /// \return true, if this construct has any lastprivate clause, false -
   /// otherwise.
   bool EmitOMPWorksharingLoop(const OMPLoopDirective &S);
+
+private:
   void EmitOMPOuterLoop(bool IsMonotonic, bool DynamicOrOrdered,
-      const OMPLoopDirective &S, OMPPrivateScope &LoopScope, bool Ordered,
-      Address LB, Address UB, Address ST, Address IL, llvm::Value *Chunk);
+                        bool IsDistribute, const OMPLoopDirective &S,
+                        OMPPrivateScope &LoopScope, bool Ordered, Address LB,
+                        Address UB, Address ST, Address IL, llvm::Value *Chunk,
+                        const RegionCodeGenTy &CodeGenDistributeLoopContent);
   void EmitOMPForOuterLoop(const OpenMPScheduleTy &ScheduleKind,
                            bool IsMonotonic, const OMPLoopDirective &S,
                            OMPPrivateScope &LoopScope, bool Ordered, Address LB,
                            Address UB, Address ST, Address IL,
                            llvm::Value *Chunk);
   void EmitOMPDistributeOuterLoop(
-      OpenMPDistScheduleClauseKind ScheduleKind,
-      const OMPDistributeDirective &S, OMPPrivateScope &LoopScope,
-      Address LB, Address UB, Address ST, Address IL, llvm::Value *Chunk);
+      OpenMPDistScheduleClauseKind ScheduleKind, const OMPLoopDirective &S,
+      OMPPrivateScope &LoopScope, Address LB, Address UB, Address ST,
+      Address IL, llvm::Value *Chunk,
+      const RegionCodeGenTy &CodeGenDistributeLoopContent);
+
   /// \brief Emit code for sections directive.
   void EmitSections(const OMPExecutableDirective &S);
 
