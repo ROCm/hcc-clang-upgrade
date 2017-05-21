@@ -76,17 +76,15 @@ class OMPClauseWithPreInit {
   friend class OMPClauseReader;
   /// Pre-initialization statement for the clause.
   Stmt *PreInit;
-  /// Region that captures the associated stmt.
   OpenMPDirectiveKind CaptureRegion;
-
 protected:
   /// Set pre-initialization statement for the clause.
-  void setPreInitStmt(Stmt *S, OpenMPDirectiveKind ThisRegion = OMPD_unknown) {
-    PreInit = S;
+  void setPreInitStmt(Stmt *S, OpenMPDirectiveKind ThisRegion = OMPD_unknown)
+  { 
+    PreInit = S; 
     CaptureRegion = ThisRegion;
   }
-  OMPClauseWithPreInit(const OMPClause *This)
-      : PreInit(nullptr), CaptureRegion(OMPD_unknown) {
+  OMPClauseWithPreInit(const OMPClause *This) : PreInit(nullptr) {
     assert(get(This) && "get is not tuned for pre-init.");
   }
 
@@ -95,7 +93,7 @@ public:
   const Stmt *getPreInitStmt() const { return PreInit; }
   /// Get pre-initialization statement for the clause.
   Stmt *getPreInitStmt() { return PreInit; }
-  /// Get capture region for the stmt in the clause.
+ /// Get capture region for the stmt in the clause.
   OpenMPDirectiveKind getCaptureRegion() { return CaptureRegion; }
   static OMPClauseWithPreInit *get(OMPClause *C);
   static const OMPClauseWithPreInit *get(const OMPClause *C);
@@ -234,9 +232,7 @@ public:
   ///
   /// \param NameModifier [OpenMP 4.1] Directive name modifier of clause.
   /// \param Cond Condition of the clause.
-  /// \param HelperCond Helper condition for the clause.
-  /// \param CaptureRegion Innermost OpenMP region where expressions in this
-  /// clause must be captured.
+  /// \param HelperCond Helper condition for combined directives.
   /// \param StartLoc Starting location of the clause.
   /// \param LParenLoc Location of '('.
   /// \param NameModifierLoc Location of directive name modifier.
@@ -244,13 +240,13 @@ public:
   /// \param EndLoc Ending location of the clause.
   ///
   OMPIfClause(OpenMPDirectiveKind NameModifier, Expr *Cond, Stmt *HelperCond,
-              OpenMPDirectiveKind CaptureRegion, SourceLocation StartLoc,
-              SourceLocation LParenLoc, SourceLocation NameModifierLoc,
-              SourceLocation ColonLoc, SourceLocation EndLoc)
+              SourceLocation StartLoc, SourceLocation LParenLoc,
+              SourceLocation NameModifierLoc, SourceLocation ColonLoc,
+              SourceLocation EndLoc)
       : OMPClause(OMPC_if, StartLoc, EndLoc), OMPClauseWithPreInit(this),
         LParenLoc(LParenLoc), Condition(Cond), ColonLoc(ColonLoc),
         NameModifier(NameModifier), NameModifierLoc(NameModifierLoc) {
-    setPreInitStmt(HelperCond, CaptureRegion);
+    setPreInitStmt(HelperCond);
   }
 
   /// \brief Build an empty clause.
@@ -360,21 +356,18 @@ public:
   /// \brief Build 'num_threads' clause with condition \a NumThreads.
   ///
   /// \param NumThreads Number of threads for the construct.
-  /// \param HelperNumThreads Helper Number of threads for the construct.
-  /// \param CaptureRegion Innermost OpenMP region where expressions in this
-  /// clause must be captured.
+  /// \param HelperNumThreads Helper number of threads for combined directives.
   /// \param StartLoc Starting location of the clause.
   /// \param LParenLoc Location of '('.
   /// \param EndLoc Ending location of the clause.
   ///
   OMPNumThreadsClause(Expr *NumThreads, Stmt *HelperNumThreads,
-                      OpenMPDirectiveKind CaptureRegion,
                       SourceLocation StartLoc, SourceLocation LParenLoc,
                       SourceLocation EndLoc)
       : OMPClause(OMPC_num_threads, StartLoc, EndLoc),
         OMPClauseWithPreInit(this), LParenLoc(LParenLoc),
         NumThreads(NumThreads) {
-    setPreInitStmt(HelperNumThreads, CaptureRegion);
+    setPreInitStmt(HelperNumThreads);
   }
 
   /// \brief Build an empty clause.
@@ -3495,19 +3488,15 @@ public:
   /// \brief Build 'num_teams' clause.
   ///
   /// \param E Expression associated with this clause.
-  /// \param HelperE Helper Expression associated with this clause.
-  /// \param CaptureRegion Innermost OpenMP region where expressions in this
-  /// clause must be captured.
   /// \param StartLoc Starting location of the clause.
   /// \param LParenLoc Location of '('.
   /// \param EndLoc Ending location of the clause.
   ///
-  OMPNumTeamsClause(Expr *E, Stmt *HelperE, OpenMPDirectiveKind CaptureRegion,
-                    SourceLocation StartLoc, SourceLocation LParenLoc,
-                    SourceLocation EndLoc)
+  OMPNumTeamsClause(Expr *E, Stmt *HelperE, SourceLocation StartLoc,
+                    SourceLocation LParenLoc, SourceLocation EndLoc)
       : OMPClause(OMPC_num_teams, StartLoc, EndLoc), OMPClauseWithPreInit(this),
         LParenLoc(LParenLoc), NumTeams(E) {
-    setPreInitStmt(HelperE, CaptureRegion);
+    setPreInitStmt(HelperE);
   }
 
   /// \brief Build an empty clause.
@@ -3557,20 +3546,15 @@ public:
   /// \brief Build 'thread_limit' clause.
   ///
   /// \param E Expression associated with this clause.
-  /// \param HelperE Helper Expression associated with this clause.
-  /// \param CaptureRegion Innermost OpenMP region where expressions in this
-  /// clause must be captured.
   /// \param StartLoc Starting location of the clause.
   /// \param LParenLoc Location of '('.
   /// \param EndLoc Ending location of the clause.
   ///
-  OMPThreadLimitClause(Expr *E, Stmt *HelperE,
-                       OpenMPDirectiveKind CaptureRegion,
-                       SourceLocation StartLoc, SourceLocation LParenLoc,
-                       SourceLocation EndLoc)
+  OMPThreadLimitClause(Expr *E, Stmt *HelperE, SourceLocation StartLoc,
+                       SourceLocation LParenLoc, SourceLocation EndLoc)
       : OMPClause(OMPC_thread_limit, StartLoc, EndLoc),
         OMPClauseWithPreInit(this), LParenLoc(LParenLoc), ThreadLimit(E) {
-    setPreInitStmt(HelperE, CaptureRegion);
+    setPreInitStmt(HelperE);
   }
 
   /// \brief Build an empty clause.

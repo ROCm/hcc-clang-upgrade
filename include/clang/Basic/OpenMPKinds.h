@@ -239,6 +239,13 @@ bool isOpenMPLoopBoundSharingDirective(OpenMPDirectiveKind Kind);
 void getOpenMPCaptureRegions(
     llvm::SmallVectorImpl<OpenMPDirectiveKind> &CaptureRegions,
     OpenMPDirectiveKind DKind);
+
+/// \brief Checks if the specified directive requires an additional
+/// iteration variable.
+/// \param DKind Specified directive.
+/// \return true - the directive is a combined directive and requires an
+/// additional iteration variable, otherwise - false.
+bool requiresAdditionalIterationVar(OpenMPDirectiveKind DKind);
 }
 
 #endif

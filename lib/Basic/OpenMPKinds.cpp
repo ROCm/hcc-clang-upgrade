@@ -779,6 +779,7 @@ bool clang::isOpenMPParallelDirective(OpenMPDirectiveKind DKind) {
 }
 
 bool clang::isOpenMPTargetExecutionDirective(OpenMPDirectiveKind DKind) {
+  // TODO add next directives.
   return DKind == OMPD_target || DKind == OMPD_target_parallel ||
          DKind == OMPD_target_parallel_for || 
          DKind == OMPD_target_parallel_for_simd || DKind == OMPD_target_simd ||
@@ -816,6 +817,7 @@ bool clang::isOpenMPSimdDirective(OpenMPDirectiveKind DKind) {
          DKind == OMPD_teams_distribute_simd ||
          DKind == OMPD_teams_distribute_parallel_for_simd ||
          DKind == OMPD_target_teams_distribute_parallel_for_simd ||
+         DKind == OMPD_target_parallel_for_simd ||
          DKind == OMPD_target_teams_distribute_simd;
 }
 
@@ -854,15 +856,14 @@ bool clang::isOpenMPTaskingDirective(OpenMPDirectiveKind Kind) {
 bool clang::isOpenMPLoopBoundSharingDirective(OpenMPDirectiveKind Kind) {
   return Kind == OMPD_distribute_parallel_for ||
          Kind == OMPD_distribute_parallel_for_simd ||
-         Kind == OMPD_distribute_simd || Kind == OMPD_teams_distribute ||
-         Kind == OMPD_teams_distribute_simd ||
+         Kind == OMPD_distribute_simd || Kind == OMPD_teams_distribute_simd ||
          Kind == OMPD_teams_distribute_parallel_for_simd ||
          Kind == OMPD_teams_distribute_parallel_for ||
-         Kind == OMPD_target_teams_distribute ||
          Kind == OMPD_target_teams_distribute_parallel_for ||
          Kind == OMPD_target_teams_distribute_parallel_for_simd ||
          Kind == OMPD_target_teams_distribute_simd;
 }
+
 
 void clang::getOpenMPCaptureRegions(
     SmallVectorImpl<OpenMPDirectiveKind> &CaptureRegions,
@@ -935,4 +936,11 @@ void clang::getOpenMPCaptureRegions(
   case OMPD_unknown:
     llvm_unreachable("Unknown OpenMP directive");
   }
+}
+
+bool clang::requiresAdditionalIterationVar(OpenMPDirectiveKind DKind) {
+  return DKind == OMPD_distribute_simd || DKind == OMPD_teams_distribute_simd ||
+         DKind == OMPD_target_teams_distribute_simd ||
+         DKind == OMPD_teams_distribute_parallel_for_simd;
+  // TODO add more directives if we detect any other cases.
 }

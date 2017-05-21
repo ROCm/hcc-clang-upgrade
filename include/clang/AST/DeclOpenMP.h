@@ -169,24 +169,46 @@ public:
 /// functions. This pseudo-declaration allows properly handle this kind of
 /// capture by wrapping captured expression into a variable-like declaration.
 class OMPCapturedExprDecl final : public VarDecl {
+  // Consider the construct:
+  // #pragma omp target parallel for if(x > 0) schedule(static,chunk)
+  // Note that:
+  // if(x > 0) applies to both 'target' and 'parallel'
+  // 'x' should be captured for 'target' but not 'parallel'. It should not be in
+  // the outlined function for the parallel region.
+  //
+  // schedule(static,chunk): 'chunk' should be captured by 'parallel' as well
+  // as 'target'.
+  //
+  // We specify the following capture levels:
+  // x - CaptureLevel 1
+  // chunk - CaptureLevel 2
+  //
+  // If an expression is captured, CaptureLevel is always >= 1.
+  unsigned CaptureLevel;
+
   friend class ASTDeclReader;
   void anchor() override;
 
   OMPCapturedExprDecl(ASTContext &C, DeclContext *DC, IdentifierInfo *Id,
-                      QualType Type, SourceLocation StartLoc)
+                      QualType Type, SourceLocation StartLoc, unsigned CaptureLevel)
       : VarDecl(OMPCapturedExpr, C, DC, StartLoc, SourceLocation(), Id, Type,
-                nullptr, SC_None) {
+                nullptr, SC_None),
+        CaptureLevel(CaptureLevel) {
     setImplicit();
   }
 
 public:
   static OMPCapturedExprDecl *Create(ASTContext &C, DeclContext *DC,
                                      IdentifierInfo *Id, QualType T,
-                                     SourceLocation StartLoc);
+                                     SourceLocation StartLoc,
+                                     unsigned CaptureLevel);
 
-  static OMPCapturedExprDecl *CreateDeserialized(ASTContext &C, unsigned ID);
-
+  static OMPCapturedExprDecl *CreateDeserialized(ASTContext &C, unsigned ID,
+                                                 unsigned CaptureLevel = 1);
   SourceRange getSourceRange() const override LLVM_READONLY;
+
+  unsigned getCaptureLevel() const;
+  void setCaptureLevel(unsigned CaptureLevel);
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }

@@ -198,26 +198,6 @@ public:
     return const_cast<Stmt *>(*child_begin());
   }
 
-  /// \brief Returns the captured statement associated with the
-  /// component region within the (combined) directive.
-  //
-  // \param RegionKind Component region kind.
-  CapturedStmt *getCapturedStmt(OpenMPDirectiveKind RegionKind) const {
-    SmallVector<OpenMPDirectiveKind, 4> CaptureRegions;
-    getOpenMPCaptureRegions(CaptureRegions, getDirectiveKind());
-    assert(std::any_of(
-               CaptureRegions.begin(), CaptureRegions.end(),
-               [=](const OpenMPDirectiveKind K) { return K == RegionKind; }) &&
-           "RegionKind not found in OpenMP CaptureRegions.");
-    auto *CS = cast<CapturedStmt>(getAssociatedStmt());
-    for (auto ThisCaptureRegion : CaptureRegions) {
-      if (ThisCaptureRegion == RegionKind)
-        return CS;
-      CS = cast<CapturedStmt>(CS->getCapturedStmt());
-    }
-    llvm_unreachable("Incorrect RegionKind specified for directive.");
-  }
-
   OpenMPDirectiveKind getDirectiveKind() const { return Kind; }
 
   static bool classof(const Stmt *S) {
@@ -324,11 +304,6 @@ class OMPLoopDirective : public OMPExecutableDirective {
   /// allocated: loop counters, their updates and final values.
   /// PrevLowerBound and PrevUpperBound are used to communicate blocking
   /// information in composite constructs which require loop blocking
-  /// DistInc is used to generate the increment expression for the distribute
-  /// loop when combined with a further nested loop
-  /// PrevEnsureUpperBound is used as the EnsureUpperBound expression for the
-  /// for loop when combined with a previous distribute loop in the same pragma
-  /// (e.g. 'distribute parallel for')
   ///
   enum {
     AssociatedStmtOffset = 0,
@@ -338,28 +313,32 @@ class OMPLoopDirective : public OMPExecutableDirective {
     PreConditionOffset = 4,
     CondOffset = 5,
     InitOffset = 6,
-    IncOffset = 7,
-    PreInitsOffset = 8,
+    LaneInitOffset = 7,
+    NumLanesOffset = 8,
+    IncOffset = 9,
+    PreInitsOffset = 10,
     // The '...End' enumerators do not correspond to child expressions - they
     // specify the offset to the end (and start of the following counters/
     // updates/finals arrays).
-    DefaultEnd = 9,
-    // The following 12 exprs are used by worksharing and distribute loops only.
-    IsLastIterVariableOffset = 9,
-    LowerBoundVariableOffset = 10,
-    UpperBoundVariableOffset = 11,
-    StrideVariableOffset = 12,
-    EnsureUpperBoundOffset = 13,
-    NextLowerBoundOffset = 14,
-    NextUpperBoundOffset = 15,
-    NumIterationsOffset = 16,
-    PrevLowerBoundVariableOffset = 17,
-    PrevUpperBoundVariableOffset = 18,
-    DistIncOffset = 19,
-    PrevEnsureUpperBoundOffset = 20,
+    DefaultEnd = 11,
+    // The following 7 exprs are used by worksharing loops only.
+    IsLastIterVariableOffset = 11,
+    LowerBoundVariableOffset = 12,
+    UpperBoundVariableOffset = 13,
+    StrideVariableOffset = 14,
+    EnsureUpperBoundOffset = 15,
+    NextLowerBoundOffset = 16,
+    NextUpperBoundOffset = 17,
+    NumIterationsOffset = 18,
+    PrevLowerBoundVariableOffset = 19,
+    PrevUpperBoundVariableOffset = 20,
+    DistCondOffset = 21,
+    DistIncOffset = 22,
+    PrevEnsureUpperBoundOffset = 23,
+    InnermostIterationVariableOffset = 24,
     // Offset to the end (and start of the following counters/updates/finals
     // arrays) for worksharing loop directives.
-    WorksharingEnd = 21,
+    WorksharingEnd = 25,
   };
 
   /// \brief Get the counters storage.
@@ -454,6 +433,12 @@ protected:
     *std::next(child_begin(), CondOffset) = Cond;
   }
   void setInit(Expr *Init) { *std::next(child_begin(), InitOffset) = Init; }
+  void setLaneInit(Expr *LaneInit) {
+    *std::next(child_begin(), LaneInitOffset) = LaneInit;
+  }
+  void setNumLanes(Expr *NumLanes) {
+    *std::next(child_begin(), NumLanesOffset) = NumLanes;
+  }
   void setInc(Expr *Inc) { *std::next(child_begin(), IncOffset) = Inc; }
   void setPreInits(Stmt *PreInits) {
     *std::next(child_begin(), PreInitsOffset) = PreInits;
@@ -528,12 +513,19 @@ protected:
            "expected worksharing loop directive");
     *std::next(child_begin(), PrevUpperBoundVariableOffset) = PrevUB;
   }
-  void setDistInc(Expr *DistInc) {
+  void setDistCond(Expr *Cond) {
     assert((isOpenMPWorksharingDirective(getDirectiveKind()) ||
             isOpenMPTaskLoopDirective(getDirectiveKind()) ||
             isOpenMPDistributeDirective(getDirectiveKind())) &&
            "expected worksharing loop directive");
-    *std::next(child_begin(), DistIncOffset) = DistInc;
+    *std::next(child_begin(), DistCondOffset) = Cond;
+  }
+  void setDistInc(Expr *Inc) {
+    assert((isOpenMPWorksharingDirective(getDirectiveKind()) ||
+            isOpenMPTaskLoopDirective(getDirectiveKind()) ||
+            isOpenMPDistributeDirective(getDirectiveKind())) &&
+           "expected worksharing loop directive");
+    *std::next(child_begin(), DistIncOffset) = Inc;
   }
   void setPrevEnsureUpperBound(Expr *PrevEUB) {
     assert((isOpenMPWorksharingDirective(getDirectiveKind()) ||
@@ -541,6 +533,13 @@ protected:
             isOpenMPDistributeDirective(getDirectiveKind())) &&
            "expected worksharing loop directive");
     *std::next(child_begin(), PrevEnsureUpperBoundOffset) = PrevEUB;
+  }
+  void setInnermostIterationVariable(Expr *CombIV) {
+    assert((isOpenMPWorksharingDirective(getDirectiveKind()) ||
+            isOpenMPTaskLoopDirective(getDirectiveKind()) ||
+            isOpenMPDistributeDirective(getDirectiveKind())) &&
+           "expected worksharing loop directive");
+    *std::next(child_begin(), InnermostIterationVariableOffset) = CombIV;
   }
   void setCounters(ArrayRef<Expr *> A);
   void setPrivateCounters(ArrayRef<Expr *> A);
@@ -566,6 +565,10 @@ public:
     Expr *Cond;
     /// \brief Loop iteration variable init.
     Expr *Init;
+    /// \brief Loop iteration variable init for a simd lane.
+    Expr *LaneInit;
+    /// \brief Loop increment in outlined simd region: # simd lanes.
+    Expr *NumLanes;
     /// \brief Loop increment.
     Expr *Inc;
     /// \brief IsLastIteration - local flag variable passed to runtime.
@@ -576,7 +579,7 @@ public:
     Expr *UB;
     /// \brief Stride - local variable passed to runtime.
     Expr *ST;
-    /// \brief EnsureUpperBound -- expression UB = min(UB, NumIterations).
+    /// \brief EnsureUpperBound -- expression LB = min(LB, NumIterations).
     Expr *EUB;
     /// \brief Update of LowerBound for statically sheduled 'omp for' loops.
     Expr *NLB;
@@ -588,15 +591,14 @@ public:
     /// \brief PreviousUpperBound - local variable passed to runtime in the
     /// enclosing schedule or null if that does not apply.
     Expr *PrevUB;
-    /// \brief DistInc - increment expression for distribute loop when found
-    /// combined with a further loop level (e.g. in 'distribute parallel for')
-    /// expression IV = IV + ST
+    /// \brief Additional iteration variable for worksharing constructs.
+    Expr *InnermostIterationVarRef;
+    /// \brief Dist Loop condition.
+    Expr *DistCond;
+    /// \brief Dist Loop increment.
     Expr *DistInc;
-    /// \brief PrevEUB - expression similar to EUB but to be used when loop
-    /// scheduling uses PrevLB and PrevUB (e.g.  in 'distribute parallel for'
-    /// when ensuring that the UB is either the calculated UB by the runtime or
-    /// the end of the assigned distribute chunk)
-    /// expression UB = min (UB, PrevUB)
+    /// \brief PreviousEnsureUpperBound -- expression LB = min(LB,
+    /// NumIterations).
     Expr *PrevEUB;
     /// \brief Counters Loop counters.
     SmallVector<Expr *, 4> Counters;
@@ -628,6 +630,8 @@ public:
       PreCond = nullptr;
       Cond = nullptr;
       Init = nullptr;
+      LaneInit = nullptr;
+      NumLanes = nullptr;
       Inc = nullptr;
       IL = nullptr;
       LB = nullptr;
@@ -639,8 +643,10 @@ public:
       NumIterations = nullptr;
       PrevLB = nullptr;
       PrevUB = nullptr;
+      DistCond = nullptr;
       DistInc = nullptr;
       PrevEUB = nullptr;
+      InnermostIterationVarRef = nullptr;
       Counters.resize(Size);
       PrivateCounters.resize(Size);
       Inits.resize(Size);
@@ -683,6 +689,14 @@ public:
   Expr *getInit() const {
     return const_cast<Expr *>(
         reinterpret_cast<const Expr *>(*std::next(child_begin(), InitOffset)));
+  }
+  Expr *getLaneInit() const {
+    return const_cast<Expr *>(reinterpret_cast<const Expr *>(
+        *std::next(child_begin(), LaneInitOffset)));
+  }
+  Expr *getNumLanes() const {
+    return const_cast<Expr *>(reinterpret_cast<const Expr *>(
+        *std::next(child_begin(), NumLanesOffset)));
   }
   Expr *getInc() const {
     return const_cast<Expr *>(
@@ -772,6 +786,14 @@ public:
     return const_cast<Expr *>(reinterpret_cast<const Expr *>(
         *std::next(child_begin(), PrevUpperBoundVariableOffset)));
   }
+  Expr *getDistCond() const {
+    assert((isOpenMPWorksharingDirective(getDirectiveKind()) ||
+            isOpenMPTaskLoopDirective(getDirectiveKind()) ||
+            isOpenMPDistributeDirective(getDirectiveKind())) &&
+           "expected worksharing loop directive");
+    return const_cast<Expr *>(reinterpret_cast<const Expr *>(
+        *std::next(child_begin(), DistCondOffset)));
+  }
   Expr *getDistInc() const {
     assert((isOpenMPWorksharingDirective(getDirectiveKind()) ||
             isOpenMPTaskLoopDirective(getDirectiveKind()) ||
@@ -787,6 +809,14 @@ public:
            "expected worksharing loop directive");
     return const_cast<Expr *>(reinterpret_cast<const Expr *>(
         *std::next(child_begin(), PrevEnsureUpperBoundOffset)));
+  }
+  Expr *getInnermostIterationVariable() const {
+    assert((isOpenMPWorksharingDirective(getDirectiveKind()) ||
+            isOpenMPTaskLoopDirective(getDirectiveKind()) ||
+            isOpenMPDistributeDirective(getDirectiveKind())) &&
+           "expected worksharing loop directive");
+    return const_cast<Expr *>(reinterpret_cast<const Expr *>(
+        *std::next(child_begin(), InnermostIterationVariableOffset)));
   }
   const Stmt *getBody() const {
     // This relies on the loop form is already checked by Sema.
@@ -847,7 +877,13 @@ public:
            T->getStmtClass() == OMPTeamsDistributeDirectiveClass ||
            T->getStmtClass() == OMPTeamsDistributeSimdDirectiveClass ||
            T->getStmtClass() == OMPTeamsDistributeParallelForSimdDirectiveClass ||
-           T->getStmtClass() == OMPTeamsDistributeParallelForDirectiveClass;
+           T->getStmtClass() == OMPTeamsDistributeParallelForDirectiveClass ||
+           T->getStmtClass() ==
+               OMPTargetTeamsDistributeParallelForDirectiveClass ||
+           T->getStmtClass() ==
+               OMPTargetTeamsDistributeParallelForSimdDirectiveClass ||
+           T->getStmtClass() == OMPTargetTeamsDistributeDirectiveClass||
+           T->getStmtClass() == OMPTargetTeamsDistributeSimdDirectiveClass;
   }
 };
 
@@ -3780,16 +3816,16 @@ public:
   }
 };
 
-/// This represents '#pragma omp target teams distribute simd' combined
-/// directive.
+/// This represents '#pragma omp target teams distribute simd'
+/// combined directive.
 ///
 /// \code
-/// #pragma omp target teams distribute simd private(x)
+/// #pragma omp target teams distribute simd private(a,b)
 /// \endcode
 /// In this example directive '#pragma omp target teams distribute simd'
-/// has clause 'private' with the variables 'x'
+/// has clause 'private' with the variables 'a' and 'b'
 ///
-class OMPTargetTeamsDistributeSimdDirective final : public OMPLoopDirective {
+class OMPTargetTeamsDistributeSimdDirective : public OMPLoopDirective {
   friend class ASTStmtReader;
 
   /// Build directive with the given start and end location.
@@ -3834,7 +3870,8 @@ public:
          unsigned CollapsedNum, ArrayRef<OMPClause *> Clauses,
          Stmt *AssociatedStmt, const HelperExprs &Exprs);
 
-  /// Creates an empty directive with the place for \a NumClauses clauses.
+  /// Creates an empty directive with the place
+  /// for \a NumClauses clauses.
   ///
   /// \param C AST context.
   /// \param CollapsedNum Number of collapsed nested loops.
