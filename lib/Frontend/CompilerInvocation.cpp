@@ -2238,11 +2238,13 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
       default:
         break;
       // Add unsupported host targets here:
+      /*
       case llvm::Triple::nvptx:
       case llvm::Triple::nvptx64:
         Diags.Report(clang::diag::err_drv_omp_host_target_not_supported)
             << TargetOpts.Triple;
         break;
+      */
       }
     }
     // Set the flag to prevent the implementation from emitting device exception
