@@ -363,6 +363,10 @@ llvm::Function *CodeGenFunction::GenerateOpenMPCapturedStmtFunction(
   if (CD->isNothrow())
     F->addFnAttr(llvm::Attribute::NoUnwind);
 
+  if ((Ctx.getTargetInfo().getTriple().getArch()==llvm::Triple::amdgcn) &&
+      F->getName().str().find("__omp_offloading_") != std::string::npos &&
+      CGM.getLangOpts().OpenMPIsDevice )
+    F->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
   // Generate the function.
   StartFunction(CD, Ctx.VoidTy, F, FuncInfo, Args, CD->getLocation(),
                 CD->getBody()->getLocStart());
