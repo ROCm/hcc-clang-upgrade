@@ -2873,6 +2873,10 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
       };
       if (NewName != Name) {
         llvm::Module * M = &CGM.getModule();
+
+        // remove the old one
+        F->eraseFromParent();
+
         F = M->getFunction(NewName);
         if (!F) F = llvm::Function::Create(
           llvm::FunctionType::get(RetTy, llvm::None , false),
