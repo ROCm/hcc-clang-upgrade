@@ -2028,18 +2028,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   if (IsOpenMPDevice) {
-    // We have to pass the triple of the host if compiling for a OpenMP device and
-    // vice-versa.
-    std::string NormalizedTriple;
-    if (JA.isDeviceOffloading(Action::OFK_OpenMP))
-      NormalizedTriple = C.getSingleOffloadToolChain<Action::OFK_Host>()
-                             ->getTriple()
-                             .normalize();
-    else
-      NormalizedTriple = C.getSingleOffloadToolChain<Action::OFK_OpenMP>()
-                             ->getTriple()
-                             .normalize();
-
+    // We have to pass the triple of the host if compiling for an OpenMP device.
+    std::string NormalizedTriple =
+        C.getSingleOffloadToolChain<Action::OFK_Host>()
+            ->getTriple()
+            .normalize();
     CmdArgs.push_back("-aux-triple");
     CmdArgs.push_back(Args.MakeArgString(NormalizedTriple));
   }
