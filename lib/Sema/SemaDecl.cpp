@@ -7074,7 +7074,8 @@ NamedDecl *Sema::ActOnVariableDeclarator(
   ProcessDeclAttributes(S, NewVD, D);
 
   if (getLangOpts().CUDA) {
-    if (EmitTLSUnsupportedError && DeclAttrsMatchCUDAMode(getLangOpts(), NewVD))
+    if (EmitTLSUnsupportedError && DeclAttrsMatchOffloadMode(getLangOpts(), NewVD,
+        IsInOpenMPDeclareTargetContext))
       Diag(D.getDeclSpec().getThreadStorageClassSpecLoc(),
            diag::err_thread_unsupported);
     // CUDA B.2.5: "__shared__ and __constant__ variables have implied static

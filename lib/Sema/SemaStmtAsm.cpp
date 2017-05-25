@@ -211,7 +211,7 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
   // If we're compiling CUDA file and function attributes indicate that it's not
   // for this compilation side, skip all the checks.
   // Also skip ptx ASM checks if cuda for amdgcn
-  if (!DeclAttrsMatchCUDAMode(getLangOpts(), getCurFunctionDecl())
+  if (!DeclAttrsMatchOffloadMode(getLangOpts(), getCurFunctionDecl(), IsInOpenMPDeclareTargetContext)
     || found_gcn_cuda) {
     GCCAsmStmt *NS = new (Context) GCCAsmStmt(
         Context, AsmLoc, IsSimple, IsVolatile, NumOutputs, NumInputs, Names,

@@ -60,6 +60,16 @@ inline bool DeclAttrsMatchCUDAMode(const LangOptions &LangOpts, Decl *D) {
   return isDeviceSideDecl == LangOpts.CUDAIsDevice;
 }
 
+// Helper function to check whether D's attributes match current offloading
+// mode.
+inline bool DeclAttrsMatchOffloadMode(const LangOptions &LangOpts, Decl *D,
+                                      bool InOpenMPDeviceRegion) {
+  if (LangOpts.OpenMPIsDevice)
+    return InOpenMPDeviceRegion;
+
+  return DeclAttrsMatchCUDAMode(LangOpts, D);
+}
+
 // Helper function to check whether D's attributes match current HCC mode.
 // Decls with mismatched attributes and related diagnostics may have to be
 // ignored during this HCC compilation pass.
