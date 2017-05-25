@@ -2027,6 +2027,23 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back(Args.MakeArgString(NormalizedTriple));
   }
 
+  if (IsOpenMPDevice) {
+    // We have to pass the triple of the host if compiling for a OpenMP device and
+    // vice-versa.
+    std::string NormalizedTriple;
+    if (JA.isDeviceOffloading(Action::OFK_OpenMP))
+      NormalizedTriple = C.getSingleOffloadToolChain<Action::OFK_Host>()
+                             ->getTriple()
+                             .normalize();
+    else
+      NormalizedTriple = C.getSingleOffloadToolChain<Action::OFK_OpenMP>()
+                             ->getTriple()
+                             .normalize();
+
+    CmdArgs.push_back("-aux-triple");
+    CmdArgs.push_back(Args.MakeArgString(NormalizedTriple));
+  }
+
   // Make sure host triple is specified for HCC kernel compilation path
   bool IsHCCKernelPath = IsCXXAMPBackendJobAction(&JA) || IsCXXAMPCPUBackendJobAction(&JA);
   if (IsHCCKernelPath) {
