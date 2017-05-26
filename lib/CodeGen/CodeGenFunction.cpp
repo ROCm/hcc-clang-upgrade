@@ -117,7 +117,7 @@ CodeGenFunction::~CodeGenFunction() {
   if (FirstBlockInfo)
     destroyBlockInfos(FirstBlockInfo);
 
-  if (getLangOpts().OpenMP && CurFn)
+  if (getLangOpts().OpenMP)
     CGM.getOpenMPRuntime().functionFinished(*this);
 }
 

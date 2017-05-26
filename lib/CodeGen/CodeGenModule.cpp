@@ -1714,6 +1714,21 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
           }
         }
     }
+
+    if (getLangOpts().OpenMPImplicitDeclareTarget && !LangOpts.OpenMPIsDevice) {
+      StringRef MangledName = getMangledName(GD);
+      OpenMPRuntime->addTrackedFunction(MangledName, GD);
+    }
+
+    // If this is OpenMP device, check if it is legal to emit this global
+    // normally.
+    if (OpenMPRuntime && OpenMPRuntime->emitTargetGlobal(GD))
+      return;
+    if (auto *DRD = dyn_cast<OMPDeclareReductionDecl>(Global)) {
+      if (MustBeEmitted(Global))
+        EmitOMPDeclareReduction(DRD);
+      return;
+    }
   }
 
   // If this is C++AMP, be selective about which declarations we emit.

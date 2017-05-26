@@ -1756,8 +1756,7 @@ void CodeGenModule::ConstructDefaultFnAttrList(StringRef Name, bool HasOptnone,
       FuncAttrs.addAttribute("backchain");
   }
 
-  if ( (getLangOpts().CUDA && getLangOpts().CUDAIsDevice) || 
-        getLangOpts().OpenMPIsDevice ) { 
+  if (getLangOpts().CUDA && getLangOpts().CUDAIsDevice) {
     // Conservatively, mark all functions and calls in CUDA as convergent
     // (meaning, they may call an intrinsically convergent op, such as
     // __syncthreads(), and so can't have certain optimizations applied around

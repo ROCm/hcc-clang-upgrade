@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CGCXXABI.h"
+#include "CGOpenMPRuntime.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
 #include "clang/CodeGen/ConstantInitBuilder.h"
@@ -587,6 +588,10 @@ void CodeGenVTables::addVTableComponent(
         return builder.addNullPointer(CGM.Int8PtrTy);
       // Method is acceptable, continue processing as usual.
     }
+
+    // If this is OpenMP target, check if it is legal to emit these methods.
+    if (CGM.getLangOpts().OpenMP && CGM.getOpenMPRuntime().emitTargetGlobal(GD))
+      return builder.addNullPointer(CGM.Int8PtrTy);
 
     auto getSpecialVirtualFn = [&](StringRef name) {
       llvm::FunctionType *fnTy =
