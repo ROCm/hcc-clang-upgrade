@@ -456,6 +456,12 @@ static FieldDecl *addFieldToRecordDecl(ASTContext &C, DeclContext *DC,
   return Field;
 }
 
+static void Dot2Underbar(llvm::Function* Fn) {
+  std::pair<StringRef,StringRef> pair = Fn->getName().split(".");
+  if(pair.second.size()) Fn->setName(pair.first + "_" + pair.second);
+  return;
+}
+
 // \brief Type of the data sharing master slot.
 QualType CGOpenMPRuntimeNVPTX::getDataSharingMasterSlotQty() {
   //  struct MasterSlot {
@@ -5131,7 +5137,8 @@ llvm::Value *EmitCopyToScratchpad(CodeGenModule &CGM,
   auto &CGFI = CGM.getTypes().arrangeBuiltinFunctionDeclaration(C.VoidTy, Args);
   auto *Fn = llvm::Function::Create(
       CGM.getTypes().GetFunctionType(CGFI), llvm::GlobalValue::InternalLinkage,
-      ".omp.reduction.copy_to_scratchpad", &CGM.getModule());
+      "_omp_reduction_copy_to_scratchpad", &CGM.getModule());
+  Dot2Underbar(Fn);
   CGM.SetInternalFunctionAttributes(/*DC=*/nullptr, Fn, CGFI);
   CodeGenFunction CGF(CGM);
   // We don't need debug information in this function as nothing here refers to
@@ -5226,7 +5233,8 @@ llvm::Value *EmitReduceScratchpadFunction(CodeGenModule &CGM,
   auto &CGFI = CGM.getTypes().arrangeBuiltinFunctionDeclaration(C.VoidTy, Args);
   auto *Fn = llvm::Function::Create(
       CGM.getTypes().GetFunctionType(CGFI), llvm::GlobalValue::InternalLinkage,
-      ".omp.reduction.load_and_reduce", &CGM.getModule());
+      "_omp_reduction_load_and_reduce", &CGM.getModule());
+  Dot2Underbar(Fn);
   CGM.SetInternalFunctionAttributes(/*DC=*/nullptr, Fn, CGFI);
   CodeGenFunction CGF(CGM);
   // We don't need debug information in this function as nothing here refers to
@@ -5351,6 +5359,7 @@ static llvm::Value *EmitInterWarpCopyFunction(CodeGenModule &CGM,
   auto *Fn = llvm::Function::Create(
       CGM.getTypes().GetFunctionType(CGFI), llvm::GlobalValue::InternalLinkage,
       "_omp_reduction_inter_warp_copy_func", &CGM.getModule());
+  Dot2Underbar(Fn);
   CGM.SetInternalFunctionAttributes(/*DC=*/nullptr, Fn, CGFI);
   CodeGenFunction CGF(CGM);
   // We don't need debug information in this function as nothing here refers to
@@ -5595,6 +5604,7 @@ EmitShuffleAndReduceFunction(CodeGenModule &CGM,
   auto *Fn = llvm::Function::Create(
       CGM.getTypes().GetFunctionType(CGFI), llvm::GlobalValue::InternalLinkage,
       "_omp_reduction_shuffle_and_reduce_func", &CGM.getModule());
+  Dot2Underbar(Fn);
   CGM.SetInternalFunctionAttributes(/*D=*/nullptr, Fn, CGFI);
   CodeGenFunction CGF(CGM);
   // We don't need debug information in this function as nothing here refers to
