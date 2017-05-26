@@ -5328,6 +5328,8 @@ private:
     AMDGPU_ISA_801,
     AMDGPU_ISA_802,
     AMDGPU_ISA_803,
+    AMDGPU_ISA_900,
+    AMDGPU_ISA_901,
   };
 
   // Parse AMDGPU ISA version string.
@@ -5364,6 +5366,8 @@ private:
       .Case("stoney",    AMDGPU_ISA_801)
       .Case("polaris10", AMDGPU_ISA_803)
       .Case("polaris11", AMDGPU_ISA_803)
+      .Case("gfx900", AMDGPU_ISA_900)
+      .Case("gfx901", AMDGPU_ISA_901)
       .Default(AMDGPU_ISA_NONE);
   }
 };
