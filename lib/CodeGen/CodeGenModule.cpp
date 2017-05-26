@@ -240,6 +240,12 @@ void CodeGenModule::applyReplacements() {
       }
     }
 
+    // Tell the OpenMP runtime we are replacing a global that can potentially be
+    // marked "declare target".
+    if (OpenMPRuntime)
+      if (auto *NewGV = dyn_cast<llvm::GlobalValue>(Replacement))
+        OpenMPRuntime->registerGlobalReplacement(MangledName, NewGV);
+
     // Replace old with new, but keep the old order.
     OldF->replaceAllUsesWith(Replacement);
     if (NewF) {
@@ -262,6 +268,12 @@ void CodeGenModule::applyGlobalValReplacements() {
 
     GV->replaceAllUsesWith(C);
     GV->eraseFromParent();
+
+    // Tell the OpenMP runtime we are replacing a global that can potentially be
+    // marked "declare target".
+    if (OpenMPRuntime)
+      if (auto *NewGV = dyn_cast<llvm::GlobalValue>(C))
+        OpenMPRuntime->registerGlobalReplacement(GV->getName(), NewGV);
   }
 }
 
@@ -1360,6 +1372,10 @@ void CodeGenModule::EmitDeferred() {
     assert(DeferredVTables.empty());
   }
 
+  if (LangOpts.OpenMP && !LangOpts.OpenMPIsDevice) {
+    OpenMPRuntime->registerTrackedFunction();
+  }
+
   // Stop if we're out of both deferred vtables and deferred declarations.
   if (DeferredDeclsToEmit.empty())
     return;
@@ -1561,6 +1577,11 @@ bool CodeGenModule::MustBeEmitted(const ValueDecl *Global) {
   if (LangOpts.EmitAllDecls)
     return true;
 
+  // In OpenMP device mode all declarations that were not filtered should be
+  // emitted.
+  if (LangOpts.OpenMPIsDevice)
+    return true;
+
   return getContext().DeclMustBeEmitted(Global);
 }
 
@@ -1684,14 +1705,14 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
   }
 
   if (LangOpts.OpenMP) {
-    // If this is OpenMP device, check if it is legal to emit this global
-    // normally.
-    if (OpenMPRuntime && OpenMPRuntime->emitTargetGlobal(GD))
-      return;
-    if (auto *DRD = dyn_cast<OMPDeclareReductionDecl>(Global)) {
-      if (MustBeEmitted(Global))
-        EmitOMPDeclareReduction(DRD);
-      return;
+    if (LangOpts.OpenMPIsDevice) {
+      if (const auto *FD = dyn_cast<FunctionDecl>(Global))
+        if (FD->isThisDeclarationADefinition()) {
+          if (OpenMPRuntime->MustBeEmittedForDevice(GD)) {
+            EmitGlobalDefinition(GD);
+            return;
+          }
+        }
     }
   }
 
@@ -2037,6 +2058,11 @@ void CodeGenModule::EmitGlobalDefinition(GlobalDecl GD, llvm::GlobalValue *GV) {
   PrettyStackTraceDecl CrashInfo(const_cast<ValueDecl *>(D), D->getLocation(), 
                                  Context.getSourceManager(),
                                  "Generating code for declaration");
+
+  // If this is OpenMP device, check if it is legal to emit this global
+  // normally.
+  if (OpenMPRuntime && OpenMPRuntime->emitTargetGlobal(GD))
+    return;
   
   if (isa<FunctionDecl>(D)) {
     // At -O0, don't generate IR for functions with available_externally 
@@ -2047,11 +2073,15 @@ void CodeGenModule::EmitGlobalDefinition(GlobalDecl GD, llvm::GlobalValue *GV) {
     if (const auto *Method = dyn_cast<CXXMethodDecl>(D)) {
       // Make sure to emit the definition(s) before we emit the thunks.
       // This is necessary for the generation of certain thunks.
-      if (const auto *CD = dyn_cast<CXXConstructorDecl>(Method))
+      if (const auto *CD = dyn_cast<CXXConstructorDecl>(Method)) {
+        if (OpenMPRuntime)
+          OpenMPRuntime->registerTargetFunctionDefinition(GD);
         ABI->emitCXXStructor(CD, getFromCtorType(GD.getCtorType()));
-      else if (const auto *DD = dyn_cast<CXXDestructorDecl>(Method))
+      } else if (const auto *DD = dyn_cast<CXXDestructorDecl>(Method)) {
+        if (OpenMPRuntime)
+          OpenMPRuntime->registerTargetFunctionDefinition(GD);
         ABI->emitCXXStructor(DD, getFromDtorType(GD.getDtorType()));
-      else
+      } else
         EmitGlobalFunctionDefinition(GD, GV);
 
       if (Method->isVirtual())
@@ -2084,6 +2114,11 @@ llvm::Constant *CodeGenModule::GetOrCreateLLVMFunction(
     bool DontDefer, bool IsThunk, llvm::AttributeList ExtraAttrs,
     ForDefinition_t IsForDefinition) {
   const Decl *D = GD.getDecl();
+
+  // Process function name as required by the OpenMP runtime
+  if (OpenMPRuntime) {
+    MangledName = OpenMPRuntime->RenameStandardFunction(MangledName);
+  }
 
   // Lookup the entry, lazily creating it if necessary.
   llvm::GlobalValue *Entry = GetGlobalValue(MangledName);
@@ -2589,6 +2624,11 @@ CodeGenModule::CreateRuntimeVariable(llvm::Type *Ty,
 void CodeGenModule::EmitTentativeDefinition(const VarDecl *D) {
   assert(!D->getInit() && "Cannot emit definite definitions here!");
 
+  // If this is OpenMP device, check if it is legal to emit this global
+  // normally.
+  if (OpenMPRuntime && OpenMPRuntime->emitTargetGlobal(D))
+    return;
+
   StringRef MangledName = getMangledName(D);
   llvm::GlobalValue *GV = GetGlobalValue(MangledName);
 
@@ -2860,6 +2900,8 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
         Linkage = llvm::GlobalValue::InternalLinkage;
     }
   }
+  if (OpenMPRuntime)
+    OpenMPRuntime->registerTargetVariableDefinition(D, GV);
   GV->setInitializer(Init);
 
   // If it is safe to mark the global 'constant', do so now.
@@ -3221,6 +3263,9 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
       return;
     }
   }
+
+  if (OpenMPRuntime)
+    OpenMPRuntime->registerTargetFunctionDefinition(GD);
 
   // We need to set linkage and visibility on the function before
   // generating code for it because various parts of IR generation
@@ -4463,6 +4508,11 @@ llvm::Constant *CodeGenModule::GetAddrOfRTTIDescriptor(QualType Ty,
   if (ForEH && Ty->isObjCObjectPointerType() &&
       LangOpts.ObjCRuntime.isGNUFamily())
     return ObjCRuntime->GetEHType(Ty);
+
+  // If generating code for an OpenMP device, do not emit RTTI descriptors if
+  // the device does not support that.
+  if (getLangOpts().OpenMP && !OpenMPRuntime->requiresRTTIDescriptor())
+    return llvm::Constant::getNullValue(Int8PtrTy);
 
   return getCXXABI().getAddrOfRTTIDescriptor(Ty);
 }
