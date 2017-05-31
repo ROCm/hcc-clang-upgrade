@@ -1946,6 +1946,8 @@ public:
         case CudaArch::GFX802: return "802";
         case CudaArch::GFX803: return "803";
         case CudaArch::GFX810: return "810";
+        case CudaArch::GFX900: return "900";
+        case CudaArch::GFX901: return "901";
         }
         llvm_unreachable("unhandled CudaArch");
       }();
@@ -2374,6 +2376,8 @@ public:
         case CudaArch::GFX802: return "802";
         case CudaArch::GFX803: return "803";
         case CudaArch::GFX810: return "810";
+        case CudaArch::GFX900: return "900";
+        case CudaArch::GFX901: return "901";
         }
         llvm_unreachable("unhandled CudaArch");
       }();
