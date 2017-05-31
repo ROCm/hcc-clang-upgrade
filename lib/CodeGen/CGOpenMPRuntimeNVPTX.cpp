@@ -19,6 +19,7 @@
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
+#include "clang/Basic/GpuGridValues.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
 using namespace clang;
@@ -250,33 +251,51 @@ public:
 /// Get the GPU warp size.
 static llvm::Value *GetNVPTXWarpSize(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  return Bld.CreateCall(
-      llvm::Intrinsic::getDeclaration(
-          &CGF.CGM.getModule(), llvm::Intrinsic::nvvm_read_ptx_sreg_warpsize),
-      llvm::None, "nvptx_warp_size");
+  llvm::Module* M = &CGF.CGM.getModule();
+  llvm::Function * F;
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    F = M->getFunction("nvvm.read.ptx.sreg.warpsize");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.Int32Ty, None, false),
+      llvm::GlobalVariable::ExternalLinkage,
+      "nvvm.read.ptx.sreg.warpsize",M);
+  } else
+    F = llvm::Intrinsic::getDeclaration(M,
+        llvm::Intrinsic::nvvm_read_ptx_sreg_warpsize);
+  return Bld.CreateCall(F,llvm::None, "nvptx_warp_size");
 }
 
 /// Get the id of the current thread on the GPU.
 static llvm::Value *GetNVPTXThreadID(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  return Bld.CreateCall(
-      llvm::Intrinsic::getDeclaration(
-          &CGF.CGM.getModule(), llvm::Intrinsic::nvvm_read_ptx_sreg_tid_x),
-      llvm::None, "nvptx_tid");
+  llvm::Module* M = &CGF.CGM.getModule();
+  llvm::Function * F;
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    F = M->getFunction("nvvm.read.ptx.sreg.tid.x");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.Int32Ty, None, false),
+      llvm::GlobalVariable::ExternalLinkage,
+      "nvvm.read.ptx.sreg.tid.x",M);
+  } else
+    F = llvm::Intrinsic::getDeclaration(M,
+        llvm::Intrinsic::nvvm_read_ptx_sreg_tid_x);
+  return Bld.CreateCall(F,llvm::None, "nvptx_tid");
 }
 
 /// Get the id of the warp in the block.
 static llvm::Value *GetNVPTXWarpID(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  return Bld.CreateAShr(GetNVPTXThreadID(CGF), DS_Max_Worker_Warp_Size_Log2,
-                        "nvptx_warp_id");
+  unsigned LaneIDBits = CGF.getContext().getTargetInfo().getGridValue(
+    GPU::GVIDX::GV_Warp_Size_Log2);
+  return Bld.CreateAShr(GetNVPTXThreadID(CGF), LaneIDBits, "nvptx_warp_id");
 }
 
 /// Get the id of the current thread in the Warp.
 static llvm::Value *GetNVPTXThreadWarpID(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  return Bld.CreateAnd(GetNVPTXThreadID(CGF),
-                       Bld.getInt32(DS_Max_Worker_Warp_Size_Log2_Mask));
+  unsigned mask2 = CGF.getContext().getTargetInfo().getGridValue(
+    GPU::GVIDX::GV_Warp_Size_Log2_Mask);
+  return Bld.CreateAnd(GetNVPTXThreadID(CGF), Bld.getInt32(mask2));
 }
 
 /// Get the id of the current block on the GPU.
@@ -291,17 +310,35 @@ static llvm::Value *GetNVPTXBlockID(CodeGenFunction &CGF) {
 /// Get the maximum number of threads in a block of the GPU.
 static llvm::Value *GetNVPTXNumThreads(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  return Bld.CreateCall(
-      llvm::Intrinsic::getDeclaration(
-          &CGF.CGM.getModule(), llvm::Intrinsic::nvvm_read_ptx_sreg_ntid_x),
-      llvm::None, "nvptx_num_threads");
+  llvm::Module* M = &CGF.CGM.getModule();
+  llvm::Function * F;
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    F = M->getFunction("nvvm.read.ptx.sreg.ntid.x");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.Int32Ty, None, false),
+      llvm::GlobalVariable::ExternalLinkage,
+      "nvvm.read.ptx.sreg.ntid.x",M);
+  } else
+    F = llvm::Intrinsic::getDeclaration(M,
+        llvm::Intrinsic::nvvm_read_ptx_sreg_ntid_x);
+  return Bld.CreateCall(F,llvm::None, "nvptx_num_threads");
 }
 
 /// Get barrier to synchronize all threads in a block.
 static void GetNVPTXCTABarrier(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  Bld.CreateCall(llvm::Intrinsic::getDeclaration(
-      &CGF.CGM.getModule(), llvm::Intrinsic::nvvm_barrier0));
+  llvm::Module* M = &CGF.CGM.getModule();
+  llvm::Function * F;
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    F = M->getFunction("nvvm.barrier0");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.VoidTy, None, false),
+      llvm::GlobalVariable::ExternalLinkage,
+      "nvvm.barrier0",M);
+  } else
+    F = llvm::Intrinsic::getDeclaration(M,llvm::Intrinsic::nvvm_barrier0);
+  Bld.CreateCall(F);
+
 }
 
 /// Get barrier #n to synchronize selected (multiple of 32) threads in
@@ -310,9 +347,17 @@ static void GetNVPTXBarrier(CodeGenFunction &CGF, int ID,
                             llvm::Value *NumThreadsVal) {
   CGBuilderTy &Bld = CGF.Builder;
   llvm::Value *Args[] = {Bld.getInt32(ID), NumThreadsVal};
-  Bld.CreateCall(llvm::Intrinsic::getDeclaration(&CGF.CGM.getModule(),
-                                                 llvm::Intrinsic::nvvm_barrier),
-                 Args);
+  llvm::Module* M = &CGF.CGM.getModule();
+  llvm::Function * F;
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    F = M->getFunction("nvvm.barrier");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.VoidTy,{CGF.Int32Ty,CGF.Int32Ty}, false),
+      llvm::GlobalVariable::ExternalLinkage,
+      "nvvm.barrier",M);
+  } else
+    F = llvm::Intrinsic::getDeclaration(M,llvm::Intrinsic::nvvm_barrier);
+  Bld.CreateCall(F,Args);
 }
 
 /// Synchronize all GPU threads in a block.
@@ -1639,7 +1684,8 @@ static void SetPropertyExecutionMode(CodeGenModule &CGM, StringRef Name,
                                      CGOpenMPRuntimeNVPTX::ExecutionMode Mode) {
   (void)new llvm::GlobalVariable(
       CGM.getModule(), CGM.Int8Ty, /*isConstant=*/true,
-      llvm::GlobalValue::WeakAnyLinkage,
+      // This many need to be set to ExternalLinkage
+      llvm::GlobalValue::WeakAnyLinkage,  
       llvm::ConstantInt::get(CGM.Int8Ty, Mode), Name + Twine("_exec_mode"));
 }
 
@@ -3897,7 +3943,9 @@ void CGOpenMPRuntimeNVPTX::emitGenericParallelCall(
     OutlinedFnArgs.push_back(
         llvm::Constant::getNullValue(CGM.Int32Ty->getPointerTo()));
     OutlinedFnArgs.append(CapturedVars.begin(), CapturedVars.end());
+    printf("WARNING 1 ! Generating unverified call to %s\n", Fn->getName().str().c_str());
     CGF.EmitCallOrInvoke(Fn, OutlinedFnArgs);
+    printf("WARNING 1 ! DONE\n");
 
     // __kmpc_end_serialized_parallel(&Loc, GTid);
     llvm::Value *EndArgs[] = {emitUpdateLocation(CGF, Loc), ThreadID};
@@ -3943,7 +3991,9 @@ void CGOpenMPRuntimeNVPTX::emitSPMDParallelCall(
     OutlinedFnArgs.push_back(ThreadIDAddr.getPointer());
     OutlinedFnArgs.push_back(ZeroAddr.getPointer());
     OutlinedFnArgs.append(CapturedVars.begin(), CapturedVars.end());
+    printf("WARNING 2! Generating unverified call to %s\n", OutlinedFn->getName().str().c_str());
     CGF.EmitCallOrInvoke(OutlinedFn, OutlinedFnArgs);
+    printf("WARNING 2 ! DONE\n");
   } else {
     emitGenericParallelCall(CGF, Loc, OutlinedFn, CapturedVars, IfCond);
   }
@@ -4044,7 +4094,9 @@ void CGOpenMPRuntimeNVPTX::emitSimdCall(CodeGenFunction &CGF,
     OutlinedFnArgs.push_back(SourceThread);
     OutlinedFnArgs.push_back(LaneId.getPointer());
     OutlinedFnArgs.push_back(NumLanes.getPointer());
+    printf("WARNING 3! Generating unverified call to %s\n", WFn->getName().str().c_str());
     CGF.EmitCallOrInvoke(WFn, OutlinedFnArgs);
+    printf("WARNING 3! DONE\n");
     ArrayDecay = Bld.CreateConstInBoundsGEP2_32(
         llvm::ArrayType::get(CGM.Int8Ty, SIMD_STATE_SIZE), TaskState,
         /*Idx0=*/0, /*Idx1=*/0);
@@ -4078,7 +4130,9 @@ void CGOpenMPRuntimeNVPTX::emitSimdCall(CodeGenFunction &CGF,
     OutlinedFnArgs.push_back(LaneId.getPointer());
     OutlinedFnArgs.push_back(NumLanes.getPointer());
     OutlinedFnArgs.append(CapturedVars.begin(), CapturedVars.end());
+    printf("WARNING 4! Generating unverified call to %s\n", Fn->getName().str().c_str());
     CGF.EmitCallOrInvoke(Fn, OutlinedFnArgs);
+    printf("WARNING 4! DONE\n");
   };
 
   CodeGenFunction::RunCleanupsScope Scope(CGF);
@@ -4343,14 +4397,32 @@ void CGOpenMPRuntimeNVPTX::emitTeamsCall(CodeGenFunction &CGF,
   if (isSPMDExecutionMode()) {
     // OutlinedFn(&GTid, &zero, CapturedStruct);
     auto ThreadIDAddr = emitThreadIDAddress(CGF, Loc);
+
     Address ZeroAddr =
         CGF.CreateTempAlloca(CGF.Int32Ty, CharUnits::fromQuantity(4),
                              /*Name*/ ".zero.addr");
     CGF.InitTempAlloca(ZeroAddr, CGF.Builder.getInt32(/*C*/ 0));
+
     llvm::SmallVector<llvm::Value *, 16> OutlinedFnArgs;
+
+    if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn &&
+       CGM.getLangOpts().OpenMPIsDevice) {
+      auto* Func = dyn_cast<llvm::Function>(OutlinedFn);
+      assert(Func && "Invalid function pointer!");
+      auto* FuncTy = Func->getFunctionType();
+      if (ThreadIDAddr.getType() != FuncTy->getParamType(0))
+        ThreadIDAddr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
+                       ThreadIDAddr, FuncTy->getParamType(0));
+      if (ZeroAddr.getType() != FuncTy->getParamType(1))
+        ZeroAddr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
+                    ZeroAddr, FuncTy->getParamType(1));
+    }
     OutlinedFnArgs.push_back(ThreadIDAddr.getPointer());
     OutlinedFnArgs.push_back(ZeroAddr.getPointer());
     OutlinedFnArgs.append(CapturedVars.begin(), CapturedVars.end());
+    // printf("WARNING X! Generating unverified call to %s\n", OutlinedFn->getName().str().c_str());
+    //  GREG VERIFIED THIS, REMOVE THESE COMMENTS WHEN ALL OUTLINED FUNCTION CALLS ARE VERIFIED
+    //  Call is verified when we get the print message and we do not get a fail for a  bad signature.
     CGF.EmitCallOrInvoke(OutlinedFn, OutlinedFnArgs);
   } else if (D.getDirectiveKind() == OMPD_teams_distribute ||
              D.getDirectiveKind() == OMPD_target_teams_distribute) {
@@ -4856,8 +4928,10 @@ static llvm::Value *CreateRuntimeShuffleFunction(CodeGenFunction &CGF,
   FnArgs.push_back(Elem);
   FnArgs.push_back(Offset);
   FnArgs.push_back(Bld.getInt16(DS_Max_Worker_Warp_Size));
-
-  return CGF.EmitCallOrInvoke(RTLFn, FnArgs).getInstruction();
+  printf("WARNING 5! Generating unverified call to %s\n", RTLFn->getName().str().c_str());
+  llvm::Value* retvalue= CGF.EmitCallOrInvoke(RTLFn, FnArgs).getInstruction();
+  printf("WARNING 5! DONE\n");
+  return retvalue;
 }
 
 static void EmitDirectionSpecializedReduceDataCopy(
@@ -5084,13 +5158,15 @@ static void EmitDirectionSpecializedReduceDataCopy(
           DestOrSrcBasePtrVal,
           Bld.CreateMul(WidthVal, Bld.getInt64(ElementSizeInChars)));
 
-      // Take care of 256 byte alignment
+      // Take care of 256 byte alignment (GlobalMemoryAlignment)
       DestOrSrcBasePtrVal = Bld.CreateSub(DestOrSrcBasePtrVal, Bld.getInt64(1));
-      DestOrSrcBasePtrVal =
-          Bld.CreateSDiv(DestOrSrcBasePtrVal, Bld.getInt64(256));
+      unsigned GlobalMemoryAlignment =
+        CGM.getContext().getTargetInfo().getGridValue(GPU::GVIDX::GV_Mem_Align);
+      DestOrSrcBasePtrVal = Bld.CreateSDiv(
+        DestOrSrcBasePtrVal,Bld.getInt64(GlobalMemoryAlignment));
       DestOrSrcBasePtrVal = Bld.CreateAdd(DestOrSrcBasePtrVal, Bld.getInt64(1));
       DestOrSrcBasePtrVal =
-          Bld.CreateMul(DestOrSrcBasePtrVal, Bld.getInt64(256));
+          Bld.CreateMul(DestOrSrcBasePtrVal, Bld.getInt64(GlobalMemoryAlignment));
 
       if (Direction == ReduceData_To_Global)
         DestBase = Address(DestOrSrcBasePtrVal, CGF.getPointerAlign());
@@ -5305,7 +5381,9 @@ llvm::Value *EmitReduceScratchpadFunction(CodeGenModule &CGM,
   llvm::Value *RemoteDataPtr = Bld.CreatePointerBitCastOrAddrSpaceCast(
       RemoteReduceData.getPointer(), CGF.VoidPtrTy);
   FnArgs.push_back(RemoteDataPtr);
+  printf("WARNING 6! Generating unverified call to %s\n", ReduceFn->getName().str().c_str());
   CGF.EmitCallOrInvoke(ReduceFn, FnArgs);
+  printf("WARNING 6! DONE\n");
   Bld.CreateBr(MergeBB);
 
   // Else no, just copy
@@ -5700,7 +5778,9 @@ EmitShuffleAndReduceFunction(CodeGenModule &CGM,
   llvm::SmallVector<llvm::Value *, 2> FnArgs;
   FnArgs.push_back(LocalDataPtr);
   FnArgs.push_back(RemoteDataPtr);
+  printf("WARNING 7! Generating unverified call to %s\n", ReduceFn->getName().str().c_str());
   CGF.EmitCallOrInvoke(ReduceFn, FnArgs);
+  printf("WARNING 7! DONE\n");
   Bld.CreateBr(MergeBB);
 
   CGF.EmitBlock(ElseBB);

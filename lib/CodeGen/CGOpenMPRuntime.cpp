@@ -1021,6 +1021,9 @@ Address CGOpenMPRuntime::getOrCreateDefaultLocation(unsigned Flags) {
       // http://llvm.org/svn/llvm-project/openmp/trunk/runtime/src/kmp_str.c
       DefaultOpenMPPSource =
           CGM.GetAddrOfConstantCString(";unknown;unknown;0;0;;").getPointer();
+      if (DefaultOpenMPPSource->getType()->getPointerAddressSpace()) 
+        DefaultOpenMPPSource = llvm::ConstantExpr::getAddrSpaceCast(
+          DefaultOpenMPPSource, CGM.Int8PtrTy);
       DefaultOpenMPPSource =
           llvm::ConstantExpr::getBitCast(DefaultOpenMPPSource, CGM.Int8PtrTy);
     }

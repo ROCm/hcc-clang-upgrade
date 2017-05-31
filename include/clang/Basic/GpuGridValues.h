@@ -49,12 +49,14 @@ enum GVIDX{
   GV_Max_Teams,
   /// Global Memory Alignment
   GV_Mem_Align,
+  /// (~0u >> (GV_Warp_Size - GV_Warp_Size_Log2))
+  GV_Warp_Size_Log2_Mask
 };
 
 enum GVLIDX{
   /// The slot size that should be reserved for a working warp.
   /// (~0u >> (GV_Warp_Size - GV_Warp_Size_Log2))
-  GV_Warp_Size_Log2_Mask
+  GV_Warp_Size_Log2_MaskL
 }; 
 
 }
@@ -67,10 +69,11 @@ static const int AMDGPUGpuGridValues[] = {
   6,                 // GV_Warp_Size_Log2 
   64 * 256,          // GV_Warp_Slot_Size 
   1024,              // GV_Max_Teams 
-  256
+  256,
+  (~0u >> (32 - 6))  // GV_Warp_Size_Log2_Mask
 };
 static const long long AMDGPUGpuLongGridValues[] = {
-  (~0ull >> (64 - 6)) // GV_Warp_Size_Log2_Mask 
+  (~0ull >> (64 - 6)) // GV_Warp_Size_Log2_MaskL
 };
 
 /// For Nvidia GPUs
@@ -81,11 +84,12 @@ static const int NVPTXGpuGridValues[] = {
   5,                 // GV_Warp_Size_Log2 
   32 * 256,          // GV_Warp_Slot_Size 
   1024,              // GV_Max_Teams 
-  256                // GV_Mem_Align
+  256,               // GV_Mem_Align
+  (~0u >> (32 - 5))  // GV_Warp_Size_Log2_Mask
 };
 
 static const long long NVPTXGpuLongGridValues[] = {
-  (~0ull >> (32 - 5))  // GV_Warp_Size_Log2_Mask 
+  (~0ull >> (64 - 5))  // GV_Warp_Size_Log2_MaskL
 };
 
 }
