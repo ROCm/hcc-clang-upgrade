@@ -394,6 +394,7 @@ unsigned CodeGenTypes::GetDeterminedAS(QualType QTy, QualType QTy_subordinate) {
 
 /// ConvertType - Convert the specified type to its LLVM form.
 llvm::Type *CodeGenTypes::ConvertType(QualType T) {
+  unsigned ASValue = Context.getTargetAddressSpace(T);
   T = Context.getCanonicalType(T);
 
   const Type *Ty = T.getTypePtr();
@@ -401,21 +402,34 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
   // RecordTypes are cached and processed specially.
   if (const RecordType *RT = dyn_cast<RecordType>(Ty))
     return ConvertRecordDeclType(RT->getDecl());
-  
-  // See if type is already cached.
-  llvm::DenseMap<const Type *, llvm::Type *>::iterator TCI = TypeCache.find(Ty);
-  // If type is found in map then use it. Otherwise, convert type T.
-  if (TCI != TypeCache.end()) {
-    // Delete this warning or turn into assert after lots of testing
-    if (Ty->getTypeClass() == Type::Pointer) {
-      unsigned EAS = Context.getTargetAddressSpace(
+ 
+  if (ASValue) { 
+
+    std::pair<const Type *, unsigned> tuple = 
+      std::make_pair(Ty,ASValue);
+    if (TypeCacheASQ.count(tuple)) {
+      llvm::Type *ResultType = TypeCacheASQ[tuple];
+      // Delete this warning or turn into assert after lots of testing
+      if (Ty->getTypeClass() == Type::Pointer) {
+        unsigned PAS = ResultType->getPointerAddressSpace();
+        unsigned EAS = Context.getTargetAddressSpace(
         cast<PointerType>(Ty)->getPointeeType());
-      unsigned PAS = TCI->second->getPointerAddressSpace();
-      if ((EAS!=PAS) && EAS) 
-        printf("WARNING ConvertType: A cached type AS (%d) != its nongeneric pointee AS (%d)\n",
-         PAS,EAS);
+        if ((EAS!=PAS) && EAS) printf(
+          "WARNING ConvertType: cached pointer AS:%d != pointee AS:%d\n",
+          PAS,EAS);
+      }
+      return ResultType;
     }
-    return TCI->second;
+
+  } else { 
+
+    // See if type is already cached.
+    llvm::DenseMap<const Type *, llvm::Type *>::iterator TCI = TypeCache.find(Ty);
+    // If type is found in map then use it. Otherwise, convert type T.
+    if (TCI != TypeCache.end()) {
+      return TCI->second;
+    }
+
   }
 
   // If we don't have it in the cache, convert it now.
@@ -719,7 +733,10 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
   }
   
   assert(ResultType && "Didn't convert a type?");
-  TypeCache[Ty] = ResultType;
+  if (ASValue)
+    TypeCacheASQ[std::make_pair(Ty,ASValue)] = ResultType;
+  else
+    TypeCache[Ty] = ResultType;
   return ResultType;
 }
 

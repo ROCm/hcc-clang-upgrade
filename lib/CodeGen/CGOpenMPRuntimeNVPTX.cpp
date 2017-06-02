@@ -3155,6 +3155,30 @@ void CGOpenMPRuntimeNVPTX::createDataSharingPerFunctionInfrastructure(
   auto CapturesIt = DSI.CapturesValues.begin();
   for (auto *F : MasterRD->fields()) {
     QualType ArgTy = F->getType();
+    // For amdgcn pointers need to be in device/global AS1 
+    const VarDecl *CapVar = CapturesIt->first;
+    if ( CapVar && CGM.getLangOpts().OpenMPIsDevice &&
+        (Ctx.getTargetInfo().getTriple().getArch()==llvm::Triple::amdgcn)
+      ) {
+      const clang::Type* ty  = ArgTy.getTypePtr();
+      const clang::Type* pty = ty->isReferenceType() ?
+        ty->getPointeeType().getTypePtr() : nullptr;
+      if( ty->isAnyPointerType() ||
+          (ty->isReferenceType() && pty->isArrayType()) ||
+          (ty->isReferenceType() && pty->isAnyPointerType()) || ty->isReferenceType() ||
+          CapVar->getType().getAddressSpace()
+        ) {
+        unsigned LLVM_AS = CapVar->getType().getAddressSpace();
+        unsigned LANG_AS = LangAS::cuda_device; // default
+        switch(LLVM_AS) {
+          case 0: break;
+          case 4/*AMDGPU_CONSTANT_ADDRSPACE*/: LANG_AS = LangAS::cuda_constant; break;
+          case 3/*AMDGPU_SHARED_ADDRSAPCE*/: LANG_AS = LangAS::cuda_shared; break;
+          default: assert("Unsupported address space in captured variable!"); break;
+        }
+        ArgTy = Ctx.getAddrSpaceQualType(ArgTy,LANG_AS);
+      }
+    }
 
     // If this is not a reference the right address type is the pointer type of
     // the type that is the record.
@@ -3305,7 +3329,14 @@ void CGOpenMPRuntimeNVPTX::createDataSharingPerFunctionInfrastructure(
         CGF.EmitStoreOfScalar(PointeeVal, NewAddrLVal);
       } // fallthrough.
       case DataSharingInfo::DST_Val: {
-        CGF.EmitStoreOfScalar(NewAddr, *NewAddressIt, /*Volatile=*/false,
+        Address StoreAddr = (*NewAddressIt);
+        auto this_type = Ctx.getPointerType(FI->getType());
+
+        if (StoreAddr.getElementType()->getPointerAddressSpace())
+          StoreAddr = Bld.CreatePointerBitCastOrAddrSpaceCast(StoreAddr,
+            CGF.getTypes().ConvertType(this_type)->getPointerTo());
+
+        CGF.EmitStoreOfScalar(NewAddr, StoreAddr, /*Volatile=*/false,
                               Ctx.getPointerType(FI->getType()));
         ++NewAddressIt;
       } break;
@@ -3451,6 +3482,10 @@ static void CreateAddressStoreForVariable(
     Arg = Bld.CreateInBoundsGEP(SlotAddr, Idxs);
   }
 
+  if (StoreAddr.getElementType()->getPointerAddressSpace())
+     StoreAddr = Bld.CreatePointerBitCastOrAddrSpaceCast(StoreAddr, 
+        CGF.getTypes().ConvertType(Ctx.getPointerType(Ty))->getPointerTo());
+       
   // If what is being shared is the reference, we should load it.
   if (DSI.CapturesValues[Idx].second ==
       CGOpenMPRuntimeNVPTX::DataSharingInfo::DST_Ref) {
@@ -3565,6 +3600,7 @@ llvm::Function *CGOpenMPRuntimeNVPTX::createDataSharingParallelWrapper(
             OMPRTL_NVPTX__kmpc_get_data_sharing_environment_frame),
         {GetMasterThreadID(CGF),
          Bld.getInt16(isOMPRuntimeInitialized() ? 1 : 0)});
+    // In the Level 0 regions, we need to get the record of the master thread.
     auto *RTy = CGF.getTypes().ConvertTypeForMem(DSI.MasterRecordType);
     auto *CastedDataAddr =
         Bld.CreateBitOrPointerCast(DataAddr, RTy->getPointerTo());
@@ -4690,13 +4726,26 @@ llvm::Function *CGOpenMPRuntimeNVPTX::emitRegistrationFunction() {
       // Check if there is some address space mismatch.
       llvm::PointerType *FArgTy = dyn_cast<llvm::PointerType>(FArg->getType());
       llvm::PointerType *ArgTy = dyn_cast<llvm::PointerType>(Arg->getType());
-      if (FArgTy && ArgTy &&
-          FArgTy->getElementType() == ArgTy->getElementType() &&
+      if (FArgTy && ArgTy ){
+        if(FArgTy->getElementType() == ArgTy->getElementType() &&
           FArgTy->getAddressSpace() != ArgTy->getAddressSpace()) {
-        Arg = llvm::CastInst::Create(llvm::CastInst::AddrSpaceCast, Arg, FArgTy,
+          Arg = llvm::CastInst::Create(llvm::CastInst::AddrSpaceCast, Arg, FArgTy,
                                      ".data_share_addrspace_cast", InsertPtr);
-        ++FArg;
-        continue;
+          ++FArg;
+          continue;
+        }
+        llvm::PointerType *FArgTy2 = dyn_cast<llvm::PointerType>(FArgTy->getElementType());
+        llvm::PointerType *ArgTy2 = dyn_cast<llvm::PointerType>(ArgTy->getElementType());
+        if ( FArgTy2 && ArgTy2 && 
+             FArgTy2->getElementType() == ArgTy2->getElementType() &&
+             FArgTy2->getAddressSpace() != ArgTy2->getAddressSpace()) {
+          Arg = llvm::CastInst::Create(llvm::CastInst::AddrSpaceCast, Arg, FArgTy2,
+                                     ".data_share_addraddrspace_cast", InsertPtr);
+          Arg = llvm::CastInst::Create(llvm::CastInst::AddrSpaceCast, Arg, FArgTy,
+                                     ".data_share_addrspace_cast", InsertPtr);
+          ++FArg;
+          continue;
+        }
       }
 
       llvm_unreachable(
