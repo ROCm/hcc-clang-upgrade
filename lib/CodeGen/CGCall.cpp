@@ -2414,6 +2414,12 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
         // type in the function type. Since we are codegening the callee
         // in here, add a cast to the argument type.
         llvm::Type *LTy = ConvertType(Arg->getType());
+
+        if ( (V->getType() != LTy) &&
+             (V->getType()->getPointerAddressSpace() !=
+               LTy->getPointerAddressSpace()) )
+          V = Builder.CreateAddrSpaceCast(V, LTy);
+
         if (V->getType() != LTy)
           V = Builder.CreateBitCast(V, LTy);
 
