@@ -1789,6 +1789,17 @@ void CodeGenFunction::EmitStoreThroughLValue(RValue Src, LValue Dst,
     return;
   }
 
+  if ( Src.getScalarVal()->getType()->isPointerTy() &&
+       (Src.getScalarVal()->getType()->getPointerAddressSpace() !=
+        Dst.getAddress().getAddressSpace()) ) {
+    // unsigned AS = Src.getScalarVal()->getType()->getPointerAddressSpace();
+    // FIXME: Use target and AS specific getPointerAlign(AS) or max 64
+    Address SrcAddr = Address(Src.getScalarVal(),getPointerAlign());
+    SrcAddr = Builder.CreatePointerBitCastOrAddrSpaceCast(SrcAddr, Dst.getAddress().getElementType());
+    Src = RValue::get(SrcAddr.getPointer());
+    Src.getScalarVal()->getType()->dump();
+    Dst.getAddress().getElementType()->dump();
+  }
   assert(Src.isScalar() && "Can't emit an agg store with this method");
   EmitStoreOfScalar(Src.getScalarVal(), Dst, isInit);
 }
