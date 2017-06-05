@@ -1119,10 +1119,12 @@ QualType CodeGenFunction::BuildFunctionArgList(GlobalDecl GD,
   if (PassedParams) {
     for (auto *Param : FD->parameters()) {
       // Kernel parameters for amdgcn must be in device memory
+#if 0
       if(Param->getType()->isPointerType() &&
         (getContext().getTargetInfo().getTriple().getArch()==llvm::Triple::amdgcn))
         Param->setType(getContext().getAddrSpaceQualType(
           Param->getType(),LangAS::cuda_device));
+#endif
       Args.push_back(Param);
       if (!Param->hasAttr<PassObjectSizeAttr>())
         continue;
