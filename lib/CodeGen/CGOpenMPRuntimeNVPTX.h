@@ -222,6 +222,9 @@ private:
   // \brief Get a 32 bit mask, whose bits set to 1 represent the active threads.
   llvm::Value *getNVPTXWarpActiveThreadsMask(CodeGenFunction &CGF);
 
+  // \brief Get a 64 bit mask, whose bits set to 1 represent the active threads.
+  llvm::Value *getNVPTXWarpActiveThreadsMask64(CodeGenFunction &CGF);
+
   // \brief Get the number of active threads in a warp.
   llvm::Value *getNVPTXWarpActiveNumThreads(CodeGenFunction &CGF);
 

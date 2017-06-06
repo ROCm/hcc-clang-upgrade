@@ -68,6 +68,8 @@ enum OpenMPRTLFunctionNVPTX {
   OMPRTL_NVPTX__kmpc_parallel_level,
   /// \brief Call to int32_t __kmpc_warp_active_thread_mask();
   OMPRTL_NVPTX__kmpc_warp_active_thread_mask,
+  /// \brief Call to int64_t __kmpc_warp_active_thread_mask64();
+  OMPRTL_NVPTX__kmpc_warp_active_thread_mask64,
   /// \brief Call to void
   /// __kmpc_initialize_data_sharing_environment(__kmpc_data_sharing_slot
   /// *RootS, size_t InitialDataSize);
@@ -425,11 +427,28 @@ CGOpenMPRuntimeNVPTX::getNVPTXWarpActiveThreadsMask(CodeGenFunction &CGF) {
       None, "warp_active_thread_mask");
 }
 
+// \brief Get a 64 bit mask, whose bits set to 1 represent the active threads.
+llvm::Value *
+CGOpenMPRuntimeNVPTX::getNVPTXWarpActiveThreadsMask64(CodeGenFunction &CGF) {
+  return CGF.EmitRuntimeCall(
+      createNVPTXRuntimeFunction(OMPRTL_NVPTX__kmpc_warp_active_thread_mask64),
+      None, "warp_active_thread_mask64");
+}
+
 // \brief Get the number of active threads in a warp.
 llvm::Value *
 CGOpenMPRuntimeNVPTX::getNVPTXWarpActiveNumThreads(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  return Bld.CreateCall(
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+    llvm::Module* M = &CGF.CGM.getModule();
+    llvm::Function *  F = M->getFunction("nvvm.popc.ll");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.Int32Ty,{CGF.Int64Ty}, false),
+      llvm::GlobalVariable::ExternalLinkage, "nvvm.popc.ll",M);
+    return Bld.CreateCall(F, getNVPTXWarpActiveThreadsMask64(CGF),
+                          "warp_active_num_threads");
+  } else
+    return Bld.CreateCall(
          CGF.CGM.getIntrinsic(llvm::Intrinsic::ctpop,CGF.CGM.Int32Ty),
          getNVPTXWarpActiveThreadsMask(CGF), "warp_active_num_threads");
 }
@@ -441,14 +460,28 @@ CGOpenMPRuntimeNVPTX::getNVPTXWarpActiveThreadID(CodeGenFunction &CGF) {
 
   // The active thread Id can be computed as the number of bits in the active
   // mask to the right of the current thread:
-  // popc( Mask << (32 - (threadID & 0x1f)) );
   auto *WarpID = GetNVPTXThreadWarpID(CGF);
-  auto *Mask = getNVPTXWarpActiveThreadsMask(CGF);
-  auto *ShNum = Bld.CreateSub(Bld.getInt32(32), WarpID);
-  auto *Sh = Bld.CreateShl(Mask, ShNum);
-  return Bld.CreateCall(
+  if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
+  // popc.ll( Mask << (64 - (threadID & 0x3f)) );   GREG
+    llvm::Module* M = &CGF.CGM.getModule();
+    llvm::Function *  F = M->getFunction("nvvm.popc.ll");
+    if (!F) F = llvm::Function::Create(
+      llvm::FunctionType::get(CGF.Int32Ty,{CGF.Int64Ty}, false),
+      llvm::GlobalVariable::ExternalLinkage, "nvvm.popc.ll",M);
+    auto *Mask = getNVPTXWarpActiveThreadsMask64(CGF);
+    auto *ShNum = Bld.CreateSub(Bld.getInt32(64), WarpID);
+    ShNum = Bld.CreateSExt(ShNum,CGF.Int64Ty);
+    auto *Sh = Bld.CreateShl(Mask, ShNum); 
+    return Bld.CreateCall(F, Sh, "warp_active_thread_id");
+  } else {
+  // popc( Mask << (32 - (threadID & 0x1f)) );
+    auto *Mask = getNVPTXWarpActiveThreadsMask(CGF);
+    auto *ShNum = Bld.CreateSub(Bld.getInt32(32), WarpID);
+    auto *Sh = Bld.CreateShl(Mask, ShNum);
+    return Bld.CreateCall(
          CGF.CGM.getIntrinsic(llvm::Intrinsic::ctpop,CGF.CGM.Int32Ty),
          Sh, "warp_active_thread_id");
+  }
 }
 
 // \brief Get a conditional that is set to true if the thread is the master of
@@ -1870,6 +1903,13 @@ CGOpenMPRuntimeNVPTX::createNVPTXRuntimeFunction(unsigned Function) {
     llvm::FunctionType *FnTy =
         llvm::FunctionType::get(CGM.Int32Ty, None, /*isVarArg*/ false);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "__kmpc_warp_active_thread_mask");
+    break;
+  }
+  case OMPRTL_NVPTX__kmpc_warp_active_thread_mask64: {
+    /// Build void __kmpc_warp_active_thread_mask64();
+    llvm::FunctionType *FnTy =
+        llvm::FunctionType::get(CGM.Int64Ty, None, /*isVarArg*/ false);
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "__kmpc_warp_active_thread_mask64");
     break;
   }
   case OMPRTL_NVPTX__kmpc_initialize_data_sharing_environment: {
