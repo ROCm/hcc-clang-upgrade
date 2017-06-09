@@ -5546,12 +5546,21 @@ static llvm::Value *EmitInterWarpCopyFunction(CodeGenModule &CGM,
   llvm::GlobalVariable *Gbl = M.getGlobalVariable(Name);
   if (!Gbl) {
     auto *Ty = llvm::ArrayType::get(CGM.Int64Ty, /*warpSize=*/DS_Max_Worker_Warp_Size);
-    Gbl = new llvm::GlobalVariable(
+    if (CGM.getTriple().getArch() == llvm::Triple::amdgcn) {
+      Gbl = new llvm::GlobalVariable(
+        M, Ty,
+        /*isConstant=*/false, llvm::GlobalVariable::InternalLinkage,
+        llvm::UndefValue::get(Ty), Name,
+        /*InsertBefore=*/nullptr, llvm::GlobalVariable::NotThreadLocal,
+        /*AddressSpace=Shared*/ ADDRESS_SPACE_SHARED);
+    } else {
+      Gbl = new llvm::GlobalVariable(
         M, Ty,
         /*isConstant=*/false, llvm::GlobalVariable::CommonLinkage,
         llvm::Constant::getNullValue(Ty), Name,
         /*InsertBefore=*/nullptr, llvm::GlobalVariable::NotThreadLocal,
         /*AddressSpace=Shared*/ ADDRESS_SPACE_SHARED);
+    }
   }
 
   // Get the id of the current thread on the GPU.
