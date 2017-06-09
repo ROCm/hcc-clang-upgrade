@@ -259,9 +259,7 @@ void OMPDEV::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       }
     }
 
-    const char * amdllvm = getenv("AMDLLVM");
-    if (!amdllvm) amdllvm = "/opt/amd/llvm";
-    const char *Exec = Args.MakeArgString(std::string(amdllvm) + "/bin/lld");
+    const char *Exec = Args.MakeArgString(C.getDriver().Dir + "/lld");
     C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
 
   } else {
