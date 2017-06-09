@@ -1797,8 +1797,6 @@ void CodeGenFunction::EmitStoreThroughLValue(RValue Src, LValue Dst,
     Address SrcAddr = Address(Src.getScalarVal(),getPointerAlign());
     SrcAddr = Builder.CreatePointerBitCastOrAddrSpaceCast(SrcAddr, Dst.getAddress().getElementType());
     Src = RValue::get(SrcAddr.getPointer());
-    Src.getScalarVal()->getType()->dump();
-    Dst.getAddress().getElementType()->dump();
   }
   assert(Src.isScalar() && "Can't emit an agg store with this method");
   EmitStoreOfScalar(Src.getScalarVal(), Dst, isInit);

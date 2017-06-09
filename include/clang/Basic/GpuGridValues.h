@@ -50,7 +50,11 @@ enum GVIDX{
   /// Global Memory Alignment
   GV_Mem_Align,
   /// (~0u >> (GV_Warp_Size - GV_Warp_Size_Log2))
-  GV_Warp_Size_Log2_Mask
+  GV_Warp_Size_Log2_Mask,
+  // An alternative to the heavy data sharing infrastructure that uses global
+  // memory is one that uses device __shared__ memory.  The amount of such space
+  // (in bytes) reserved by the OpenMP runtime is noted here.
+  GV_SimpleBufferSize
 };
 
 enum GVLIDX{
@@ -70,7 +74,8 @@ static const int AMDGPUGpuGridValues[] = {
   64 * 256,          // GV_Warp_Slot_Size 
   1024,              // GV_Max_Teams 
   256,
-  (~0u >> (32 - 6))  // GV_Warp_Size_Log2_Mask
+  (~0u >> (32 - 6)), // GV_Warp_Size_Log2_Mask
+  896                // GV_SimbleBufferSize
 };
 static const long long AMDGPUGpuLongGridValues[] = {
   (~0ull >> (64 - 6)) // GV_Warp_Size_Log2_MaskL
@@ -85,7 +90,8 @@ static const int NVPTXGpuGridValues[] = {
   32 * 256,          // GV_Warp_Slot_Size 
   1024,              // GV_Max_Teams 
   256,               // GV_Mem_Align
-  (~0u >> (32 - 5))  // GV_Warp_Size_Log2_Mask
+  (~0u >> (32 - 5)), // GV_Warp_Size_Log2_Mask
+  896                // GV_SimbleBufferSize
 };
 
 static const long long NVPTXGpuLongGridValues[] = {

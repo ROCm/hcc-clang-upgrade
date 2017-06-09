@@ -174,28 +174,7 @@ enum STATE_SIZE {
   SIMD_STATE_SIZE = 48,
 };
 
-enum DATA_SHARING_SIZES {
-  // The maximum number of workers in a kernel.
-  DS_Max_Worker_Threads = 992,
-  // The size reserved for data in a shared memory slot.
-  DS_Slot_Size = 256,
-  // The maximum number of threads in a worker warp.
-  DS_Max_Worker_Warp_Size = 32,
-  // The number of bits required to represent the maximum number of threads in a
-  // warp.
-  DS_Max_Worker_Warp_Size_Log2 = 5,
-  DS_Max_Worker_Warp_Size_Log2_Mask =
-      (~0u >> (32 - DS_Max_Worker_Warp_Size_Log2)),
-  // The slot size that should be reserved for a working warp.
-  DS_Worker_Warp_Slot_Size = DS_Max_Worker_Warp_Size * DS_Slot_Size,
-  // the maximum number of teams.
-  DS_Max_Teams = 1024,
-
-  // An alternative to the heavy data sharing infrastructure that uses global
-  // memory is one that uses device __shared__ memory.  The amount of such space
-  // (in bytes) reserved by the OpenMP runtime is noted here.
-  DS_SimpleBufferSize = 896,
-};
+// DATA_SHARING_SIZES Constants moved to GpuGridValues to be target specific
 
 enum COPY_DIRECTION {
   // Global memory to a ReduceData structure
@@ -287,7 +266,7 @@ static llvm::Value *GetNVPTXThreadID(CodeGenFunction &CGF) {
 /// Get the id of the warp in the block.
 static llvm::Value *GetNVPTXWarpID(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
-  unsigned LaneIDBits = CGF.getContext().getTargetInfo().getGridValue(
+  unsigned LaneIDBits = CGF.getTarget().getGridValue(
     GPU::GVIDX::GV_Warp_Size_Log2);
   return Bld.CreateAShr(GetNVPTXThreadID(CGF), LaneIDBits, "nvptx_warp_id");
 }
@@ -462,7 +441,7 @@ CGOpenMPRuntimeNVPTX::getNVPTXWarpActiveThreadID(CodeGenFunction &CGF) {
   // mask to the right of the current thread:
   auto *WarpID = GetNVPTXThreadWarpID(CGF);
   if (CGF.getTarget().getTriple().getArch() == llvm::Triple::amdgcn) {
-  // popc.ll( Mask << (64 - (threadID & 0x3f)) );   GREG
+  // popc.ll( Mask << (64 - (threadID & 0x3f)) ); 
     llvm::Module* M = &CGF.CGM.getModule();
     llvm::Function *  F = M->getFunction("nvvm.popc.ll");
     if (!F) F = llvm::Function::Create(
@@ -555,6 +534,8 @@ QualType CGOpenMPRuntimeNVPTX::getDataSharingMasterSlotQty() {
     RD->startDefinition();
     addFieldToRecordDecl(C, RD, C.getPointerType(getDataSharingSlotQty()));
     addFieldToRecordDecl(C, RD, C.VoidPtrTy);
+    int DS_Slot_Size = 
+      CGM.getContext().getTargetInfo().getGridValue(GPU::GVIDX::GV_Slot_Size);
     llvm::APInt NumElems(C.getTypeSize(C.getUIntPtrType()), DS_Slot_Size);
     QualType DataTy = C.getConstantArrayType(
         C.CharTy, NumElems, ArrayType::Normal, /*IndexTypeQuals=*/0);
@@ -580,6 +561,8 @@ QualType CGOpenMPRuntimeNVPTX::getDataSharingWorkerWarpSlotQty() {
     RD->startDefinition();
     addFieldToRecordDecl(C, RD, C.getPointerType(getDataSharingSlotQty()));
     addFieldToRecordDecl(C, RD, C.VoidPtrTy);
+    int DS_Worker_Warp_Slot_Size = 
+      CGM.getContext().getTargetInfo().getGridValue(GPU::GVIDX::GV_Warp_Slot_Size);
     llvm::APInt NumElems(C.getTypeSize(C.getUIntPtrType()),
                          DS_Worker_Warp_Slot_Size);
     QualType DataTy = C.getConstantArrayType(
@@ -640,6 +623,10 @@ QualType CGOpenMPRuntimeNVPTX::getDataSharingRootSlotQty() {
     auto *RD = C.buildImplicitRecord("__openmp_nvptx_data_sharing_ty");
     RD->startDefinition();
     addFieldToRecordDecl(C, RD, getDataSharingMasterSlotQty());
+    int DS_Max_Worker_Threads = 
+      CGM.getContext().getTargetInfo().getGridValue(GPU::GVIDX::GV_Threads);
+    int DS_Max_Worker_Warp_Size = 
+      CGM.getContext().getTargetInfo().getGridValue(GPU::GVIDX::GV_Warp_Size);
     llvm::APInt NumElems(C.getTypeSize(C.getUIntPtrType()),
                          DS_Max_Worker_Threads / DS_Max_Worker_Warp_Size);
     addFieldToRecordDecl(C, RD, C.getConstantArrayType(
@@ -647,6 +634,8 @@ QualType CGOpenMPRuntimeNVPTX::getDataSharingRootSlotQty() {
                                     ArrayType::Normal, /*IndexTypeQuals=*/0));
     RD->completeDefinition();
 
+    int DS_Max_Teams = 
+      CGM.getContext().getTargetInfo().getGridValue(GPU::GVIDX::GV_Max_Teams);
     llvm::APInt NumTeams(C.getTypeSize(C.getUIntPtrType()), DS_Max_Teams);
     DataSharingRootSlotQty = C.getConstantArrayType(
         C.getRecordType(RD), NumTeams, ArrayType::Normal, /*IndexTypeQuals=*/0);
@@ -717,6 +706,10 @@ void CGOpenMPRuntimeNVPTX::initializeDataSharing(CodeGenFunction &CGF,
   auto *CastedSlot =
       Bld.CreateBitCast(SlotLV.getAddress(), SlotPtrTy).getPointer();
 
+  int DS_Slot_Size = 
+    CGF.getTarget().getGridValue(GPU::GVIDX::GV_Slot_Size);
+  int DS_Worker_Warp_Slot_Size = 
+    CGF.getTarget().getGridValue(GPU::GVIDX::GV_Warp_Slot_Size);
   llvm::Value *Args[] = {
       CastedSlot,
       llvm::ConstantInt::get(CGM.SizeTy, IsMaster ? DS_Slot_Size
@@ -1227,6 +1220,8 @@ void CGOpenMPRuntimeNVPTX::TargetKernelProperties::setRequiresOMPRuntime() {
     RequiresOMPRuntime = Finder.matchesOpenMP();
     RequiresOMPRuntimeReason = Finder.matchReason();
 
+    unsigned DS_SimpleBufferSize =  (unsigned) CGM.
+    getContext().getTargetInfo().getGridValue(GPU::GVIDX::GV_SimpleBufferSize);
     if (!RequiresOMPRuntime && MasterSharedDataSize > DS_SimpleBufferSize) {
       RequiresOMPRuntime = true;
       RequiresOMPRuntimeReason =
@@ -3055,6 +3050,8 @@ void CGOpenMPRuntimeNVPTX::createDataSharingInfo(CodeGenFunction &CGF) {
         ElemTy = C.getPointerType(ElemTy);
 
       addFieldToRecordDecl(C, SharedMasterRD, ElemTy);
+      int DS_Max_Worker_Warp_Size = 
+        CGF.getTarget().getGridValue(GPU::GVIDX::GV_Warp_Size);
       llvm::APInt NumElems(C.getTypeSize(C.getUIntPtrType()),
                            DS_Max_Worker_Warp_Size);
       auto QTy = C.getConstantArrayType(ElemTy, NumElems, ArrayType::Normal,
@@ -3083,6 +3080,8 @@ void CGOpenMPRuntimeNVPTX::createDataSharingInfo(CodeGenFunction &CGF) {
       addFieldToRecordDecl(C, SharedMasterRD, ElemTy);
       addFieldToRecordDecl(C, SharedMasterRD, ElemTy);
 
+      int DS_Max_Worker_Warp_Size = 
+        CGF.getTarget().getGridValue(GPU::GVIDX::GV_Warp_Size);
       llvm::APInt NumElems(C.getTypeSize(C.getUIntPtrType()),
                            DS_Max_Worker_Warp_Size);
       auto QTy = C.getConstantArrayType(ElemTy, NumElems, ArrayType::Normal,
@@ -3324,6 +3323,8 @@ void CGOpenMPRuntimeNVPTX::createDataSharingPerFunctionInfrastructure(
     auto &Bld = CGF.Builder;
 
     // In the Level 0 regions, we use the master record to get the data.
+    int DS_Slot_Size = 
+      CGF.getTarget().getGridValue(GPU::GVIDX::GV_Slot_Size);
     auto *DataSize = llvm::ConstantInt::get(
         CGM.SizeTy, Ctx.getTypeSizeInChars(DSI.MasterRecordType).getQuantity());
     auto *DefaultDataSize = llvm::ConstantInt::get(CGM.SizeTy, DS_Slot_Size);
@@ -3394,6 +3395,8 @@ void CGOpenMPRuntimeNVPTX::createDataSharingPerFunctionInfrastructure(
     auto *DataSize = llvm::ConstantInt::get(
         CGM.SizeTy,
         Ctx.getTypeSizeInChars(DSI.WorkerWarpRecordType).getQuantity());
+    int DS_Worker_Warp_Slot_Size = 
+      CGF.getTarget().getGridValue(GPU::GVIDX::GV_Warp_Slot_Size);
     auto *DefaultDataSize =
         llvm::ConstantInt::get(CGM.SizeTy, DS_Worker_Warp_Slot_Size);
 
@@ -3915,7 +3918,18 @@ void CGOpenMPRuntimeNVPTX::emitGenericParallelCall(
                                                     PrePostActionTy &) {
     CGBuilderTy &Bld = CGF.Builder;
 
-    auto ID = Bld.CreateBitOrPointerCast(WFn, CGM.Int8PtrTy);
+    llvm::Value* ID;
+    auto &CGM = CGF.CGM;
+    // XXX:[OMPTARGET.FunctionPtr]
+    //   FunctionPtr is not allowed in AMDGCN
+    //   Replace it with hash code of function name
+    if (CGM.getTriple().getArch() == llvm::Triple::amdgcn) {
+      auto HashCode = llvm::hash_value(WFn->getName());
+      auto Size = llvm::ConstantInt::get(CGM.SizeTy, HashCode);
+      ID = Bld.CreateIntToPtr(Size, CGM.Int8PtrTy);
+    } else {
+      ID = Bld.CreateBitOrPointerCast(WFn, CGM.Int8PtrTy);
+    }
 
     // Prepare for parallel region. Indicate the outlined function.
     llvm::Value *IsOMPRuntimeInitialized =
@@ -5016,6 +5030,8 @@ static llvm::Value *CreateRuntimeShuffleFunction(CodeGenFunction &CGF,
   llvm::SmallVector<llvm::Value *, 3> FnArgs;
   FnArgs.push_back(Elem);
   FnArgs.push_back(Offset);
+  int DS_Max_Worker_Warp_Size = 
+    CGF.getTarget().getGridValue(GPU::GVIDX::GV_Warp_Size);
   FnArgs.push_back(Bld.getInt16(DS_Max_Worker_Warp_Size));
   printf("WARNING 5! Generating unverified call to %s\n", RTLFn->getName().str().c_str());
   llvm::Value* retvalue= CGF.EmitCallOrInvoke(RTLFn, FnArgs).getInstruction();
@@ -5545,6 +5561,8 @@ static llvm::Value *EmitInterWarpCopyFunction(CodeGenModule &CGM,
   const char *Name = "__openmp_nvptx_data_transfer_temporary_storage";
   llvm::GlobalVariable *Gbl = M.getGlobalVariable(Name);
   if (!Gbl) {
+    int DS_Max_Worker_Warp_Size = 
+      CGF.getTarget().getGridValue(GPU::GVIDX::GV_Warp_Size);
     auto *Ty = llvm::ArrayType::get(CGM.Int64Ty, /*warpSize=*/DS_Max_Worker_Warp_Size);
     if (CGM.getTriple().getArch() == llvm::Triple::amdgcn) {
       Gbl = new llvm::GlobalVariable(
@@ -5627,6 +5645,8 @@ static llvm::Value *EmitInterWarpCopyFunction(CodeGenModule &CGM,
         AddrWarpNumArg, /*Volatile=*/false, C.IntTy, SourceLocation());
 
     // num_thread_to_synchronize = warpNumNeeded * 32
+    int DS_Max_Worker_Warp_Size = 
+      CGF.getTarget().getGridValue(GPU::GVIDX::GV_Warp_Size);
     auto *NumThreadActive =
         Bld.CreateNSWMul(WarpNumVal, Bld.getInt32(DS_Max_Worker_Warp_Size),
                          "num_thread_to_synchronize");

@@ -1118,17 +1118,21 @@ QualType CodeGenFunction::BuildFunctionArgList(GlobalDecl GD,
 
   if (PassedParams) {
     for (auto *Param : FD->parameters()) {
-      // Kernel parameters for amdgcn must be in device memory
-#if 0
-      if(Param->getType()->isPointerType() &&
-        (getContext().getTargetInfo().getTriple().getArch()==llvm::Triple::amdgcn))
+      // CUDA Function args with __device__ must be in AS1 for amdgcn
+      if( Param->getType()->isPointerType() && 
+          (CGM.getTriple().getArch()==llvm::Triple::amdgcn) && 
+          (Param->hasAttr<CUDADeviceAttr>()) ) {
+        printf("Setting parameter %s as device for AS qualification\n",
+           Param->getName().str().c_str());
         Param->setType(getContext().getAddrSpaceQualType(
           Param->getType(),LangAS::cuda_device));
-#endif
+        Param->getType()->dump();
+        llvm::Type * LTY = ConvertType(Param->getType());
+        LTY->dump();
+      }
       Args.push_back(Param);
       if (!Param->hasAttr<PassObjectSizeAttr>())
         continue;
-
       IdentifierInfo *NoID = nullptr;
       auto *Implicit = ImplicitParamDecl::Create(
           getContext(), Param->getDeclContext(), Param->getLocation(), NoID,
