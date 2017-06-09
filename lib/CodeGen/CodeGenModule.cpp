@@ -941,7 +941,9 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
     B.addAttribute(llvm::Attribute::OptimizeNone);
 
     // OptimizeNone implies noinline; we should not be inlining such functions.
-    B.addAttribute(llvm::Attribute::NoInline);
+    // In case of AMDGCN, do not mark as noinline by default
+    if (Context.getTargetInfo().getTriple().getArch()!=llvm::Triple::amdgcn)
+      B.addAttribute(llvm::Attribute::NoInline);
     assert(!F->hasFnAttribute(llvm::Attribute::AlwaysInline) &&
            "OptimizeNone and AlwaysInline on same function!");
 
@@ -956,7 +958,8 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
   } else if (D->hasAttr<NakedAttr>()) {
     // Naked implies noinline: we should not be inlining such functions.
     B.addAttribute(llvm::Attribute::Naked);
-    B.addAttribute(llvm::Attribute::NoInline);
+    if (Context.getTargetInfo().getTriple().getArch()!=llvm::Triple::amdgcn)
+      B.addAttribute(llvm::Attribute::NoInline);
   } else if (D->hasAttr<NoDuplicateAttr>()) {
     B.addAttribute(llvm::Attribute::NoDuplicate);
   } else if (D->hasAttr<NoInlineAttr>()) {
@@ -969,7 +972,8 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
     // If we're not inlining, then force everything that isn't always_inline to
     // carry an explicit noinline attribute.
     if (!F->hasFnAttribute(llvm::Attribute::AlwaysInline))
-      B.addAttribute(llvm::Attribute::NoInline);
+      if (Context.getTargetInfo().getTriple().getArch()!=llvm::Triple::amdgcn)
+        B.addAttribute(llvm::Attribute::NoInline);
   } else {
     // Otherwise, propagate the inline hint attribute and potentially use its
     // absence to mark things as noinline.
@@ -982,7 +986,8 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
                      CodeGenOptions::OnlyHintInlining &&
                  !FD->isInlined() &&
                  !F->hasFnAttribute(llvm::Attribute::AlwaysInline)) {
-        B.addAttribute(llvm::Attribute::NoInline);
+        if (Context.getTargetInfo().getTriple().getArch()!=llvm::Triple::amdgcn)
+          B.addAttribute(llvm::Attribute::NoInline);
       }
     }
   }
