@@ -5545,7 +5545,7 @@ static llvm::Value *EmitInterWarpCopyFunction(CodeGenModule &CGM,
   const char *Name = "__openmp_nvptx_data_transfer_temporary_storage";
   llvm::GlobalVariable *Gbl = M.getGlobalVariable(Name);
   if (!Gbl) {
-    auto *Ty = llvm::ArrayType::get(CGM.Int64Ty, /*warpSize=*/32);
+    auto *Ty = llvm::ArrayType::get(CGM.Int64Ty, /*warpSize=*/DS_Max_Worker_Warp_Size);
     Gbl = new llvm::GlobalVariable(
         M, Ty,
         /*isConstant=*/false, llvm::GlobalVariable::CommonLinkage,
