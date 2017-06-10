@@ -3358,7 +3358,15 @@ void CGOpenMPRuntimeNVPTX::createDataSharingPerFunctionInfrastructure(
       switch (CapturesIt->second) {
       case DataSharingInfo::DST_Ref: {
         auto Addr = CGF.MakeNaturalAlignAddrLValue(NewAddr, FI->getType());
-        CGF.EmitStoreOfScalar(OrigAddresses[i].getPointer(), Addr);
+        Address OrigAddr = OrigAddresses[i];
+        if (CGF.CGM.getTriple().getArch() == llvm::Triple::amdgcn &&
+            CGF.CGM.getLangOpts().OpenMPIsDevice) {
+          auto* PTy = Addr.getAddress().getType();
+          if (PTy->getElementType() != OrigAddr.getType())
+            OrigAddr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(OrigAddr,
+               PTy->getElementType());
+        }
+        CGF.EmitStoreOfScalar(OrigAddr.getPointer(), Addr);
       } break;
       case DataSharingInfo::DST_Cast: {
         // Copy the pointee to the new location.
