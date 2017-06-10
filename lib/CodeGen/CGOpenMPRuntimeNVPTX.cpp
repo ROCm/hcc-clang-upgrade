@@ -1567,10 +1567,21 @@ void CGOpenMPRuntimeNVPTX::emitWorkerLoop(CodeGenFunction &CGF,
     // Process outlined parallel functions in the lexical scope of the target.
     for (auto *W : Work) {
       // Try to match this outlined function.
-      auto ThisID = Bld.CreatePtrToInt(W, CGM.Int64Ty);
-      ThisID = Bld.CreateIntToPtr(ThisID, CGM.Int8PtrTy);
-      llvm::Value *WorkFnMatch = Bld.CreateICmpEQ(WorkID, ThisID, "work_match");
-
+      llvm::Value *WorkFnMatch;
+      // XXX:[OMPTARGET.FunctionPtr] FunctionPtr is not allowed in AMDGCN
+      //   Replace it with hash code of function name. If an indirect call
+      //   is made with function pointer, replace it with direct call
+      if (CGM.getTriple().getArch() == llvm::Triple::amdgcn) {
+        auto HashCode = llvm::hash_value(W->getName());
+        auto ID = llvm::ConstantInt::get(CGM.SizeTy, HashCode);
+        WorkFnMatch =
+          Bld.CreateICmpEQ(Bld.CreatePtrToInt(Bld.CreateLoad(WorkFn), CGM.Int64Ty),
+                         ID, "work_match");
+      } else {
+        auto ThisID = Bld.CreatePtrToInt(W, CGM.Int64Ty);
+        ThisID = Bld.CreateIntToPtr(ThisID, CGM.Int8PtrTy);
+        WorkFnMatch = Bld.CreateICmpEQ(WorkID, ThisID, "work_match");
+      }
       llvm::BasicBlock *ExecuteFNBB = CGF.createBasicBlock(".execute.fn");
       llvm::BasicBlock *CheckNextBB = CGF.createBasicBlock(".check.next");
       Bld.CreateCondBr(WorkFnMatch, ExecuteFNBB, CheckNextBB);
