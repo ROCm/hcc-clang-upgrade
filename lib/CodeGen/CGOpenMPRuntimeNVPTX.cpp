@@ -3525,19 +3525,26 @@ static void CreateAddressStoreForVariable(
     Arg = Bld.CreateInBoundsGEP(SlotAddr, Idxs);
   }
 
-  if (StoreAddr.getElementType()->getPointerAddressSpace())
-     StoreAddr = Bld.CreatePointerBitCastOrAddrSpaceCast(StoreAddr, 
-        CGF.getTypes().ConvertType(Ctx.getPointerType(Ty))->getPointerTo());
-       
   // If what is being shared is the reference, we should load it.
   if (DSI.CapturesValues[Idx].second ==
       CGOpenMPRuntimeNVPTX::DataSharingInfo::DST_Ref) {
     auto Addr = CGF.MakeNaturalAlignAddrLValue(Arg, Ty);
     Arg = CGF.EmitLoadOfScalar(Addr, SourceLocation());
+    if (CGF.CGM.getTriple().getArch() == llvm::Triple::amdgcn) {
+      auto* ArgPtrTy = llvm::PointerType::get(Arg->getType(), 1);
+      if (StoreAddr.getType() != ArgPtrTy)
+        StoreAddr = Bld.CreatePointerBitCastOrAddrSpaceCast(StoreAddr, ArgPtrTy);
+    }
     CGF.EmitStoreOfScalar(Arg, StoreAddr, /*Volatile=*/false, Ty);
-  } else
+  } else {
+    if (CGF.CGM.getTriple().getArch() == llvm::Triple::amdgcn) {
+      auto* ArgPtrTy = llvm::PointerType::get(Arg->getType(), 1);
+      if (StoreAddr.getType() != ArgPtrTy)
+        StoreAddr = Bld.CreatePointerBitCastOrAddrSpaceCast(StoreAddr, ArgPtrTy);
+    }
     CGF.EmitStoreOfScalar(Arg, StoreAddr, /*Volatile=*/false,
                           Ctx.getPointerType(Ty));
+  }
 }
 
 // \brief Create the data sharing arguments and call the parallel outlined
