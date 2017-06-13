@@ -2683,7 +2683,7 @@ unsigned CodeGenModule::GetGlobalVarAddressSpace(const VarDecl *D,
       AddrSpace = getContext().getTargetAddressSpace(LangAS::cuda_shared);
     else
       AddrSpace = getContext().getTargetAddressSpace(LangAS::cuda_device);
-  } else if (getTriple().getArch() == llvm::Triple::amdgcn &&
+  } else if (getTriple().getArch() == llvm::Triple::amdgcn && !AddrSpace &&
       (LangOpts.CPlusPlus || LangOpts.OpenMP)) {
     if (D && D->getType().isConstant(getContext()))
       AddrSpace = getContext().getTargetAddressSpace(LangAS::opencl_constant);

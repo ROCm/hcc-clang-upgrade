@@ -404,7 +404,7 @@ llvm::Function *CodeGenFunction::GenerateOpenMPCapturedStmtFunction(
         }
         CapVar->setType(Ctx.getAddrSpaceQualType(CapVar->getType().getUnqualifiedType(),LANG_AS));
         // FIXME: needed?
-        FD->setType(Ctx.getAddrSpaceQualType(FD->getType(),LangAS::cuda_device));
+        FD->setType(Ctx.getAddrSpaceQualType(FD->getType(),LANG_AS));
         ArgType = Ctx.getAddrSpaceQualType(ArgType,LANG_AS);
       }
     }
@@ -535,7 +535,6 @@ llvm::Function *CodeGenFunction::GenerateOpenMPCapturedStmtFunction(
     ++Cnt;
     ++I;
   }
-
   PGO.assignRegionCounters(GlobalDecl(CD), F);
   CapturedStmtInfo->EmitBody(*this, CD->getBody());
   FinishFunction(CD->getBodyRBrace());

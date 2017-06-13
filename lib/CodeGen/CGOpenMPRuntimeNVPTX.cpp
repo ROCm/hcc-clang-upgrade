@@ -3544,6 +3544,10 @@ static void CreateAddressStoreForVariable(
     Arg = Bld.CreateInBoundsGEP(SlotAddr, Idxs);
   }
 
+ if (StoreAddr.getElementType()->getPointerAddressSpace())
+     StoreAddr = Bld.CreatePointerBitCastOrAddrSpaceCast(StoreAddr,
+        CGF.getTypes().ConvertType(Ctx.getPointerType(Ty)));
+       
   // If what is being shared is the reference, we should load it.
   if (DSI.CapturesValues[Idx].second ==
       CGOpenMPRuntimeNVPTX::DataSharingInfo::DST_Ref) {
