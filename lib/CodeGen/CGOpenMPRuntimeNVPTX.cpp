@@ -3494,6 +3494,13 @@ void CGOpenMPRuntimeNVPTX::createDataSharingPerFunctionInfrastructure(
         CGF.EmitStoreOfScalar(PointeeVal, NewAddrLVal);
       } // fallthrough.
       case DataSharingInfo::DST_Val: {
+        if (CGF.CGM.getTriple().getArch() == llvm::Triple::amdgcn &&
+            CGF.CGM.getLangOpts().OpenMPIsDevice) {
+          auto* PTy = NewAddressIt->getType();
+          if (PTy->getElementType() != NewAddr->getType())
+            NewAddr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(NewAddr,
+               PTy->getElementType());
+        }
         CGF.EmitStoreOfScalar(NewAddr, *NewAddressIt, /*Volatile=*/false,
                               Ctx.getPointerType(FI->getType()));
         ++NewAddressIt;
