@@ -1572,11 +1572,9 @@ void CGOpenMPRuntimeNVPTX::emitWorkerLoop(CodeGenFunction &CGF,
       //   Replace it with hash code of function name. If an indirect call
       //   is made with function pointer, replace it with direct call
       if (CGM.getTriple().getArch() == llvm::Triple::amdgcn) {
-        auto HashCode = llvm::hash_value(W->getName());
-        auto ID = llvm::ConstantInt::get(CGM.SizeTy, HashCode);
         WorkFnMatch =
-          Bld.CreateICmpEQ(Bld.CreatePtrToInt(Bld.CreateLoad(WorkFn), CGM.Int64Ty),
-                         ID, "work_match");
+          Bld.CreateICmpEQ(Bld.CreatePtrToInt(WorkID, CGM.Int64Ty),
+            WorkMap[W], "work_match");
       } else {
         auto ThisID = Bld.CreatePtrToInt(W, CGM.Int64Ty);
         ThisID = Bld.CreateIntToPtr(ThisID, CGM.Int8PtrTy);
@@ -1604,6 +1602,31 @@ void CGOpenMPRuntimeNVPTX::emitWorkerLoop(CodeGenFunction &CGF,
     // region makes a declare target call that may contain an orphaned parallel
     // directive.
     if (WST.TP.mayContainOrphanedParallel()) {
+      // XXX:[OMPTARGET.FunctionPtr]
+      if (CGM.getTriple().getArch() == llvm::Triple::amdgcn) {
+        // Work through WorkMap and emit if-then to invoke the matched work Fn
+        // After optimization, they are likely transformed into switch-case
+        auto DestBranch = Bld.CreatePtrToInt(WorkID, CGM.Int64Ty);
+        for (auto it : WorkMap) {
+          std::string str = "work_match_" + it.first->getName().str();
+          auto IfMatch = Blda.CreateICmpEQ(DestBranch, it.second, str.c_str());
+          std::string strHit = ".execute.fn_" + it.first->getName().str();
+          auto HitThisFnBB = CGF.createBasicBlock(strHit.c_str());
+          std::string strNext = ".check.next_" + it.first->getName().str();
+          auto CheckNextFnBB = CGF.createBasicBlock(strNext.c_str());
+          Bld.CreateCondBr(IfMatch, HitThisFnBB, CheckNextFnBB);
+
+          CGF.EmitBlock(HitThisFnBB);
+          CGF.EmitCallOrInvoke(it.first, {Bld.getInt16(/*ParallelLevel=*/0),
+                                      GetMasterThreadID(CGF)});
+
+          // Jump to terminate
+          CGF.EmitBranch(TerminateBB);
+
+          // Continue to next Fn checking
+          CGF.EmitBlock(CheckNextFnBB);
+        }
+      } else {
       auto ParallelFnTy =
           llvm::FunctionType::get(CGM.VoidTy, {CGM.Int16Ty, CGM.Int32Ty},
                                   /*isVarArg*/ false)
@@ -1611,6 +1634,7 @@ void CGOpenMPRuntimeNVPTX::emitWorkerLoop(CodeGenFunction &CGF,
       auto WorkFnCast = Bld.CreateBitCast(WorkID, ParallelFnTy);
       CGF.EmitCallOrInvoke(WorkFnCast, {Bld.getInt16(/*ParallelLevel=*/0),
                                         GetMasterThreadID(CGF)});
+      }
       // Go to end of parallel region.
       CGF.EmitBranch(TerminateBB);
     }
@@ -3977,6 +4001,13 @@ void CGOpenMPRuntimeNVPTX::emitGenericParallelCall(
 
     // Remember for post-processing in worker loop.
     Work.push_back(WFn);
+
+    // XXX:[OMPTARGET.FunctionPtr]
+    if (CGM.getTriple().getArch() == llvm::Triple::amdgcn) {
+      auto HashCode = llvm::hash_value(WFn->getName());
+      auto* ThisID = llvm::ConstantInt::get(CGM.SizeTy, HashCode);
+      WorkMap[WFn] = ThisID;
+    }
   };
   auto &&L1ParallelGen = [this, WFn, &CapturedVars, &RTLoc,
                           &Loc](CodeGenFunction &CGF, PrePostActionTy &) {

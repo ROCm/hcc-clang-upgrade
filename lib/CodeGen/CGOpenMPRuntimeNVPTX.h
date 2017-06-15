@@ -240,6 +240,11 @@ private:
   // Private state and methods.
   //
 
+  // key: llvm::Function pointer
+  // value: Hash code of the function name
+  typedef std::map<llvm::Function *, llvm::Value *> WorkMapTy;
+  WorkMapTy WorkMap;
+
   // Pointers to outlined function work for workers.
   llvm::SmallVector<llvm::Function *, 16> Work;
 
