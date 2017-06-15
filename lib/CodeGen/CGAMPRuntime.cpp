@@ -20,6 +20,9 @@
 #include "CGCall.h"
 #include "TargetInfo.h"
 
+#include <algorithm> // For std::find_if.
+#include <utility>   // For std::make_pair and std::pair.
+
 namespace clang {
 namespace CodeGen {
 
@@ -45,13 +48,81 @@ static CXXMethodDecl *findValidIndexType(QualType IndexTy) {
   }
   return IndexConstructor;
 }
+
+static
+std::pair<CXXMethodDecl*,
+          CXXMethodDecl*> find_lambda_kernel_decl_index_ctor(CXXMethodDecl* c)
+{
+    std::pair<CXXMethodDecl*, CXXMethodDecl*> r{nullptr, nullptr};
+
+    if (c->hasAttr<CXXAMPRestrictAMPAttr>() && c->getNumParams() == 1) {
+        if (c->getTemplatedKind() ==
+            FunctionDecl::TemplatedKind::TK_FunctionTemplate) {
+            const auto fl = c->getDescribedFunctionTemplate()->specializations();
+            const auto it = std::find_if(fl.begin(),
+                                         fl.end(),
+                                         [&](decltype(*fl.begin()) x) {
+                return r.second = findValidIndexType(x->getParamDecl(0)
+                                                      ->getType()
+                                                      .getNonReferenceType());
+            });
+
+            r.first = (it != fl.end()) ? cast<CXXMethodDecl>(*it) : nullptr;
+        }
+        else {
+            r = std::make_pair(c, findValidIndexType(c->getParamDecl(0)
+                                                      ->getType()
+                                                      .getNonReferenceType()));
+        }
+    }
+
+    return r;
+}
+
+static
+std::pair<CXXMethodDecl*,
+          CXXMethodDecl*> find_functor_kernel_decl_index_ctor(const CXXRecordDecl* c)
+{
+    std::pair<CXXMethodDecl*, CXXMethodDecl*> r{nullptr, nullptr};
+
+    const auto it = std::find_if(c->method_begin(),
+                                 c->method_end(),
+                                 [&](decltype(*c->method_begin()) x) {
+        return x->isOverloadedOperator() &&
+               x->getOverloadedOperator() == OO_Call &&
+               x->hasAttr<CXXAMPRestrictAMPAttr>() &&
+               x->getNumParams() == 1 &&
+               (r.second = findValidIndexType(x->getParamDecl(0)
+                                               ->getType()
+                                               .getNonReferenceType()));
+    });
+
+    r.first = (it != c->method_end()) ? *it : nullptr;
+
+    return r;
+}
+
+static
+std::pair<CXXMethodDecl*,
+          CXXMethodDecl*> find_kernel_decl_index_ctor(const CXXRecordDecl* ClassDecl)
+{
+    if (ClassDecl->isLambda()) {
+        return find_lambda_kernel_decl_index_ctor(ClassDecl->getLambdaCallOperator());
+    }
+    else {
+        return find_functor_kernel_decl_index_ctor(ClassDecl);
+    }
+}
+
 /// Operations:
 /// For each reference-typed members, construct temporary object
 /// Invoke constructor of index
 /// Invoke constructor of the class
 /// Invoke operator(index)
 void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
-  const FunctionDecl *Trampoline, FunctionArgList& Args) {
+                                      const FunctionDecl *Trampoline,
+                                      FunctionArgList& Args)
+{
   const CXXRecordDecl *ClassDecl = dyn_cast<CXXMethodDecl>(Trampoline)->getParent();
   assert(ClassDecl);
   // Allocate "this"
@@ -190,7 +261,7 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
   {
     llvm::Constant *Callee = CGM.getAddrOfCXXStructor(
       DeserializeConstructor, StructorType::Complete);
-    const FunctionProtoType *FPT = 
+    const FunctionProtoType *FPT =
       DeserializeConstructor->getType()->castAs<FunctionProtoType>();
     const CGFunctionInfo &DesFnInfo =
       CGM.getTypes().arrangeCXXStructorDeclaration(
@@ -206,50 +277,35 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
     }
     CGF.EmitCall(DesFnInfo, CGCallee::forDirect(Callee), ReturnValueSlot(), DeserializerArgs);
   }
+
   // Locate the type of Concurrency::index<1>
   // Locate the operator to call
-  CXXMethodDecl *KernelDecl = NULL;
-  const FunctionType *MT = NULL;
-  QualType IndexTy;
-  for (CXXRecordDecl::method_iterator Method = ClassDecl->method_begin(),
-      MethodEnd = ClassDecl->method_end();
-      Method != MethodEnd; ++Method) {
-    CXXMethodDecl *MethodDecl = *Method;
-    if (MethodDecl->isOverloadedOperator() &&
-        MethodDecl->getOverloadedOperator() == OO_Call &&
-        MethodDecl->hasAttr<CXXAMPRestrictAMPAttr>()) {
-      //Check types.
-      if(MethodDecl->getNumParams() != 1)
-	continue;
-      ParmVarDecl *P = MethodDecl->getParamDecl(0);
-      IndexTy = P->getType().getNonReferenceType();
-      if (!findValidIndexType(IndexTy))
-        continue;
-      MT = dyn_cast<FunctionType>(MethodDecl->getType().getTypePtr());
-      assert(MT);
-      KernelDecl = MethodDecl;
-      break;
-    }
-  }
+  const auto kernel_decl_index_ctor = find_kernel_decl_index_ctor(ClassDecl);
 
   // in case we couldn't find any kernel declarator
   // raise error
-  if (!KernelDecl) {
-    CGF.CGM.getDiags().Report(ClassDecl->getLocation(), diag::err_amp_ill_formed_functor);
+  if (!kernel_decl_index_ctor.first || !kernel_decl_index_ctor.second) {
+    CGF.CGM.getDiags().Report(ClassDecl->getLocation(),
+                              diag::err_amp_ill_formed_functor);
     return;
   }
-  // Allocate Index
-  Address index = CGF.CreateMemTemp(IndexTy);
 
-  // Locate the constructor to call
-  CXXMethodDecl *IndexConstructor = findValidIndexType(IndexTy); 
-  assert(IndexConstructor);
+  // Allocate Index
+  Address index = CGF.CreateMemTemp(kernel_decl_index_ctor.first
+                                                          ->getParamDecl(0)
+                                                          ->getType()
+                                                          .getNonReferenceType());
+
   // Emit code to call the Concurrency::index<1>::__cxxamp_opencl_index()
   if (!CGF.getLangOpts().AMPCPU) {
     if (CXXConstructorDecl *Constructor =
-        dyn_cast <CXXConstructorDecl>(IndexConstructor)) {
+        dyn_cast<CXXConstructorDecl>(kernel_decl_index_ctor.second)) {
       CXXConstructExpr *CXXCE = CXXConstructExpr::Create(
-        CGM.getContext(), IndexTy,
+        CGM.getContext(),
+        kernel_decl_index_ctor.first
+                              ->getParamDecl(0)
+                              ->getType()
+                              .getNonReferenceType(),
         SourceLocation(),
         Constructor,
         false,
@@ -260,31 +316,53 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
       CGF.EmitCXXConstructorCall(Constructor,
         Ctor_Complete, false, false, index, CXXCE);
     } else {
-      llvm::FunctionType *indexInitType =
-        CGM.getTypes().GetFunctionType(
-          CGM.getTypes().arrangeCXXMethodDeclaration(IndexConstructor));
-      llvm::Constant *indexInitAddr = CGM.GetAddrOfFunction(
-        IndexConstructor, indexInitType);
+      llvm::FunctionType* indexInitType =
+              CGM.getTypes().GetFunctionType(
+          CGM.getTypes()
+             .arrangeCXXMethodDeclaration(kernel_decl_index_ctor.second));
+      llvm::Value *indexInitAddr = CGM.GetAddrOfFunction(
+        kernel_decl_index_ctor.second,
+        indexInitType);
 
-      CGF.EmitCXXMemberOrOperatorCall(IndexConstructor, CGCallee::forDirect(indexInitAddr),
-        ReturnValueSlot(), index.getPointer(), /*ImplicitParam=*/0, QualType(), /*CallExpr=*/nullptr, /*RtlArgs=*/nullptr);
+      CGF.EmitCXXMemberOrOperatorCall(kernel_decl_index_ctor.second,
+                                      indexInitAddr,
+                                      ReturnValueSlot(),
+                                      index.getPointer(),
+                                      /*ImplicitParam=*/0,
+                                      QualType(),
+                                      /*CallExpr=*/nullptr,
+                                      /*RtlArgs=*/nullptr);
     }
   }
   // Invoke this->operator(index)
   // Prepate the operator() to call
-  llvm::FunctionType *fnType =
-    CGM.getTypes().GetFunctionType(CGM.getTypes().arrangeCXXMethodDeclaration(KernelDecl));
-  llvm::Constant *fnAddr = CGM.GetAddrOfFunction(KernelDecl, fnType);
+  llvm::FunctionType* fnType =
+    CGM.getTypes()
+       .GetFunctionType(CGM.getTypes()
+       .arrangeCXXMethodDeclaration(kernel_decl_index_ctor.first));
+  llvm::Value *fnAddr = CGM.GetAddrOfFunction(kernel_decl_index_ctor.first,
+                                              fnType);
   // Prepare argument
   CallArgList KArgs;
   // this
-  KArgs.add(RValue::get(ai.getPointer()), KernelDecl ->getThisType(CGF.getContext()));
+  KArgs.add(RValue::get(ai.getPointer()),
+            kernel_decl_index_ctor.first->getThisType(CGF.getContext()));
   // *index
-  KArgs.add(RValue::getAggregate(index), IndexTy);
+  KArgs.add(RValue::getAggregate(index),
+            kernel_decl_index_ctor.first
+                                  ->getParamDecl(0)
+                                  ->getType()
+                                  .getNonReferenceType());
 
-  const CGFunctionInfo &FnInfo = CGM.getTypes().arrangeFreeFunctionCall(KArgs, MT, false);
-  CGF.EmitCall(FnInfo, CGCallee::forDirect(fnAddr), ReturnValueSlot(), KArgs);
-  CGM.getTargetCodeGenInfo().setTargetAttributes(KernelDecl, CGF.CurFn, CGM);
+  const auto MT = dyn_cast<FunctionType>(kernel_decl_index_ctor.first
+                                                               ->getType()
+                                                               .getTypePtr());
+  assert(MT);
+
+  const CGFunctionInfo& FnInfo = CGM.getTypes().arrangeFreeFunctionCall(KArgs,
+                                                                        MT,
+                                                                        false);
+  CGF.EmitCall(FnInfo, fnAddr, ReturnValueSlot(), KArgs);
 }
 
 void CGAMPRuntime::EmitTrampolineNameBody(CodeGenFunction &CGF,
@@ -293,7 +371,7 @@ void CGAMPRuntime::EmitTrampolineNameBody(CodeGenFunction &CGF,
   assert(ClassDecl);
   // Locate the trampoline
   // Locate the operator to call
-  CXXMethodDecl *TrampolineDecl = NULL; 
+  CXXMethodDecl *TrampolineDecl = NULL;
   for (CXXRecordDecl::method_iterator Method = ClassDecl->method_begin(),
       MethodEnd = ClassDecl->method_end();
       Method != MethodEnd; ++Method) {
@@ -311,7 +389,7 @@ void CGAMPRuntime::EmitTrampolineNameBody(CodeGenFunction &CGF,
   llvm::GlobalVariable *GV = new llvm::GlobalVariable(CGM.getModule(), S->getType(),
     true, llvm::GlobalValue::PrivateLinkage, S, "__cxxamp_trampoline.kernelname");
   GV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
-  
+
   //Create GetElementPtr(0, 0)
   std::vector<llvm::Constant*> indices;
   llvm::ConstantInt *zero = llvm::ConstantInt::get(CGM.getLLVMContext(), llvm::APInt(32, StringRef("0"), 10));
