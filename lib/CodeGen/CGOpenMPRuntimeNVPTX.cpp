@@ -1609,7 +1609,7 @@ void CGOpenMPRuntimeNVPTX::emitWorkerLoop(CodeGenFunction &CGF,
         auto DestBranch = Bld.CreatePtrToInt(WorkID, CGM.Int64Ty);
         for (auto it : WorkMap) {
           std::string str = "work_match_" + it.first->getName().str();
-          auto IfMatch = Blda.CreateICmpEQ(DestBranch, it.second, str.c_str());
+          auto IfMatch = Bld.CreateICmpEQ(DestBranch, it.second, str.c_str());
           std::string strHit = ".execute.fn_" + it.first->getName().str();
           auto HitThisFnBB = CGF.createBasicBlock(strHit.c_str());
           std::string strNext = ".check.next_" + it.first->getName().str();
