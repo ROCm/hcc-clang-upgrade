@@ -721,6 +721,22 @@ static bool endsWithReturn(const Decl* F) {
   return false;
 }
 
+namespace
+{
+  inline
+  bool is_hcc_kernel_wrapper(const FunctionDecl* f)
+  {
+    static constexpr const char pre[] = "Kernel_wrapper";
+
+    if (!isa<CXXMethodDecl>(f)) return false;
+
+    auto call_op = cast<CXXMethodDecl>(f);
+
+    return call_op->getOverloadedOperator() == OO_Call &&
+      call_op->getParent()->getName().find(pre) != StringRef::npos;
+  }
+}
+
 static void markAsIgnoreThreadCheckingAtRuntime(llvm::Function *Fn) {
   Fn->addFnAttr("sanitize_thread_no_checking_at_run_time");
   Fn->removeFnAttr(llvm::Attribute::SanitizeThread);
@@ -840,10 +856,19 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
     // Add kernel function signatures into a metadata
     if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D)) {
       // FIXME: abolish use of OpenCLKernelAttr for HCC programs
-      if (FD->hasAttr<OpenCLKernelAttr>()) {
+      const auto is_hcc_kernel = is_hcc_kernel_wrapper(FD);
+
+      if (FD->hasAttr<OpenCLKernelAttr>() || is_hcc_kernel) {
+        if (is_hcc_kernel) {
+          Fn->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
+          Fn->setLinkage(llvm::GlobalValue::LinkageTypes::WeakODRLinkage);
+          Fn->setDoesNotThrow();
+          Fn->setDoesNotRecurse();
+          FD->dump();
+        }
         SmallVector<llvm::Metadata *, 5> kernelMDArgs;
         kernelMDArgs.push_back(llvm::ConstantAsMetadata::get(Fn));
-  
+
         llvm::MDNode *kernelMDNode = llvm::MDNode::get(getLLVMContext(), kernelMDArgs);
         llvm::NamedMDNode *HCCKernelMetadata =
           CGM.getModule().getOrInsertNamedMetadata("hcc.kernels");
