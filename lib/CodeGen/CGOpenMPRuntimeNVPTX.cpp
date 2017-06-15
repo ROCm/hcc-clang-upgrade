@@ -4856,7 +4856,7 @@ llvm::Function *CGOpenMPRuntimeNVPTX::emitRegistrationFunction() {
       // Check if there is some address space mismatch.
       llvm::PointerType *FArgTy = dyn_cast<llvm::PointerType>(FArg->getType());
       llvm::PointerType *ArgTy = dyn_cast<llvm::PointerType>(Arg->getType());
-      if (FArgTy && ArgTy ){
+      if (FArgTy && ArgTy) {
         if(FArgTy->getElementType() == ArgTy->getElementType() &&
           FArgTy->getAddressSpace() != ArgTy->getAddressSpace()) {
           Arg = llvm::CastInst::Create(llvm::CastInst::AddrSpaceCast, Arg, FArgTy,
@@ -4864,14 +4864,11 @@ llvm::Function *CGOpenMPRuntimeNVPTX::emitRegistrationFunction() {
           ++FArg;
           continue;
         }
-        llvm::PointerType *FArgTy2 = dyn_cast<llvm::PointerType>(FArgTy->getElementType());
-        llvm::PointerType *ArgTy2 = dyn_cast<llvm::PointerType>(ArgTy->getElementType());
-        if ( FArgTy2 && ArgTy2 && 
-             FArgTy2->getElementType() == ArgTy2->getElementType() &&
-             FArgTy2->getAddressSpace() != ArgTy2->getAddressSpace()) {
-          Arg = llvm::CastInst::Create(llvm::CastInst::AddrSpaceCast, Arg, FArgTy2,
-                                     ".data_share_addraddrspace_cast", InsertPtr);
-          Arg = llvm::CastInst::Create(llvm::CastInst::AddrSpaceCast, Arg, FArgTy,
+        // Aggressively cast in amdgcn path
+        if (CGM.getTriple().getArch() == llvm::Triple::amdgcn) {
+        //  FArgTy = double addrspace(1)* addrspace(1)**
+        //  ArgTy = double***
+          Arg = llvm::CastInst::CreatePointerBitCastOrAddrSpaceCast(Arg, FArgTy,
                                      ".data_share_addrspace_cast", InsertPtr);
           ++FArg;
           continue;
