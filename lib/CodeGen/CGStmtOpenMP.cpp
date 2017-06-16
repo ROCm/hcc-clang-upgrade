@@ -318,6 +318,10 @@ static Address castValueFromUintptr(CodeGenFunction &CGF, QualType DstType,
   return TmpAddr;
 }
 
+//FIXME: Whether dwarf inforamation is safely supported in GPU codes, it depents on
+// GPU provider's toolchains. If any error related to GPU code debug information occurs,
+// we could either switch to release version or add "NoDebugAttr" attribute to
+// kernel function to disable any debug capabilities.
 llvm::Function *CodeGenFunction::GenerateOpenMPCapturedStmtFunction(
     const CapturedStmt &S, bool UseCapturedArgumentsOnly, unsigned CaptureLevel,
     unsigned ImplicitParamStop, bool NonAliasedMaps) {
