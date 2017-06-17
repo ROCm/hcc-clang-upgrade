@@ -3656,9 +3656,11 @@ public:
 /// handlers and creates a try statement from them.
 StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,
                                   ArrayRef<Stmt *> Handlers) {
-  // Don't report an error if 'try' is used in system headers.
+  // Don't report an error if 'try' is used in system headers or if OpenMP
+  // implementation is forcing exceptions to be ignored.
   if (!getLangOpts().CXXExceptions &&
-      !getSourceManager().isInSystemHeader(TryLoc))
+      !getSourceManager().isInSystemHeader(TryLoc) &&
+      !getLangOpts().OpenMPNoDeviceEH)
     Diag(TryLoc, diag::err_exceptions_disabled) << "try";
 
   // Exceptions aren't allowed in CUDA device code.
