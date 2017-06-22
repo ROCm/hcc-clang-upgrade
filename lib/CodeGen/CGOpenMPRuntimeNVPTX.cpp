@@ -161,7 +161,9 @@ enum OpenMPRTLFunctionNVPTX {
 
 // NVPTX Address space
 enum ADDRESS_SPACE {
+  ADDRESS_SPACE_GLOBAL = 1,
   ADDRESS_SPACE_SHARED = 3,
+  ADDRESS_SPACE_CONSTANT = 4,
 };
 
 enum BARRIER {
@@ -1745,10 +1747,18 @@ void CGOpenMPRuntimeNVPTX::emitGenericEntryFooter(CodeGenFunction &CGF,
 // before kernel launch.
 static void SetPropertyExecutionMode(CodeGenModule &CGM, StringRef Name,
                                      CGOpenMPRuntimeNVPTX::ExecutionMode Mode) {
-  (void)new llvm::GlobalVariable(
+  if (CGM.getTriple().getArch() == llvm::Triple::amdgcn)
+    (void)new llvm::GlobalVariable(
       CGM.getModule(), CGM.Int8Ty, /*isConstant=*/true,
-      // This many need to be set to ExternalLinkage
-      llvm::GlobalValue::WeakAnyLinkage,  
+      llvm::GlobalValue::ExternalLinkage,
+      llvm::ConstantInt::get(CGM.Int8Ty, Mode), Name + Twine("_exec_mode"),
+      /*InsertBefore=*/nullptr,
+      llvm::GlobalVariable::NotThreadLocal,
+      ADDRESS_SPACE_GLOBAL, /*isExternallyInitialized*/ false);
+  else
+    (void)new llvm::GlobalVariable(
+      CGM.getModule(), CGM.Int8Ty, /*isConstant=*/true,
+      llvm::GlobalValue::WeakAnyLinkage,
       llvm::ConstantInt::get(CGM.Int8Ty, Mode), Name + Twine("_exec_mode"));
 }
 
