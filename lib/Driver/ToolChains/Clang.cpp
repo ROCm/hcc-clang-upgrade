@@ -1908,10 +1908,15 @@ static bool IsHCAcceleratorPreprocessJobActionWithInputType(const JobAction* A, 
 void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                          const InputInfo &Output, const InputInfoList &Inputs,
                          const ArgList &Args, const char *LinkingOutput) const {
+
   const llvm::Triple &Triple = getToolChain().getEffectiveTriple();
-  const std::string &TripleStr =
-    ( (JA.isOffloading(Action::OFK_Cuda) || JA.isOffloading(Action::OFK_OpenMP))
-     && StringRef(JA.getOffloadingArch()).startswith("gfx") ) 
+  bool Is_amdgcn = StringRef(JA.getOffloadingArch()).startswith("gfx") ||
+               (getToolChain().getArch() == llvm::Triple::amdgcn) ;
+
+  // Currently cuda and openmp drivers only support offload triple nvptx64-nvidia-cuda
+  // We switch that here from nvptx to amdgcn iff the subarch is a gfx processor.
+  const std::string &TripleStr = Is_amdgcn &&
+     (JA.isOffloading(Action::OFK_Cuda) || JA.isOffloading(Action::OFK_OpenMP))
     ?  "amdgcn--cuda" : Triple.getTriple();
 
   bool KernelOrKext =
@@ -2583,9 +2588,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // a linker bug (see <rdar://problem/7651567>), and CUDA device code, where
   // aliases aren't supported.
   if (!getToolChain().getTriple().isOSDarwin() &&
-      !(getToolChain().getArch() == llvm::Triple::amdgcn) &&
-      !getToolChain().getTriple().isNVPTX())
+      !Is_amdgcn && !getToolChain().getTriple().isNVPTX())
     CmdArgs.push_back("-mconstructor-aliases");
+
+  // FIXME: Termporarily disble lifetime markers till AS-specific allocas work. 
+  if (Is_amdgcn) CmdArgs.push_back("-disable-lifetime-markers");
 
   // Darwin's kernel doesn't support guard variables; just die if we
   // try to use them.
@@ -4416,8 +4423,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   } else if (!getenv("NOEXTRAINFER") && Output.isFilename() &&
       !isa<PreprocessJobAction>(JA) &&
       (((JA.isOffloading(Action::OFK_Cuda) && types::isLLVMIR(Input.getType()))) ||
-       JA.isOffloading(Action::OFK_OpenMP)) &&
-       StringRef(JA.getOffloadingArch()).startswith("gfx")) {
+       JA.isOffloading(Action::OFK_OpenMP)) && Is_amdgcn) {
 
     /*
        llvm::errs() << "Input Type: " << InputType << "\n";
@@ -4594,8 +4600,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   } else if (!getenv("NOEXTRAINFER") && Output.isFilename() &&
       !isa<PreprocessJobAction>(JA) &&
       (((JA.isOffloading(Action::OFK_Cuda) && types::isLLVMIR(Input.getType()))) ||
-       JA.isOffloading(Action::OFK_OpenMP)) &&
-       StringRef(JA.getOffloadingArch()).startswith("gfx")) {
+       JA.isOffloading(Action::OFK_OpenMP)) && Is_amdgcn) {
 
     /*
        llvm::errs() << "Input Type: " << InputType << "\n";
@@ -4633,8 +4638,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       OptArgs.push_back("-load");
       OptArgs.push_back("LLVMSugarAddrSpaceCast.so");
       OptArgs.push_back("-sugar-addrspacecast");
-      //OptArgs.push_back("-dce");
-      //OptArgs.push_back("-globaldce");
+      OptArgs.push_back("-dce");
+      OptArgs.push_back("-sroa");
+      OptArgs.push_back("-globaldce");
     }
 
     if (Output.getType() == types::TY_LLVM_IR)
