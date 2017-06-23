@@ -172,9 +172,9 @@ Please install Python or specify the PYTHON_EXECUTABLE CMake variable.")
   endif()
 
   set( CLANG_BUILT_STANDALONE 1 )
-  set(BACKEND_PACKAGE_STRING "HCC ${KALMAR_VERSION_STRING} LLVM ${LLVM_PACKAGE_VERSION}")
+  set(BACKEND_PACKAGE_STRING "AMDLLVM ${AMDLLVM_VERSION_STRING} LLVM ${LLVM_PACKAGE_VERSION}")
 else()
-  set(BACKEND_PACKAGE_STRING "HCC ${KALMAR_VERSION_STRING} ${LLVM_PACKAGE_VERSION}")
+  set(BACKEND_PACKAGE_STRING "AMDLLVM ${AMDLLVM_VERSION_STRING} ${LLVM_PACKAGE_VERSION}")
 endif()
 
 # Make sure that our source directory is on the current cmake module path so that
@@ -230,7 +230,7 @@ endif()
 set(CLANG_DEFAULT_OPENMP_RUNTIME "libomp" CACHE STRING
   "Default OpenMP runtime used by -fopenmp.")
 
-set(CLANG_VENDOR "HCC")
+set(CLANG_VENDOR "AMDLLVM")
 
 if( CLANG_VENDOR )
   add_definitions( -DCLANG_VENDOR="${CLANG_VENDOR} " )
