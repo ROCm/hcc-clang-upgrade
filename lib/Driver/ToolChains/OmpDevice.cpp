@@ -112,6 +112,7 @@ void OMPDEV::Backend::ConstructJob(Compilation &C, const JobAction &JA,
     OptArgs.push_back("LLVMSugarAddrSpaceCast.so");
     OptArgs.push_back("-sugar-addrspacecast");
     OptArgs.push_back("-dce");
+    OptArgs.push_back("-sroa");
     OptArgs.push_back("-globaldce");
   }
   OptArgs.push_back("-o");
