@@ -1263,7 +1263,16 @@ void CodeGenFunction::EmitOMPReductionClauseInit(
               } else
                 EmitAutoVarInit(Emission);
               EmitAutoVarCleanups(Emission);
-              auto *Offset = Builder.CreatePtrDiff(BaseLValue.getPointer(),
+              llvm::Value *Offset = nullptr;
+              if (CGM.getTriple().getArch() == llvm::Triple::amdgcn &&
+                CGM.getLangOpts().OpenMPIsDevice &&
+                (BaseLValue.getPointer()->getType() !=
+                         ASELValue.getPointer()->getType())) {
+                  auto *Cast = Builder.CreatePointerBitCastOrAddrSpaceCast(
+                        ASELValue.getPointer(), BaseLValue.getPointer()->getType());
+                  Offset = Builder.CreatePtrDiff(BaseLValue.getPointer(), Cast);
+              } else
+              Offset = Builder.CreatePtrDiff(BaseLValue.getPointer(),
                                                    ASELValue.getPointer());
               auto *Ptr = Builder.CreateGEP(Addr.getPointer(), Offset);
               return castToBase(*this, OrigVD->getType(), ASELValue.getType(),
