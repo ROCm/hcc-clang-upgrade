@@ -4516,6 +4516,26 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fopenmp-host-ir-file-path");
     CmdArgs.push_back(Args.MakeArgString(Inputs.back().getFilename()));
   }
+  // OpenMP 4.5 standard does not allow to use any declaration in target region
+  // unless they are not specified inside of declare target region.
+  // Implicit declare target is an extension to enable using
+  // any declaration in target region.
+  if (Args.hasFlag(options::OPT_fopenmp_implicit_declare_target,
+                   options::OPT_fnoopenmp_implicit_declare_target,
+                   /*Default=*/false))
+    CmdArgs.push_back("-fopenmp-implicit-declare-target");
+
+  if (Args.hasFlag(options::OPT_fopenmp_nvptx_nospmd,
+                   options::OPT_fopenmp_nvptx_spmd,
+                   /*Default=*/false)) {
+    CmdArgs.push_back("-fopenmp-nvptx-nospmd");
+  }
+
+  if (Args.hasFlag(options::OPT_fopenmp_ignore_unmappable_types,
+                   options::OPT_fnoopenmp_ignore_unmappable_types,
+                   /*Default=*/false)) {
+    CmdArgs.push_back("-fopenmp-ignore-unmappable-types");
+  }
 
   // For all the host OpenMP offloading compile jobs we need to pass the targets
   // information using -fopenmp-targets= option.
