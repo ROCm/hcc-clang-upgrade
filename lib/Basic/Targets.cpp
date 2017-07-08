@@ -2501,16 +2501,16 @@ public:
     }
   }
 
-  unsigned getConstantAddressSpace() const override {
-    return AS.Constant;
-  }
-
   unsigned getGlobalAddressSpace() const override {
     return AS.Global;
   }
 
   LangAS::ID getOpenCLImageAddrSpace() const override {
     return LangAS::opencl_constant;
+  }
+
+  llvm::Optional<unsigned> getConstantAddressSpace() const override {
+    return LangAS::FirstTargetAddressSpace + AS.Constant;
   }
 
   /// \returns Target specific vtbl ptr address space.

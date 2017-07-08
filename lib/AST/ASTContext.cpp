@@ -9583,10 +9583,6 @@ unsigned ASTContext::getTargetAddressSpace(unsigned AS) const {
     return (*AddrSpaceMap)[AS];
 }
 
-unsigned ASTContext::getTargetConstantAddressSpace() const {
-  return getTargetInfo().getConstantAddressSpace();
-}
-
 unsigned ASTContext::getTargetGlobalAddressSpace() const {
   return getTargetInfo().getGlobalAddressSpace();
 }
