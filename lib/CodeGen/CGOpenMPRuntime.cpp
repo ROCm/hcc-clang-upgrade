@@ -4202,6 +4202,7 @@ CGOpenMPRuntime::emitTaskInit(CodeGenFunction &CGF, SourceLocation Loc,
   llvm::Value *AllocArgs[] = {emitUpdateLocation(CGF, Loc),
                               getThreadID(CGF, Loc), TaskFlags,
                               KmpTaskTWithPrivatesTySize, SharedsSize,
+                              // XXX:[OMPTARGET.FunctionPtr]: amdgcn backend issue
                               CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
                                   TaskEntry, KmpRoutineEntryPtrTy)};
   auto *NewTask = CGF.EmitRuntimeCall(
