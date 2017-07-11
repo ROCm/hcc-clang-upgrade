@@ -864,7 +864,6 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
           Fn->setLinkage(llvm::GlobalValue::LinkageTypes::WeakODRLinkage);
           Fn->setDoesNotThrow();
           Fn->setDoesNotRecurse();
-          FD->dump();
         }
         SmallVector<llvm::Metadata *, 5> kernelMDArgs;
         kernelMDArgs.push_back(llvm::ConstantAsMetadata::get(Fn));
