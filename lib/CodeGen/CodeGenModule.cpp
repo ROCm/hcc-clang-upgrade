@@ -2142,17 +2142,14 @@ void CodeGenModule::EmitGlobalDefinition(GlobalDecl GD, llvm::GlobalValue *GV) {
   if (LangOpts.CPlusPlusAMP && !CodeGenOpts.AMPCPU) {
     if (CodeGenOpts.AMPIsDevice) {
       // If -famp-is-device switch is on, we are in GPU build path.
-      if (!isWhiteListForHCC(*this, GD))
+      if (!isWhiteListForHCC(*this, GD)) return;
+    }
+    else {
+      if (!isa<VarDecl>(D) && // TODO: this should be re-assessed.
+          D->hasAttr<CXXAMPRestrictAMPAttr>() &&
+          !D->hasAttr<CXXAMPRestrictCPUAttr>()) {
         return;
-    } else {
-      // In host path:
-      // let file-scope global variables be emitted
-      // let functions qualifired with restrict(amp) or [[hc]],
-      // but not with restrict(cpu) or [[cpu]] not be emitted
-      if (!isa<VarDecl>(D) &&
-          D->hasAttr<CXXAMPRestrictAMPAttr>()&&
-         !D->hasAttr<CXXAMPRestrictCPUAttr>())
-        return;
+      }
     }
   }
 
