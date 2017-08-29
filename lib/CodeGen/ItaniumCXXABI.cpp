@@ -63,11 +63,8 @@ public:
   bool classifyReturnType(CGFunctionInfo &FI) const override;
 
   RecordArgABI getRecordArgABI(const CXXRecordDecl *RD) const override {
-    // Structures with either a non-trivial destructor or a non-trivial
-    // copy constructor are always indirect.
-    // FIXME: Use canCopyArgument() when it is fixed to handle lazily declared
-    // special members.
-    if (RD->hasNonTrivialDestructor() || RD->hasNonTrivialCopyConstructor())
+    // If C++ prohibits us from making a copy, pass by address.
+    if (!canCopyArgument(RD))
       return RAA_Indirect;
     return RAA_Default;
   }
@@ -157,9 +154,17 @@ public:
                                Address Ptr, QualType ElementType,
                                const CXXDestructorDecl *Dtor) override;
 
+  /// Itanium says that an _Unwind_Exception has to be "double-word"
+  /// aligned (and thus the end of it is also so-aligned), meaning 16
+  /// bytes.  Of course, that was written for the actual Itanium,
+  /// which is a 64-bit platform.  Classically, the ABI doesn't really
+  /// specify the alignment on other platforms, but in practice
+  /// libUnwind declares the struct with __attribute__((aligned)), so
+  /// we assume that alignment here.  (It's generally 16 bytes, but
+  /// some targets overwrite it.)
   CharUnits getAlignmentOfExnObject() {
-    unsigned Align = CGM.getContext().getTargetInfo().getExnObjectAlignment();
-    return CGM.getContext().toCharUnitsFromBits(Align);
+    auto align = CGM.getContext().getTargetDefaultAlignForAttributeAligned();
+    return CGM.getContext().toCharUnitsFromBits(align);
   }
 
   void emitRethrow(CodeGenFunction &CGF, bool isNoReturn) override;
@@ -1006,10 +1011,8 @@ bool ItaniumCXXABI::classifyReturnType(CGFunctionInfo &FI) const {
   if (!RD)
     return false;
 
-  // Return indirectly if we have a non-trivial copy ctor or non-trivial dtor.
-  // FIXME: Use canCopyArgument() when it is fixed to handle lazily declared
-  // special members.
-  if (RD->hasNonTrivialDestructor() || RD->hasNonTrivialCopyConstructor()) {
+  // If C++ prohibits us from making a copy, return by address.
+  if (!canCopyArgument(RD)) {
     auto Align = CGM.getContext().getTypeAlignInChars(FI.getReturnType());
     FI.getReturnInfo() = ABIArgInfo::getIndirect(Align, /*ByVal=*/false);
     return true;
@@ -2116,13 +2119,14 @@ void ItaniumCXXABI::EmitGuardedInit(CodeGenFunction &CGF,
       (UseARMGuardVarABI && !useInt8GuardVariable)
           ? Builder.CreateAnd(LI, llvm::ConstantInt::get(CGM.Int8Ty, 1))
           : LI;
-  llvm::Value *isInitialized = Builder.CreateIsNull(V, "guard.uninitialized");
+  llvm::Value *NeedsInit = Builder.CreateIsNull(V, "guard.uninitialized");
 
   llvm::BasicBlock *InitCheckBlock = CGF.createBasicBlock("init.check");
   llvm::BasicBlock *EndBlock = CGF.createBasicBlock("init.end");
 
   // Check if the first byte of the guard variable is zero.
-  Builder.CreateCondBr(isInitialized, InitCheckBlock, EndBlock);
+  CGF.EmitCXXGuardedInitBranch(NeedsInit, InitCheckBlock, EndBlock,
+                               CodeGenFunction::GuardKind::VariableGuard, &D);
 
   CGF.EmitBlock(InitCheckBlock);
 

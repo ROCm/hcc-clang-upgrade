@@ -52,12 +52,30 @@ Major New Features
 Improvements to Clang's diagnostics
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
--  ...
+- ``-Wpragma-pack`` is a new warning that warns in the following cases:
+
+  - When a translation unit is missing terminating ``#pragma pack (pop)``
+    directives.
+
+  - When leaving an included file that changes the current alignment value,
+    i.e. when the alignment before ``#include`` is different to the alignment
+    after ``#include``.
+
+  - ``-Wpragma-pack-suspicious-include`` (disabled by default) warns on an
+    ``#include`` when the included file contains structures or unions affected by
+    a non-default alignment that has been specified using a ``#pragma pack``
+    directive prior to the ``#include``.
+
+Non-comprehensive list of changes in this release
+-------------------------------------------------
+
+- Bitrig OS was merged back into OpenBSD, so Bitrig support has been 
+  removed from Clang/LLVM.
 
 New Compiler Flags
 ------------------
 
-The option ....
+- --autocomplete was implemented to obtain a list of flags and its arguments. This is used for shell autocompletion.
 
 Deprecated Compiler Flags
 -------------------------
@@ -75,6 +93,9 @@ Clang now supports the ...
 
 Attribute Changes in Clang
 --------------------------
+
+- The presence of __attribute__((availability(...))) on a declaration no longer
+  implies default visibility for that declaration on macOS.
 
 - ...
 
@@ -133,13 +154,41 @@ this section should help get you past the largest hurdles of upgrading.
 AST Matchers
 ------------
 
-...
+The hasDeclaration matcher now works the same for Type and QualType and only
+ever looks through one level of sugaring in a limited number of cases.
 
+There are two main patterns affected by this:
+
+-  qualType(hasDeclaration(recordDecl(...))): previously, we would look through
+   sugar like TypedefType to get at the underlying recordDecl; now, we need
+   to explicitly remove the sugaring:
+   qualType(hasUnqualifiedDesugaredType(hasDeclaration(recordDecl(...))))
+
+-  hasType(recordDecl(...)): hasType internally uses hasDeclaration; previously,
+   this matcher used to match for example TypedefTypes of the RecordType, but
+   after the change they don't; to fix, use:
+
+::
+   hasType(hasUnqualifiedDesugaredType(
+       recordType(hasDeclaration(recordDecl(...)))))
+
+-  templateSpecializationType(hasDeclaration(classTemplateDecl(...))):
+   previously, we would directly match the underlying ClassTemplateDecl;
+   now, we can explicitly match the ClassTemplateSpecializationDecl, but that
+   requires to explicitly get the ClassTemplateDecl:
+
+::
+   templateSpecializationType(hasDeclaration(
+       classTemplateSpecializationDecl(
+           hasSpecializedTemplate(classTemplateDecl(...)))))
 
 clang-format
 ------------
 
 ...
+
+* Option -verbose added to the command line.
+  Shows the list of processed files.
 
 libclang
 --------
@@ -155,9 +204,7 @@ Static Analyzer
 Undefined Behavior Sanitizer (UBSan)
 ------------------------------------
 
-The C++ dynamic type check now requires run-time null checking (i.e,
-`-fsanitize=vptr` cannot be used without `-fsanitize=null`). This change does
-not impact users who rely on UBSan check groups (e.g `-fsanitize=undefined`).
+...
 
 Core Analysis Improvements
 ==========================
