@@ -16986,6 +16986,9 @@ Sema::DeclGroupPtrTy Sema::ActOnModuleDecl(SourceLocation StartLoc,
                                            SourceLocation ModuleLoc,
                                            ModuleDeclKind MDK,
                                            ModuleIdPath Path) {
+  assert(getLangOpts().ModulesTS &&
+         "should only have module decl in modules TS");
+
   // A module implementation unit requires that we are not compiling a module
   // of any kind. A module interface unit requires that we are not compiling a
   // module map.
@@ -17038,10 +17041,10 @@ Sema::DeclGroupPtrTy Sema::ActOnModuleDecl(SourceLocation StartLoc,
   auto &Map = PP.getHeaderSearchInfo().getModuleMap();
   Module *Mod;
 
+  assert(ModuleScopes.size() == 1 && "expected to be at global module scope");
+
   switch (MDK) {
   case ModuleDeclKind::Module: {
-    // FIXME: Check we're not in a submodule.
-
     // We can't have parsed or imported a definition of this module or parsed a
     // module map defining it already.
     if (auto *M = Map.findModule(ModuleName)) {
@@ -17055,7 +17058,8 @@ Sema::DeclGroupPtrTy Sema::ActOnModuleDecl(SourceLocation StartLoc,
     }
 
     // Create a Module for the module that we're defining.
-    Mod = Map.createModuleForInterfaceUnit(ModuleLoc, ModuleName);
+    Mod = Map.createModuleForInterfaceUnit(ModuleLoc, ModuleName,
+                                           ModuleScopes.front().Module);
     assert(Mod && "module creation should not fail");
     break;
   }
@@ -17074,16 +17078,16 @@ Sema::DeclGroupPtrTy Sema::ActOnModuleDecl(SourceLocation StartLoc,
     break;
   }
 
-  // Enter the semantic scope of the module.
-  ModuleScopes.push_back({});
+  // Switch from the global module to the named module.
   ModuleScopes.back().Module = Mod;
-  ModuleScopes.back().OuterVisibleModules = std::move(VisibleModules);
   VisibleModules.setVisible(Mod, ModuleLoc);
 
   // From now on, we have an owning module for all declarations we see.
   // However, those declarations are module-private unless explicitly
   // exported.
-  Context.getTranslationUnitDecl()->setLocalOwningModule(Mod);
+  auto *TU = Context.getTranslationUnitDecl();
+  TU->setModuleOwnershipKind(Decl::ModuleOwnershipKind::ModulePrivate);
+  TU->setLocalOwningModule(Mod);
 
   // FIXME: Create a ModuleDecl.
   return nullptr;
@@ -17261,7 +17265,7 @@ Decl *Sema::ActOnStartExportDecl(Scope *S, SourceLocation ExportLoc,
   // C++ Modules TS draft:
   //   An export-declaration shall appear in the purview of a module other than
   //   the global module.
-  if (ModuleScopes.empty() || !ModuleScopes.back().Module ||
+  if (ModuleScopes.empty() ||
       ModuleScopes.back().Module->Kind != Module::ModuleInterfaceUnit)
     Diag(ExportLoc, diag::err_export_not_in_module_interface);
 
