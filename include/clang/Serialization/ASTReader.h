@@ -825,6 +825,7 @@ private:
   struct PragmaPackStackEntry {
     unsigned Value;
     SourceLocation Location;
+    SourceLocation PushLocation;
     StringRef SlotLabel;
   };
   llvm::SmallVector<PragmaPackStackEntry, 2> PragmaPackStack;
@@ -866,9 +867,6 @@ private:
   /// any other non-module AST file.
   SmallVector<ImportedSubmodule, 2> ImportedModules;
   //@}
-
-  /// \brief The directory that the PCH we are reading is stored in.
-  std::string CurrentDir;
 
   /// \brief The system include root to be used when loading the
   /// precompiled header.
@@ -2144,8 +2142,18 @@ public:
   // \brief Read a string
   static std::string ReadString(const RecordData &Record, unsigned &Idx);
 
+  // \brief Skip a string
+  static void SkipString(const RecordData &Record, unsigned &Idx) {
+    Idx += Record[Idx] + 1;
+  }
+
   // \brief Read a path
   std::string ReadPath(ModuleFile &F, const RecordData &Record, unsigned &Idx);
+
+  // \brief Skip a path
+  static void SkipPath(const RecordData &Record, unsigned &Idx) {
+    SkipString(Record, Idx);
+  }
 
   /// \brief Read a version tuple.
   static VersionTuple ReadVersionTuple(const RecordData &Record, unsigned &Idx);

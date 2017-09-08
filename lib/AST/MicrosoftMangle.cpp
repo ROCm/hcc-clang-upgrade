@@ -2122,7 +2122,7 @@ void MicrosoftCXXNameMangler::mangleCallingConvention(CallingConv CC) {
   switch (CC) {
     default:
       llvm_unreachable("Unsupported CC for mangling");
-    case CC_X86_64Win64:
+    case CC_Win64:
     case CC_X86_64SysV:
     case CC_C: Out << 'A'; break;
     case CC_X86Pascal: Out << 'C'; break;
@@ -2324,13 +2324,15 @@ void MicrosoftCXXNameMangler::mangleType(const PointerType *T, Qualifiers Quals,
   manglePointerExtQualifiers(Quals, PointeeType);
   mangleType(PointeeType, Range);
 }
+
 void MicrosoftCXXNameMangler::mangleType(const ObjCObjectPointerType *T,
                                          Qualifiers Quals, SourceRange Range) {
+  if (T->isObjCIdType() || T->isObjCClassType())
+    return mangleType(T->getPointeeType(), Range, QMM_Drop);
+
   QualType PointeeType = T->getPointeeType();
   manglePointerCVQualifiers(Quals);
   manglePointerExtQualifiers(Quals, PointeeType);
-  // Object pointers never have qualifiers.
-  Out << 'A';
   mangleType(PointeeType, Range);
 }
 
@@ -2438,7 +2440,7 @@ void MicrosoftCXXNameMangler::mangleType(const ObjCObjectType *T, Qualifiers,
                                          SourceRange Range) {
   // We don't allow overloading by different protocol qualification,
   // so mangling them isn't necessary.
-  mangleType(T->getBaseType(), Range);
+  mangleType(T->getBaseType(), Range, QMM_Drop);
 }
 
 void MicrosoftCXXNameMangler::mangleType(const BlockPointerType *T,

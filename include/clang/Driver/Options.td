@@ -461,6 +461,10 @@ def Xcuda_fatbinary : Separate<["-"], "Xcuda-fatbinary">,
   HelpText<"Pass <arg> to fatbinary invocation">, MetaVarName<"<arg>">;
 def Xcuda_ptxas : Separate<["-"], "Xcuda-ptxas">,
   HelpText<"Pass <arg> to the ptxas assembler">, MetaVarName<"<arg>">;
+def Xopenmp_target : Separate<["-"], "Xopenmp-target">,
+  HelpText<"Pass <arg> to the target offloading toolchain.">, MetaVarName<"<arg>">;
+def Xopenmp_target_EQ : JoinedAndSeparate<["-"], "Xopenmp-target=">,
+  HelpText<"Pass <arg> to the specified target offloading toolchain. The triple that identifies the toolchain must be provided after the equals sign.">, MetaVarName<"<arg>">;
 def z : Separate<["-"], "z">, Flags<[LinkerInput, RenderAsInput]>,
   HelpText<"Pass -z <arg> to the linker">, MetaVarName<"<arg>">,
   Group<Link_Group>;
@@ -645,12 +649,25 @@ def fno_profile_sample_use : Flag<["-"], "fno-profile-sample-use">, Group<f_Grou
 def fprofile_sample_use_EQ : Joined<["-"], "fprofile-sample-use=">,
     Group<f_Group>, Flags<[DriverOption, CC1Option]>,
     HelpText<"Enable sample-based profile guided optimizations">;
+def fprofile_sample_accurate : Flag<["-"], "fprofile-sample-accurate">,
+    Group<f_Group>, Flags<[DriverOption, CC1Option]>,
+    HelpText<"Specifies that the sample profile is accurate">,
+    DocBrief<[{Specifies that the sample profile is accurate. If the sample
+               profile is accurate, callsites without profile samples are marked
+               as cold. Otherwise, treat callsites without profile samples as if
+               we have no profile}]>;
+def fno_profile_sample_accurate : Flag<["-"], "fno-profile-sample-accurate">,
+  Group<f_Group>, Flags<[DriverOption]>;
 def fauto_profile : Flag<["-"], "fauto-profile">, Group<f_Group>,
     Alias<fprofile_sample_use>;
 def fno_auto_profile : Flag<["-"], "fno-auto-profile">, Group<f_Group>,
     Alias<fno_profile_sample_use>;
 def fauto_profile_EQ : Joined<["-"], "fauto-profile=">,
     Alias<fprofile_sample_use_EQ>;
+def fauto_profile_accurate : Flag<["-"], "fauto-profile-accurate">,
+    Group<f_Group>, Alias<fprofile_sample_accurate>;
+def fno_auto_profile_accurate : Flag<["-"], "fno-auto-profile-accurate">,
+    Group<f_Group>, Alias<fno_profile_sample_accurate>;
 def fdebug_info_for_profiling : Flag<["-"], "fdebug-info-for-profiling">, Group<f_Group>,
     Flags<[CC1Option]>,
     HelpText<"Emit extra debug info to make sample profile more accurate.">;
@@ -706,6 +723,9 @@ def fbuiltin : Flag<["-"], "fbuiltin">, Group<f_Group>;
 def fbuiltin_module_map : Flag <["-"], "fbuiltin-module-map">, Group<f_Group>,
   Flags<[DriverOption]>, HelpText<"Load the clang builtins module map file.">;
 def fcaret_diagnostics : Flag<["-"], "fcaret-diagnostics">, Group<f_Group>;
+def fclang_abi_compat_EQ : Joined<["-"], "fclang-abi-compat=">, Group<f_clang_Group>,
+  Flags<[CC1Option]>, MetaVarName<"<version>">, Values<"<major>.<minor>,latest">,
+  HelpText<"Attempt to match the ABI of Clang <version>">;
 def fclasspath_EQ : Joined<["-"], "fclasspath=">, Group<f_Group>;
 def fcolor_diagnostics : Flag<["-"], "fcolor-diagnostics">, Group<f_Group>,
   Flags<[CoreOption, CC1Option]>, HelpText<"Use colors in diagnostics">;
@@ -877,6 +897,10 @@ def fsanitize_undefined_trap_on_error : Flag<["-"], "fsanitize-undefined-trap-on
                                         Group<f_clang_Group>;
 def fno_sanitize_undefined_trap_on_error : Flag<["-"], "fno-sanitize-undefined-trap-on-error">,
                                            Group<f_clang_Group>;
+def fsanitize_minimal_runtime : Flag<["-"], "fsanitize-minimal-runtime">,
+                                        Group<f_clang_Group>;
+def fno_sanitize_minimal_runtime : Flag<["-"], "fno-sanitize-minimal-runtime">,
+                                        Group<f_clang_Group>;
 def fsanitize_link_cxx_runtime : Flag<["-"], "fsanitize-link-c++-runtime">,
                                  Group<f_clang_Group>;
 def fsanitize_cfi_cross_dso : Flag<["-"], "fsanitize-cfi-cross-dso">,
@@ -1113,8 +1137,8 @@ def fmodule_map_file : Joined<["-"], "fmodule-map-file=">,
   Group<f_Group>, Flags<[DriverOption,CC1Option]>, MetaVarName<"<file>">,
   HelpText<"Load this module map file">;
 def fmodule_file : Joined<["-"], "fmodule-file=">,
-  Group<f_Group>, Flags<[DriverOption,CC1Option]>,
-  HelpText<"Load this precompiled module file">, MetaVarName<"<file>">;
+  Group<i_Group>, Flags<[DriverOption,CC1Option]>, MetaVarName<"[<name>=]<file>">,
+  HelpText<"Specify the mapping of module name to precompiled module file, or load a module file if name is omitted.">;
 def fmodules_ignore_macro : Joined<["-"], "fmodules-ignore-macro=">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Ignore the definition of the given macro when building and loading modules">;
 def fmodules_decluse : Flag <["-"], "fmodules-decluse">, Group<f_Group>,
@@ -1319,6 +1343,10 @@ def fopenmp_targets_EQ : CommaJoined<["-"], "fopenmp-targets=">, Flags<[DriverOp
   HelpText<"Specify comma-separated list of triples OpenMP offloading targets to be supported">;
 def fopenmp_dump_offload_linker_script : Flag<["-"], "fopenmp-dump-offload-linker-script">, Group<f_Group>, 
   Flags<[NoArgumentUnused]>;
+def fopenmp_relocatable_target : Flag<["-"], "fopenmp-relocatable-target">, Group<f_Group>, Flags<[CC1Option, NoArgumentUnused]>,
+  HelpText<"OpenMP target code is compiled as relocatable using the -c flag. For OpenMP targets the code is relocatable by default.">;
+def fnoopenmp_relocatable_target : Flag<["-"], "fnoopenmp-relocatable-target">, Group<f_Group>, Flags<[CC1Option, NoArgumentUnused]>,
+  HelpText<"Do not compile OpenMP target code as relocatable.">;
 def fno_optimize_sibling_calls : Flag<["-"], "fno-optimize-sibling-calls">, Group<f_Group>;
 def foptimize_sibling_calls : Flag<["-"], "foptimize-sibling-calls">, Group<f_Group>;
 def force__cpusubtype__ALL : Flag<["-"], "force_cpusubtype_ALL">;
@@ -2039,11 +2067,38 @@ def mmsa : Flag<["-"], "mmsa">, Group<m_Group>,
   HelpText<"Enable MSA ASE (MIPS only)">;
 def mno_msa : Flag<["-"], "mno-msa">, Group<m_Group>,
   HelpText<"Disable MSA ASE (MIPS only)">;
+def mmt : Flag<["-"], "mmt">, Group<m_Group>,
+  HelpText<"Enable MT ASE (MIPS only)">;
+def mno_mt : Flag<["-"], "mno-mt">, Group<m_Group>,
+  HelpText<"Disable MT ASE (MIPS only)">;
 def mfp64 : Flag<["-"], "mfp64">, Group<m_Group>,
   HelpText<"Use 64-bit floating point registers (MIPS only)">;
 def mfp32 : Flag<["-"], "mfp32">, Group<m_Group>,
   HelpText<"Use 32-bit floating point registers (MIPS only)">;
+def mgpopt : Flag<["-"], "mgpopt">, Group<m_Group>,
+  HelpText<"Use GP relative accesses for symbols known to be in a small"
+           " data section (MIPS)">;
+def mno_gpopt : Flag<["-"], "mno-gpopt">, Group<m_Group>,
+  HelpText<"Do not use GP relative accesses for symbols known to be in a small"
+           " data section (MIPS)">;
+def mlocal_sdata : Flag<["-"], "mlocal-sdata">, Group<m_Group>,
+  HelpText<"Extend the -G behaviour to object local data (MIPS)">;
+def mno_local_sdata : Flag<["-"], "mno-local-sdata">, Group<m_Group>,
+  HelpText<"Do not extend the -G behaviour to object local data (MIPS)">;
+def mextern_sdata : Flag<["-"], "mextern-sdata">, Group<m_Group>,
+  HelpText<"Assume that externally defined data is in the small data if it"
+           " meets the -G <size> threshold (MIPS)">;
+def mno_extern_sdata : Flag<["-"], "mno-extern-sdata">, Group<m_Group>,
+  HelpText<"Do not assume that externally defined data is in the small data if"
+           " it meets the -G <size> threshold (MIPS)">;
+def membedded_data : Flag<["-"], "membedded-data">, Group<m_Group>,
+  HelpText<"Place constants in the .rodata section instead of the .sdata "
+           "section even if they meet the -G <size> threshold (MIPS)">;
+def mno_embedded_data : Flag<["-"], "mno-embedded-data">, Group<m_Group>,
+  HelpText<"Do not place constants in the .rodata section instead of the "
+           ".sdata if they meet the -G <size> threshold (MIPS)">;
 def mnan_EQ : Joined<["-"], "mnan=">, Group<m_Group>;
+def mabs_EQ : Joined<["-"], "mabs=">, Group<m_Group>;
 def mabicalls : Flag<["-"], "mabicalls">, Group<m_Group>,
   HelpText<"Enable SVR4-style position-independent code (Mips only)">;
 def mno_abicalls : Flag<["-"], "mno-abicalls">, Group<m_Group>,
@@ -2127,6 +2182,7 @@ def nofixprebinding : Flag<["-"], "nofixprebinding">;
 def nolibc : Flag<["-"], "nolibc">;
 def nomultidefs : Flag<["-"], "nomultidefs">;
 def nopie : Flag<["-"], "nopie">;
+def no_pie : Flag<["-"], "no-pie">, Alias<nopie>;
 def noprebind : Flag<["-"], "noprebind">;
 def noseglinkedit : Flag<["-"], "noseglinkedit">;
 def nostartfiles : Flag<["-"], "nostartfiles">;
@@ -2135,6 +2191,7 @@ def nostdlibinc : Flag<["-"], "nostdlibinc">;
 def nostdincxx : Flag<["-"], "nostdinc++">, Flags<[CC1Option]>,
   HelpText<"Disable standard #include directories for the C++ standard library">;
 def nostdlib : Flag<["-"], "nostdlib">;
+def nostdlibxx : Flag<["-"], "nostdlib++">;
 def object : Flag<["-"], "object">;
 def o : JoinedOrSeparate<["-"], "o">, Flags<[DriverOption, RenderAsInput, CC1Option, CC1AsOption]>,
   HelpText<"Write output to <file>">, MetaVarName<"<file>">;
@@ -2229,7 +2286,14 @@ def static_libstdcxx : Flag<["-"], "static-libstdc++">;
 def static : Flag<["-", "--"], "static">, Flags<[NoArgumentUnused]>;
 def std_default_EQ : Joined<["-"], "std-default=">;
 def std_EQ : Joined<["-", "--"], "std=">, Flags<[CC1Option]>,
-  Group<CompileOnly_Group>, HelpText<"Language standard to compile for">;
+  Group<CompileOnly_Group>, HelpText<"Language standard to compile for">,
+  ValuesCode<[{
+    const char *Values =
+    #define LANGSTANDARD(id, name, lang, desc, features) name ","
+    #define LANGSTANDARD_ALIAS(id, alias) alias ","
+    #include "clang/Frontend/LangStandards.def"
+    ;
+  }]>;
 def stdlib_EQ : Joined<["-", "--"], "stdlib=">, Flags<[CC1Option]>,
   HelpText<"C++ standard library to use">, Values<"libc++,libstdc++,platform">;
 def sub__library : JoinedOrSeparate<["-"], "sub_library">;

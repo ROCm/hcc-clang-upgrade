@@ -1186,7 +1186,14 @@ void ASTContext::InitBuiltinTypes(const TargetInfo &Target,
   ObjCSuperType = QualType();
 
   // void * type
-  VoidPtrTy = getPointerType(VoidTy);
+  if (LangOpts.OpenCLVersion >= 200) {
+    auto Q = VoidTy.getQualifiers();
+    Q.setAddressSpace(LangAS::opencl_generic);
+    VoidPtrTy = getPointerType(getCanonicalType(
+        getQualifiedType(VoidTy.getUnqualifiedType(), Q)));
+  } else {
+    VoidPtrTy = getPointerType(VoidTy);
+  }
 
   // nullptr type (C++0x 2.14.7)
   InitBuiltinType(NullPtrTy,           BuiltinType::NullPtr);
@@ -1628,6 +1635,7 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
   uint64_t Width = 0;
   unsigned Align = 8;
   bool AlignIsRequired = false;
+  unsigned AS = 0;
   switch (T->getTypeClass()) {
 #define TYPE(Class, Base)
 #define ABSTRACT_TYPE(Class, Base)
@@ -1774,28 +1782,18 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
       Width = Target->getPointerWidth(0); 
       Align = Target->getPointerAlign(0);
       break;
-    case BuiltinType::OCLSampler: {
-      auto AS = getTargetAddressSpace(LangAS::opencl_constant);
-      Width = Target->getPointerWidth(AS);
-      Align = Target->getPointerAlign(AS);
-      break;
-    }
+    case BuiltinType::OCLSampler:
     case BuiltinType::OCLEvent:
     case BuiltinType::OCLClkEvent:
     case BuiltinType::OCLQueue:
     case BuiltinType::OCLReserveID:
-      // Currently these types are pointers to opaque types.
-      Width = Target->getPointerWidth(0);
-      Align = Target->getPointerAlign(0);
-      break;
 #define IMAGE_TYPE(ImgType, Id, SingletonId, Access, Suffix) \
     case BuiltinType::Id:
 #include "clang/Basic/OpenCLImageTypes.def"
-      {
-        auto AS = getTargetAddressSpace(Target->getOpenCLImageAddrSpace());
-        Width = Target->getPointerWidth(AS);
-        Align = Target->getPointerAlign(AS);
-      }
+      AS = getTargetAddressSpace(Target->getOpenCLTypeAddrSpace(T));
+      Width = Target->getPointerWidth(AS);
+      Align = Target->getPointerAlign(AS);
+      break;
     }
     break;
   case Type::ObjCObjectPointer:
@@ -1803,8 +1801,7 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
     Align = Target->getPointerAlign(0);
     break;
   case Type::BlockPointer: {
-    unsigned AS = getTargetAddressSpace(
-        cast<BlockPointerType>(T)->getPointeeType());
+    AS = getTargetAddressSpace(cast<BlockPointerType>(T)->getPointeeType());
     Width = Target->getPointerWidth(AS);
     Align = Target->getPointerAlign(AS);
     break;
@@ -1813,14 +1810,13 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
   case Type::RValueReference: {
     // alignof and sizeof should never enter this code path here, so we go
     // the pointer route.
-    unsigned AS = getTargetAddressSpace(
-        cast<ReferenceType>(T)->getPointeeType());
+    AS = getTargetAddressSpace(cast<ReferenceType>(T)->getPointeeType());
     Width = Target->getPointerWidth(AS);
     Align = Target->getPointerAlign(AS);
     break;
   }
   case Type::Pointer: {
-    unsigned AS = getTargetAddressSpace(cast<PointerType>(T)->getPointeeType());
+    AS = getTargetAddressSpace(cast<PointerType>(T)->getPointeeType());
     Width = Target->getPointerWidth(AS);
     Align = Target->getPointerAlign(AS);
     break;
@@ -4528,6 +4524,12 @@ QualType ASTContext::getTagDeclType(const TagDecl *Decl) const {
 /// needs to agree with the definition in <stddef.h>.
 CanQualType ASTContext::getSizeType() const {
   return getFromTargetType(Target->getSizeType());
+}
+
+/// Return the unique signed counterpart of the integer type 
+/// corresponding to size_t.
+CanQualType ASTContext::getSignedSizeType() const {
+  return getFromTargetType(Target->getSignedSizeType());
 }
 
 /// getIntMaxType - Return the unique type for "intmax_t" (C99 7.18.1.5).
@@ -8528,7 +8530,10 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
   RequiresICE = false;
   
   // Read the prefixed modifiers first.
-  bool Done = false, IsSpecialLong = false;
+  bool Done = false;
+  #ifndef NDEBUG
+  bool IsSpecialLong = false;
+  #endif
   while (!Done) {
     switch (*Str++) {
     default: Done = true; --Str; break;
@@ -8554,7 +8559,9 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
       // 'N' behaves like 'L' for all non LP64 targets and 'int' otherwise.
       assert(!IsSpecialLong && "Can't use two 'N' or 'W' modifiers!");
       assert(HowLong == 0 && "Can't use both 'L' and 'N' modifiers!");
+      #ifndef NDEBUG
       IsSpecialLong = true;
+      #endif
       if (Context.getTargetInfo().getLongWidth() == 32)
         ++HowLong;
       break;
@@ -8563,7 +8570,9 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
       // This modifier represents int64 type.
       assert(!IsSpecialLong && "Can't use two 'N' or 'W' modifiers!");
       assert(HowLong == 0 && "Can't use both 'L' and 'W' modifiers!");
+      #ifndef NDEBUG
       IsSpecialLong = true;
+      #endif
       switch (Context.getTargetInfo().getInt64Type()) {
       default:
         llvm_unreachable("Unexpected integer type");
@@ -9581,14 +9590,6 @@ unsigned ASTContext::getTargetAddressSpace(unsigned AS) const {
     return AS - LangAS::FirstTargetAddressSpace;
   else
     return (*AddrSpaceMap)[AS];
-}
-
-unsigned ASTContext::getTargetConstantAddressSpace() const {
-  return getTargetInfo().getConstantAddressSpace();
-}
-
-unsigned ASTContext::getTargetGlobalAddressSpace() const {
-  return getTargetInfo().getGlobalAddressSpace();
 }
 
 unsigned ASTContext::getTargetAddressSpace(QualType T) const {

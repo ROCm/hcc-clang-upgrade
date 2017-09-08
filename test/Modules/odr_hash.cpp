@@ -517,7 +517,90 @@ S14 s14;
 // expected-error@second.h:* {{'Method::S14' has different definitions in different modules; first difference is definition in module 'SecondModule' found method 'A' with 1st parameter of type 'int *' decayed from 'int [3]'}}
 // expected-note@first.h:* {{but in 'FirstModule' found method 'A' with 1st parameter of type 'int *' decayed from 'int [2]'}}
 #endif
+
+#if defined(FIRST)
+struct S15 {
+  int A() { return 0; }
+};
+#elif defined(SECOND)
+struct S15 {
+  long A() { return 0; }
+};
+#else
+S15 s15;
+// expected-error@first.h:* {{'Method::S15::A' from module 'FirstModule' is not present in definition of 'Method::S15' in module 'SecondModule'}}
+// expected-note@second.h:* {{declaration of 'A' does not match}}
+#endif
 }  // namespace Method
+
+namespace Constructor {
+#if defined(FIRST)
+struct S1 {
+  S1() {}
+  void foo() {}
+};
+#elif defined(SECOND)
+struct S1 {
+  void foo() {}
+  S1() {}
+};
+#else
+S1 s1;
+// expected-error@second.h:* {{'Constructor::S1' has different definitions in different modules; first difference is definition in module 'SecondModule' found method 'foo'}}
+// expected-note@first.h:* {{but in 'FirstModule' found constructor}}
+#endif
+
+#if defined(FIRST)
+struct S2 {
+  S2(int) {}
+  S2(int, int) {}
+};
+#elif defined(SECOND)
+struct S2 {
+  S2(int, int) {}
+  S2(int) {}
+};
+#else
+S2* s2;
+// expected-error@second.h:* {{'Constructor::S2' has different definitions in different modules; first difference is definition in module 'SecondModule' found constructor that has 2 parameters}}
+// expected-note@first.h:* {{but in 'FirstModule' found constructor that has 1 parameter}}
+#endif
+}  // namespace Constructor
+
+namespace Destructor {
+#if defined(FIRST)
+struct S1 {
+  ~S1() {}
+  S1() {}
+};
+#elif defined(SECOND)
+struct S1 {
+  S1() {}
+  ~S1() {}
+};
+#else
+S1 s1;
+// expected-error@second.h:* {{'Destructor::S1' has different definitions in different modules; first difference is definition in module 'SecondModule' found constructor}}
+// expected-note@first.h:* {{but in 'FirstModule' found destructor}}
+#endif
+
+#if defined(FIRST)
+struct S2 {
+  virtual ~S2() {}
+  void foo() {}
+};
+#elif defined(SECOND)
+struct S2 {
+  ~S2() {}
+  virtual void foo() {}
+};
+#else
+S2 s2;
+// expected-error@second.h:* {{'Destructor::S2' has different definitions in different modules; first difference is definition in module 'SecondModule' found destructor is not virtual}}
+// expected-note@first.h:* {{but in 'FirstModule' found destructor is virtual}}
+#endif
+
+}  // namespace Destructor
 
 // Naive parsing of AST can lead to cycles in processing.  Ensure
 // self-references don't trigger an endless cycles of AST node processing.
@@ -1338,6 +1421,161 @@ Bravo<char> golf;
 // expected-note@first.h:* {{but in 'FirstModule' found method 'charlie' with 1st parameter with a different default argument}}
 #endif
 }
+
+namespace Friend {
+#if defined(FIRST)
+struct T1 {};
+struct S1 {
+  friend class T1;
+};
+#elif defined(SECOND)
+struct T1 {};
+struct S1 {
+  friend T1;
+};
+#else
+S1 s1;
+// expected-error@second.h:* {{'Friend::S1' has different definitions in different modules; first difference is definition in module 'SecondModule' found friend 'Friend::T1'}}
+// expected-note@first.h:* {{but in 'FirstModule' found friend 'class T1'}}
+#endif
+
+#if defined(FIRST)
+struct T2 {};
+struct S2 {
+  friend class T2;
+};
+#elif defined(SECOND)
+struct T2 {};
+struct S2 {
+  friend struct T2;
+};
+#else
+S2 s2;
+// expected-error@second.h:* {{'Friend::S2' has different definitions in different modules; first difference is definition in module 'SecondModule' found friend 'struct T2'}}
+// expected-note@first.h:* {{but in 'FirstModule' found friend 'class T2'}}
+#endif
+
+#if defined(FIRST)
+struct T3 {};
+struct S3 {
+  friend const T3;
+};
+#elif defined(SECOND)
+struct T3 {};
+struct S3 {
+  friend T3;
+};
+#else
+S3 s3;
+// expected-error@second.h:* {{'Friend::S3' has different definitions in different modules; first difference is definition in module 'SecondModule' found friend 'Friend::T3'}}
+// expected-note@first.h:* {{but in 'FirstModule' found friend 'const Friend::T3'}}
+#endif
+
+#if defined(FIRST)
+struct T4 {};
+struct S4 {
+  friend T4;
+};
+#elif defined(SECOND)
+struct S4 {
+  friend void T4();
+};
+#else
+S4 s4;
+// expected-error@second.h:* {{'Friend::S4' has different definitions in different modules; first difference is definition in module 'SecondModule' found friend function}}
+// expected-note@first.h:* {{but in 'FirstModule' found friend class}}
+#endif
+
+#if defined(FIRST)
+struct S5 {
+  friend void T5a();
+};
+#elif defined(SECOND)
+struct S5 {
+  friend void T5b();
+};
+#else
+S5 s5;
+// expected-error@second.h:* {{'Friend::S5' has different definitions in different modules; first difference is definition in module 'SecondModule' found friend function 'T5b'}}
+// expected-note@first.h:* {{but in 'FirstModule' found friend function 'T5a'}}
+#endif
+}
+
+namespace TemplateParameters {
+#if defined(FIRST)
+template <class A>
+struct S1 {};
+#elif defined(SECOND)
+template <class B>
+struct S1 {};
+#else
+using TemplateParameters::S1;
+// expected-error@second.h:* {{'TemplateParameters::S1' has different definitions in different modules; first difference is definition in module 'SecondModule' found template parameter 'B'}}
+// expected-note@first.h:* {{but in 'FirstModule' found template parameter 'A'}}
+#endif
+
+#if defined(FIRST)
+template <class A = double>
+struct S2 {};
+#elif defined(SECOND)
+template <class A = int>
+struct S2 {};
+#else
+using TemplateParameters::S2;
+// expected-error@second.h:* {{'TemplateParameters::S2' has different definitions in different modules; first difference is definition in module 'SecondModule' found template parameter with default argument}}
+// expected-note@first.h:* {{but in 'FirstModule' found template parameter with different default argument}}
+#endif
+
+#if defined(FIRST)
+template <class A = int>
+struct S3 {};
+#elif defined(SECOND)
+template <class A>
+struct S3 {};
+#else
+using TemplateParameters::S3;
+// expected-error@second.h:* {{'TemplateParameters::S3' has different definitions in different modules; first difference is definition in module 'SecondModule' found template parameter with no default argument}}
+// expected-note@first.h:* {{but in 'FirstModule' found template parameter with default argument}}
+#endif
+
+#if defined(FIRST)
+template <int A>
+struct S4 {};
+#elif defined(SECOND)
+template <int A = 2>
+struct S4 {};
+#else
+using TemplateParameters::S4;
+// expected-error@second.h:* {{'TemplateParameters::S4' has different definitions in different modules; first difference is definition in module 'SecondModule' found template parameter with default argument}}
+// expected-note@first.h:* {{but in 'FirstModule' found template parameter with no default argument}}
+#endif
+
+#if defined(FIRST)
+template <int> class S5_first {};
+template <template<int> class A = S5_first>
+struct S5 {};
+#elif defined(SECOND)
+template <int> class S5_second {};
+template <template<int> class A = S5_second>
+struct S5 {};
+#else
+using TemplateParameters::S5;
+// expected-error@second.h:* {{'TemplateParameters::S5' has different definitions in different modules; first difference is definition in module 'SecondModule' found template parameter with default argument}}
+// expected-note@first.h:* {{but in 'FirstModule' found template parameter with different default argument}}
+#endif
+
+#if defined(FIRST)
+template <class A>
+struct S6 {};
+#elif defined(SECOND)
+template <class>
+struct S6 {};
+#else
+using TemplateParameters::S6;
+// expected-error@second.h:* {{'TemplateParameters::S6' has different definitions in different modules; first difference is definition in module 'SecondModule' found unnamed template parameter}}
+// expected-note@first.h:* {{but in 'FirstModule' found template parameter 'A'}}
+#endif
+}  // namespace TemplateParameters
 
 // Interesting cases that should not cause errors.  struct S should not error
 // while struct T should error at the access specifier mismatch at the end.

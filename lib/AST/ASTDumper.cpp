@@ -537,6 +537,7 @@ namespace  {
     void VisitCXXBoolLiteralExpr(const CXXBoolLiteralExpr *Node);
     void VisitCXXThisExpr(const CXXThisExpr *Node);
     void VisitCXXFunctionalCastExpr(const CXXFunctionalCastExpr *Node);
+    void VisitCXXUnresolvedConstructExpr(const CXXUnresolvedConstructExpr *Node);
     void VisitCXXConstructExpr(const CXXConstructExpr *Node);
     void VisitCXXBindTemporaryExpr(const CXXBindTemporaryExpr *Node);
     void VisitCXXNewExpr(const CXXNewExpr *Node);
@@ -1184,17 +1185,13 @@ void ASTDumper::VisitFunctionDecl(const FunctionDecl *D) {
          I != E; ++I)
       dumpCXXCtorInitializer(*I);
 
-  if (const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(D))
+  if (const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(D)) {
     if (MD->size_overridden_methods() != 0) {
       auto dumpOverride =
         [=](const CXXMethodDecl *D) {
           SplitQualType T_split = D->getType().split();
-          OS << D << " " << D->getParent()->getName() << "::";
-          if (isa<CXXDestructorDecl>(D))
-            OS << "~" << D->getParent()->getName();
-          else
-            OS << D->getName();
-          OS << " '" << QualType::getAsString(T_split) << "'";
+          OS << D << " " << D->getParent()->getName() << "::"
+             << D->getNameAsString() << " '" << QualType::getAsString(T_split) << "'";
         };
 
       dumpChild([=] {
@@ -1203,11 +1200,14 @@ void ASTDumper::VisitFunctionDecl(const FunctionDecl *D) {
         dumpOverride(*FirstOverrideItr);
         for (const auto *Override :
                llvm::make_range(FirstOverrideItr + 1,
-                                MD->end_overridden_methods()))
+                                MD->end_overridden_methods())) {
+          OS << ", ";
           dumpOverride(Override);
+        }
         OS << " ]";
       });
     }
+  }
 
   if (D->doesThisDeclarationHaveABody())
     dumpStmt(D->getBody());
@@ -2170,12 +2170,24 @@ void ASTDumper::VisitCXXFunctionalCastExpr(const CXXFunctionalCastExpr *Node) {
      << " <" << Node->getCastKindName() << ">";
 }
 
+void ASTDumper::VisitCXXUnresolvedConstructExpr(
+    const CXXUnresolvedConstructExpr *Node) {
+  VisitExpr(Node);
+  dumpType(Node->getTypeAsWritten());
+  if (Node->isListInitialization())
+    OS << " list";
+}
+
 void ASTDumper::VisitCXXConstructExpr(const CXXConstructExpr *Node) {
   VisitExpr(Node);
   CXXConstructorDecl *Ctor = Node->getConstructor();
   dumpType(Ctor->getType());
   if (Node->isElidable())
     OS << " elidable";
+  if (Node->isListInitialization())
+    OS << " list";
+  if (Node->isStdInitListInitialization())
+    OS << " std::initializer_list";
   if (Node->requiresZeroInitialization())
     OS << " zeroing";
 }

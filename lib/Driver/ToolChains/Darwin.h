@@ -154,8 +154,6 @@ public:
   /// Add the linker arguments to link the compiler runtime library.
   virtual void AddLinkRuntimeLibArgs(const llvm::opt::ArgList &Args,
                                      llvm::opt::ArgStringList &CmdArgs) const;
-  virtual void AddFuzzerLinkArgs(const llvm::opt::ArgList &Args,
-                               llvm::opt::ArgStringList &CmdArgs) const;
 
   virtual void addStartObjectFileArgs(const llvm::opt::ArgList &Args,
                                       llvm::opt::ArgStringList &CmdArgs) const {
@@ -216,7 +214,7 @@ public:
 
   bool UseObjCMixedDispatch() const override { return true; }
 
-  bool IsUnwindTablesDefault() const override;
+  bool IsUnwindTablesDefault(const llvm::opt::ArgList &Args) const override;
 
   RuntimeLibType GetDefaultRuntimeLibType() const override {
     return ToolChain::RLT_CompilerRT;
@@ -390,7 +388,8 @@ protected:
   bool isAlignedAllocationUnavailable() const;
 
   void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
-                             llvm::opt::ArgStringList &CC1Args) const override;
+                             llvm::opt::ArgStringList &CC1Args,
+                             Action::OffloadKind DeviceOffloadKind) const override;
 
   StringRef getPlatformFamily() const;
   static StringRef getSDKName(StringRef isysroot);
@@ -488,7 +487,8 @@ public:
 private:
   void AddLinkSanitizerLibArgs(const llvm::opt::ArgList &Args,
                                llvm::opt::ArgStringList &CmdArgs,
-                               StringRef Sanitizer) const;
+                               StringRef Sanitizer,
+                               bool shared = true) const;
 };
 
 } // end namespace toolchains
