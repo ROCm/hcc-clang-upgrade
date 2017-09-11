@@ -13763,21 +13763,34 @@ static bool isImplicitlyDefinableConstexprFunction(FunctionDecl *Func) {
 namespace
 {   // TODO: potentially temporary.
   inline
-  bool is_hip_functor(const CXXMethodDecl* f)
+  bool isHIPFunctor(const CXXMethodDecl* f)
   {
     static constexpr const char prefix[] = "HIP_kernel_functor_name_begin";
 
     return f->getOverloadedOperator() == OO_Call &&
-    f->getParent()->getName().find(prefix) != StringRef::npos;
+      f->getParent()->getName().find(prefix) != StringRef::npos;
   }
 
   inline
-  void add_callee_attributes_to_functor(
-    const FunctionDecl* callee, FunctionDecl* functor_call_operator)
+  Stmt* findCall(Stmt* x)
   {
-    functor_call_operator->dropAttrs();
-    functor_call_operator->setAttrs(callee->getAttrs());
-    functor_call_operator->dropAttr<AnnotateAttr>();
+    if (!x || isa<CallExpr>(x)) return x;
+
+    for (auto&& y : x->children()) {
+      auto r = findCall(y);
+      if (r) return r;
+    }
+
+    return nullptr;
+  }
+
+  inline
+  void addCalleeAttributesToFunctor(
+    const FunctionDecl* callee, FunctionDecl* functorCallOperator)
+  {
+    functorCallOperator->dropAttrs();
+    functorCallOperator->setAttrs(callee->getAttrs());
+    functorCallOperator->dropAttr<AnnotateAttr>();
   }
 }
 
@@ -13892,15 +13905,11 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
          MethodFunName == "__cxxamp_trampoline_name") {
       DefineAMPTrampoline(Loc, MethodDecl);
     } else if (MethodDecl->isOverloadedOperator()) {
-      if (is_hip_functor(MethodDecl)) { // TODO: temporary.
-        const auto b = cast<CompoundStmt>(MethodDecl->getBody());
-        auto p = std::find_if(
-            b->body_begin(),
-            b->body_end(),
-            [](Stmt* x) { return isa<CallExpr>(x); });
-        if (p != b->body_end()) {
-            add_callee_attributes_to_functor(
-                cast<CallExpr>(*p)->getDirectCallee(), MethodDecl);
+      if (isHIPFunctor(MethodDecl)) { // TODO: temporary.
+        auto t = findCall(MethodDecl->getBody());
+        if (t) {
+          addCalleeAttributesToFunctor(
+            cast<CallExpr>(t)->getDirectCallee(), MethodDecl);
         }
       }
       else if (MethodDecl->getOverloadedOperator() == OO_Equal) {
@@ -14509,6 +14518,7 @@ bool Sema::tryCaptureVariable(
   bool IsGlobal = !Var->hasLocalStorage();
   if (IsGlobal && !(LangOpts.OpenMP && IsOpenMPCapturedDecl(Var)))
     return true;
+  Var = Var->getCanonicalDecl();
 
   // Walk up the stack to determine whether we can capture the variable,
   // performing the "simple" checks that don't depend on type. We stop when
@@ -14937,7 +14947,7 @@ static void MarkExprReferenced(Sema &SemaRef, SourceLocation Loc,
       ME->getBase(), SemaRef.getLangOpts().AppleKext);
   if (DM)
     SemaRef.MarkAnyDeclReferenced(Loc, DM, MightBeOdrUse);
-} 
+}
 
 /// \brief Perform reference-marking and odr-use handling for a DeclRefExpr.
 void Sema::MarkDeclRefReferenced(DeclRefExpr *E, const Expr *Base) {
