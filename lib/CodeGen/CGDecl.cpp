@@ -382,6 +382,18 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   // Check to see if we already have a global variable for this
   // declaration.  This can happen when double-emitting function
   // bodies, e.g. with complete and base constructors.
+  // TODO: the HCC specific bits are too verbose and temporary.
+  const bool isHCCAcceleratorPath =
+    getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath;
+  const bool isAcceleratorLocal =
+    D.hasAttr<AnnotateAttr>() &&
+    D.getAttr<AnnotateAttr>()->getAnnotation() == "accelerator";
+
+  if (!isHCCAcceleratorPath && isAcceleratorLocal) return;
+  if (isHCCAcceleratorPath && !isAcceleratorLocal) {
+    Linkage = llvm::GlobalValue::LinkageTypes::AvailableExternallyLinkage;
+  }
+
   llvm::Constant *addr = CGM.getOrCreateStaticVarDecl(D, Linkage);
   CharUnits alignment = getContext().getDeclAlign(&D);
 
@@ -407,8 +419,6 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   // a no-op and should not be emitted.
   bool isCudaSharedVar = getLangOpts().CUDA && getLangOpts().CUDAIsDevice &&
                          D.hasAttr<CUDASharedAttr>();
-  bool isHCCAcceleratorPath =
-      getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath;
   // If this value has an initializer, emit it.
   if (D.getInit() && !isCudaSharedVar && !isHCCAcceleratorPath)
     var = AddInitializerToStaticVarDecl(D, var);
