@@ -213,8 +213,14 @@ Command-line parameters
 ``-fno-implicit-modules``
   All modules used by the build must be specified with ``-fmodule-file``.
 
-``-fmodule-file=<file>``
-  Load the given precompiled module file.
+``-fmodule-file=[<name>=]<file>``
+  Specify the mapping of module names to precompiled module files. If the
+  name is omitted, then the module file is loaded whether actually required
+  or not. If the name is specified, then the mapping is treated as another
+  prebuilt module search mechanism (in addition to ``-fprebuilt-module-path``)
+  and the module is only loaded if required. Note that in this case the
+  specified file also overrides this module's paths that might be embedded
+  in other precompiled module files.
 
 ``-fprebuilt-module-path=<directory>``
   Specify the path to the prebuilt modules. If specified, we will look for modules in this directory for a given top-level module name. We don't need a module map for loading prebuilt modules in this directory and the compiler will not try to rebuild these modules. This can be specified multiple times.
@@ -469,9 +475,16 @@ A header declaration specifies that a particular header is associated with the e
 .. parsed-literal::
 
   *header-declaration*:
-    ``private``:sub:`opt` ``textual``:sub:`opt` ``header`` *string-literal*
-    ``umbrella`` ``header`` *string-literal*
-    ``exclude`` ``header`` *string-literal*
+    ``private``:sub:`opt` ``textual``:sub:`opt` ``header`` *string-literal* *header-attrs*:sub:`opt`
+    ``umbrella`` ``header`` *string-literal* *header-attrs*:sub:`opt`
+    ``exclude`` ``header`` *string-literal* *header-attrs*:sub:`opt`
+
+  *header-attrs*:
+    '{' *header-attr** '}'
+
+  *header-attr*:
+    ``size`` *integer-literal*
+    ``mtime`` *integer-literal*
 
 A header declaration that does not contain ``exclude`` nor ``textual`` specifies a header that contributes to the enclosing module. Specifically, when the module is built, the named header will be parsed and its declarations will be (logically) placed into the enclosing submodule.
 
@@ -503,6 +516,18 @@ A header with the ``exclude`` specifier is excluded from the module. It will not
   }
 
 A given header shall not be referenced by more than one *header-declaration*.
+
+Two *header-declaration*\s, or a *header-declaration* and a ``#include``, are
+considered to refer to the same file if the paths resolve to the same file
+and the specified *header-attr*\s (if any) match the attributes of that file,
+even if the file is named differently (for instance, by a relative path or
+via symlinks).
+
+.. note::
+    The use of *header-attr*\s avoids the need for Clang to speculatively
+    ``stat`` every header referenced by a module map. It is recommended that
+    *header-attr*\s only be used in machine-generated module maps, to avoid
+    mismatches between attribute values and the corresponding files.
 
 Umbrella directory declaration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -926,4 +951,3 @@ PCHInternals_
 .. [#] The preprocessing context in which the modules are parsed is actually dependent on the command-line options provided to the compiler, including the language dialect and any ``-D`` options. However, the compiled modules for different command-line options are kept distinct, and any preprocessor directives that occur within the translation unit are ignored. See the section on the `Configuration macros declaration`_ for more information.
 
 .. _PCHInternals: PCHInternals.html
- 

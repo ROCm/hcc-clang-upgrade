@@ -547,17 +547,23 @@ bool Sema::MergeCXXFunctionDecl(FunctionDecl *New, FunctionDecl *Old,
       Diag(OldParam->getLocation(), diag::note_previous_definition)
         << OldParam->getDefaultArgRange();
     } else if (OldParamHasDfl) {
-      // Merge the old default argument into the new parameter.
-      // It's important to use getInit() here;  getDefaultArg()
-      // strips off any top-level ExprWithCleanups.
-      NewParam->setHasInheritedDefaultArg();
-      if (OldParam->hasUnparsedDefaultArg())
-        NewParam->setUnparsedDefaultArg();
-      else if (OldParam->hasUninstantiatedDefaultArg())
-        NewParam->setUninstantiatedDefaultArg(
-                                      OldParam->getUninstantiatedDefaultArg());
-      else
-        NewParam->setDefaultArg(OldParam->getInit());
+      // Merge the old default argument into the new parameter unless the new
+      // function is a friend declaration in a template class. In the latter
+      // case the default arguments will be inherited when the friend
+      // declaration will be instantiated.
+      if (New->getFriendObjectKind() == Decl::FOK_None ||
+          !New->getLexicalDeclContext()->isDependentContext()) {
+        // It's important to use getInit() here;  getDefaultArg()
+        // strips off any top-level ExprWithCleanups.
+        NewParam->setHasInheritedDefaultArg();
+        if (OldParam->hasUnparsedDefaultArg())
+          NewParam->setUnparsedDefaultArg();
+        else if (OldParam->hasUninstantiatedDefaultArg())
+          NewParam->setUninstantiatedDefaultArg(
+                                       OldParam->getUninstantiatedDefaultArg());
+        else
+          NewParam->setDefaultArg(OldParam->getInit());
+      }
     } else if (NewParamHasDfl) {
       if (New->getDescribedFunctionTemplate()) {
         // Paragraph 4, quoted above, only applies to non-template functions.
@@ -638,7 +644,12 @@ bool Sema::MergeCXXFunctionDecl(FunctionDecl *New, FunctionDecl *Old,
     Diag(Old->getLocation(), diag::note_previous_declaration);
     Invalid = true;
   } else if (!Old->getMostRecentDecl()->isInlined() && New->isInlined() &&
-             Old->isDefined(Def)) {
+             Old->isDefined(Def) &&
+             // If a friend function is inlined but does not have 'inline'
+             // specifier, it is a definition. Do not report attribute conflict
+             // in this case, redefinition will be diagnosed later.
+             (New->isInlineSpecified() ||
+              New->getFriendObjectKind() == Decl::FOK_None)) {
     // C++11 [dcl.fcn.spec]p4:
     //   If the definition of a function appears in a translation unit before its
     //   first declaration as inline, the program is ill-formed.
@@ -3810,6 +3821,15 @@ Sema::BuildMemInitializer(Decl *ConstructorD,
           if (BaseType.isNull())
             return true;
 
+          TInfo = Context.CreateTypeSourceInfo(BaseType);
+          DependentNameTypeLoc TL =
+              TInfo->getTypeLoc().castAs<DependentNameTypeLoc>();
+          if (!TL.isNull()) {
+            TL.setNameLoc(IdLoc);
+            TL.setElaboratedKeywordLoc(SourceLocation());
+            TL.setQualifierLoc(SS.getWithLocInContext(Context));
+          }
+
           R.clear();
           R.setLookupName(MemberOrBase);
         }
@@ -5749,6 +5769,53 @@ static void DefineImplicitSpecialMember(Sema &S, CXXMethodDecl *MD,
   }
 }
 
+/// Determine whether a type is permitted to be passed or returned in
+/// registers, per C++ [class.temporary]p3.
+static bool computeCanPassInRegisters(Sema &S, CXXRecordDecl *D) {
+  if (D->isDependentType() || D->isInvalidDecl())
+    return false;
+
+  // Per C++ [class.temporary]p3, the relevant condition is:
+  //   each copy constructor, move constructor, and destructor of X is
+  //   either trivial or deleted, and X has at least one non-deleted copy
+  //   or move constructor
+  bool HasNonDeletedCopyOrMove = false;
+
+  if (D->needsImplicitCopyConstructor() &&
+      !D->defaultedCopyConstructorIsDeleted()) {
+    if (!D->hasTrivialCopyConstructor())
+      return false;
+    HasNonDeletedCopyOrMove = true; 
+  }
+
+  if (S.getLangOpts().CPlusPlus11 && D->needsImplicitMoveConstructor() &&
+      !D->defaultedMoveConstructorIsDeleted()) {
+    if (!D->hasTrivialMoveConstructor())
+      return false;
+    HasNonDeletedCopyOrMove = true;
+  }
+
+  if (D->needsImplicitDestructor() && !D->defaultedDestructorIsDeleted() &&
+      !D->hasTrivialDestructor())
+    return false;
+
+  for (const CXXMethodDecl *MD : D->methods()) {
+    if (MD->isDeleted())
+      continue;
+
+    auto *CD = dyn_cast<CXXConstructorDecl>(MD);
+    if (CD && CD->isCopyOrMoveConstructor())
+      HasNonDeletedCopyOrMove = true;
+    else if (!isa<CXXDestructorDecl>(MD))
+      continue;
+
+    if (!MD->isTrivial())
+      return false;
+  }
+
+  return HasNonDeletedCopyOrMove;
+}
+
 /// \brief Perform semantic checks on a class definition that has been
 /// completing, introducing implicitly-declared members, checking for
 /// abstract types, etc.
@@ -5893,6 +5960,8 @@ void Sema::CheckCompletedCXXClass(CXXRecordDecl *Record) {
   }
 
   checkClassLevelDLLAttribute(Record);
+
+  Record->setCanPassInRegisters(computeCanPassInRegisters(*this, Record));
 }
 
 /// Look up the special member function that would be called by a special
@@ -7519,8 +7588,7 @@ void Sema::ActOnFinishCXXMemberSpecification(Scope* S, SourceLocation RLoc,
               reinterpret_cast<Decl**>(FieldCollector->getCurFields()),
               FieldCollector->getCurNumFields()), LBrac, RBrac, AttrList);
 
-  CheckCompletedCXXClass(
-                        dyn_cast_or_null<CXXRecordDecl>(TagDecl));
+  CheckCompletedCXXClass(dyn_cast_or_null<CXXRecordDecl>(TagDecl));
 }
 
 /// FIXME: O(n)
@@ -13163,8 +13231,10 @@ CXXConstructorDecl *Sema::DeclareImplicitCopyConstructor(
   Scope *S = getScopeForContext(ClassDecl);
   CheckImplicitSpecialMemberDeclaration(S, CopyConstructor);
 
-  if (ShouldDeleteSpecialMember(CopyConstructor, CXXCopyConstructor))
+  if (ShouldDeleteSpecialMember(CopyConstructor, CXXCopyConstructor)) {
+    ClassDecl->setImplicitCopyConstructorIsDeleted();
     SetDeclDeleted(CopyConstructor, ClassLoc);
+  }
 
   if (S)
     PushOnScopeChains(CopyConstructor, S, false);
@@ -14486,6 +14556,14 @@ Decl *Sema::BuildStaticAssertDeclaration(SourceLocation StaticAssertLoc,
     }
   }
 
+  ExprResult FullAssertExpr = ActOnFinishFullExpr(AssertExpr, StaticAssertLoc,
+                                                  /*DiscardedValue*/false,
+                                                  /*IsConstexpr*/true);
+  if (FullAssertExpr.isInvalid())
+    Failed = true;
+  else
+    AssertExpr = FullAssertExpr.get();
+
   Decl *Decl = StaticAssertDecl::Create(Context, CurContext, StaticAssertLoc,
                                         AssertExpr, AssertMessage, RParenLoc,
                                         Failed);
@@ -14629,7 +14707,8 @@ Decl *Sema::ActOnTemplatedFriendTag(Scope *S, SourceLocation FriendLoc,
                       /*ScopedEnumKWLoc=*/SourceLocation(),
                       /*ScopedEnumUsesClassTag=*/false,
                       /*UnderlyingType=*/TypeResult(),
-                      /*IsTypeSpecifier=*/false);
+                      /*IsTypeSpecifier=*/false,
+                      /*IsTemplateParamOrArg=*/false);
     }
 
     NestedNameSpecifierLoc QualifierLoc = SS.getWithLocInContext(Context);
@@ -15112,6 +15191,9 @@ void Sema::SetDeclDeleted(Decl *Dcl, SourceLocation DelLoc) {
     Diag(DelLoc, diag::err_deleted_non_function);
     return;
   }
+
+  // Deleted function does not have a body.
+  Fn->setWillHaveBody(false);
 
   if (const FunctionDecl *Prev = Fn->getPreviousDecl()) {
     // Don't consider the implicit declaration we generate for explicit
@@ -15893,6 +15975,7 @@ bool Sema::checkThisInStaticMemberFunctionExceptionSpec(CXXMethodDecl *Method) {
   case EST_ComputedNoexcept:
     if (!Finder.TraverseStmt(Proto->getNoexceptExpr()))
       return true;
+    LLVM_FALLTHROUGH;
     
   case EST_Dynamic:
     for (const auto &E : Proto->exceptions()) {

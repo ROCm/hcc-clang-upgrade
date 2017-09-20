@@ -23,9 +23,13 @@ AnalysisManager::AnalysisManager(ASTContext &ctx, DiagnosticsEngine &diags,
                                  AnalyzerOptions &Options,
                                  CodeInjector *injector)
   : AnaCtxMgr(Options.UnoptimizedCFG,
-              /*AddImplicitDtors=*/true,
+              Options.includeImplicitDtorsInCFG(),
               /*AddInitializers=*/true,
               Options.includeTemporaryDtorsInCFG(),
+	            Options.includeLifetimeInCFG(),
+              // Adding LoopExit elements to the CFG is a requirement for loop
+              // unrolling.
+              Options.includeLoopExitInCFG() || Options.shouldUnrollLoops(),
               Options.shouldSynthesizeBodies(),
               Options.shouldConditionalizeStaticInitializers(),
               /*addCXXNewAllocator=*/true,

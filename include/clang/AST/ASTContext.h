@@ -465,7 +465,7 @@ private:
   mutable BuiltinTemplateDecl *MakeIntegerSeqDecl;
   mutable BuiltinTemplateDecl *TypePackElementDecl;
 
-  /// \brief The associated SourceManager object.a
+  /// \brief The associated SourceManager object.
   SourceManager &SourceMgr;
 
   /// \brief The language options used to create the AST associated with
@@ -1441,6 +1441,10 @@ public:
   /// The sizeof operator requires this (C99 6.5.3.4p4).
   CanQualType getSizeType() const;
 
+  /// \brief Return the unique signed counterpart of 
+  /// the integer type corresponding to size_t.
+  CanQualType getSignedSizeType() const;
+
   /// \brief Return the unique type for "intmax_t" (C99 7.18.1.5), defined in
   /// <stdint.h>.
   CanQualType getIntMaxType() const;
@@ -2050,6 +2054,11 @@ public:
   /// Get the offset of a FieldDecl or IndirectFieldDecl, in bits.
   uint64_t getFieldOffset(const ValueDecl *FD) const;
 
+  /// Get the offset of an ObjCIvarDecl in bits.
+  uint64_t lookupFieldBitOffset(const ObjCInterfaceDecl *OID,
+                                const ObjCImplementationDecl *ID,
+                                const ObjCIvarDecl *Ivar) const;
+
   bool isNearlyEmpty(const CXXRecordDecl *RD) const;
 
   VTableContextBase *getVTableContext();
@@ -2318,14 +2327,6 @@ public:
   /// Get target-dependent integer value for null pointer which is used for
   /// constant folding.
   uint64_t getTargetNullPointerValue(QualType QT) const;
-
-  /// The target address space corresponding to OpenCL constant address space
-  /// CUDA constant specifier.
-  unsigned getTargetConstantAddressSpace() const;
-
-  /// The target address space corresponding to OpenCL global address space
-  /// or CUDA device specifier.
-  unsigned getTargetGlobalAddressSpace() const;
 
   bool addressSpaceMapManglingFor(unsigned AS) const {
     return AddrSpaceMapMangling || AS >= LangAS::FirstTargetAddressSpace;

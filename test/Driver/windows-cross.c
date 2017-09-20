@@ -64,7 +64,7 @@
 // RUN:    | FileCheck %s --check-prefix CHECK-SANITIZE-ADDRESS-EXE-X86
 
 // CHECK-SANITIZE-ADDRESS-EXE-X86: "-fsanitize=address"
-// CHECK-SANITIZE-ADDRESS-EXE-X86: "{{.*}}clang_rt.asan_dynamic-i686.lib" "{{.*}}clang_rt.asan_dynamic_runtime_thunk-i686.lib" "--undefined" "___asan_seh_interceptor"
+// CHECK-SANITIZE-ADDRESS-EXE-X86: "{{.*}}clang_rt.asan_dynamic-i386.lib" "{{.*}}clang_rt.asan_dynamic_runtime_thunk-i386.lib" "--undefined" "___asan_seh_interceptor"
 
 // RUN: %clang -### -target armv7-windows-itanium --sysroot %S/Inputs/Windows/ARM/8.1 -B %S/Inputs/Windows/ARM/8.1/usr/bin -fuse-ld=lld-link2 -shared -o shared.dll -fsanitize=tsan -x c++ %s 2>&1 \
 // RUN:    | FileCheck %s --check-prefix CHECK-SANITIZE-TSAN
@@ -80,3 +80,8 @@
 // CHECK-ISYSTEM-AFTER: "-internal-isystem" "Windows Kits{{[/\\]}}10{{[/\\]}}Include{{[/\\]}}10.0.10586.0{{[/\\]}}um"
 // CHECK-ISYSTEM-AFTER: "-internal-isystem" "Windows Kits{{[/\\]}}10{{[/\\]}}Include{{[/\\]}}10.0.10586.0{{[/\\]}}shared"
 
+// RUN: %clang -### -target armv7-windows-itanium -nostdinc -isystem-after "Windows Kits/10/Include/10.0.10586.0/ucrt" -c %s -o /dev/null 2>&1 \
+// RUN:     | FileCheck %s --check-prefix CHECK-NOSTDINC-ISYSTEM-AFTER
+// CHECK-NOSTDINC-ISYSTEM-AFTER: "-resource-dir" "[[RESOURCE_DIR:[^"]+]]"
+// CHECK-NOSTDINC-ISYSTEM-AFTER-NOT: "-internal-isystem" "[[RESOURCE_DIR]]{{(/|\\\\)}}include"
+// CHECK-NOSTDINC-ISYSTEM-AFTER: "-internal-isystem" "Windows Kits{{[/\\]}}10{{[/\\]}}Include{{[/\\]}}10.0.10586.0{{[/\\]}}ucrt"

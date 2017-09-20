@@ -1459,8 +1459,6 @@ void CXXNameMangler::mangleNestedName(const NamedDecl *ND,
     // We do not consider restrict a distinguishing attribute for overloading
     // purposes so we must not mangle it.
     MethodQuals.removeRestrict();
-    // __unaligned is not currently mangled in any way, so remove it.
-    MethodQuals.removeUnaligned();
     mangleQualifiers(MethodQuals);
     mangleRefQualifier(Method->getRefQualifier());
   }
@@ -2140,7 +2138,8 @@ CXXNameMangler::mangleOperatorName(OverloadedOperatorKind OO, unsigned Arity) {
 }
 
 void CXXNameMangler::mangleQualifiers(Qualifiers Quals) {
-  // Vendor qualifiers come first.
+  // Vendor qualifiers come first and if they are order-insensitive they must
+  // be emitted in reversed alphabetical order, see Itanium ABI 5.1.5.
 
   // Address space qualifiers start with an ordinary letter.
   if (Quals.hasAddressSpace()) {
@@ -2179,17 +2178,28 @@ void CXXNameMangler::mangleQualifiers(Qualifiers Quals) {
   }
 
   // The ARC ownership qualifiers start with underscores.
-  switch (Quals.getObjCLifetime()) {
   // Objective-C ARC Extension:
   //
   //   <type> ::= U "__strong"
   //   <type> ::= U "__weak"
   //   <type> ::= U "__autoreleasing"
+  //
+  // Note: we emit __weak first to preserve the order as
+  // required by the Itanium ABI.
+  if (Quals.getObjCLifetime() == Qualifiers::OCL_Weak)
+    mangleVendorQualifier("__weak");
+
+  // __unaligned (from -fms-extensions)
+  if (Quals.hasUnaligned())
+    mangleVendorQualifier("__unaligned");
+
+  // Remaining ARC ownership qualifiers.
+  switch (Quals.getObjCLifetime()) {
   case Qualifiers::OCL_None:
     break;
     
   case Qualifiers::OCL_Weak:
-    mangleVendorQualifier("__weak");
+    // Do nothing as we already handled this case above.
     break;
     
   case Qualifiers::OCL_Strong:
@@ -2522,7 +2532,7 @@ StringRef CXXNameMangler::getCallingConvQualifierName(CallingConv CC) {
   case CC_X86ThisCall:
   case CC_X86VectorCall:
   case CC_X86Pascal:
-  case CC_X86_64Win64:
+  case CC_Win64:
   case CC_X86_64SysV:
   case CC_X86RegCall:
   case CC_AAPCS:
@@ -3336,7 +3346,6 @@ recurse:
   case Expr::BlockExprClass:
   case Expr::ChooseExprClass:
   case Expr::CompoundLiteralExprClass:
-  case Expr::DesignatedInitExprClass:
   case Expr::ExtVectorElementExprClass:
   case Expr::GenericSelectionExprClass:
   case Expr::ObjCEncodeExprClass:
@@ -3411,6 +3420,27 @@ recurse:
     Out << "il";
     mangleInitListElements(cast<InitListExpr>(E));
     Out << "E";
+    break;
+  }
+
+  case Expr::DesignatedInitExprClass: {
+    auto *DIE = cast<DesignatedInitExpr>(E);
+    for (const auto &Designator : DIE->designators()) {
+      if (Designator.isFieldDesignator()) {
+        Out << "di";
+        mangleSourceName(Designator.getFieldName());
+      } else if (Designator.isArrayDesignator()) {
+        Out << "dx";
+        mangleExpression(DIE->getArrayIndex(Designator));
+      } else {
+        assert(Designator.isArrayRangeDesignator() &&
+               "unknown designator kind");
+        Out << "dX";
+        mangleExpression(DIE->getArrayRangeStart(Designator));
+        mangleExpression(DIE->getArrayRangeEnd(Designator));
+      }
+    }
+    mangleExpression(DIE->getInit());
     break;
   }
 
@@ -3570,6 +3600,16 @@ recurse:
   case Expr::CXXUnresolvedConstructExprClass: {
     const CXXUnresolvedConstructExpr *CE = cast<CXXUnresolvedConstructExpr>(E);
     unsigned N = CE->arg_size();
+
+    if (CE->isListInitialization()) {
+      assert(N == 1 && "unexpected form for list initialization");
+      auto *IL = cast<InitListExpr>(CE->getArg(0));
+      Out << "tl";
+      mangleType(CE->getType());
+      mangleInitListElements(IL);
+      Out << "E";
+      return;
+    }
 
     Out << "cv";
     mangleType(CE->getType());
@@ -3778,6 +3818,7 @@ recurse:
     Out << "v1U" << Kind.size() << Kind;
   }
   // Fall through to mangle the cast itself.
+  LLVM_FALLTHROUGH;
       
   case Expr::CStyleCastExprClass:
     mangleCastExpression(E, "cv");
@@ -4330,7 +4371,7 @@ bool CXXNameMangler::mangleSubstitution(const NamedDecl *ND) {
 /// substitutions.
 static bool hasMangledSubstitutionQualifiers(QualType T) {
   Qualifiers Qs = T.getQualifiers();
-  return Qs.getCVRQualifiers() || Qs.hasAddressSpace();
+  return Qs.getCVRQualifiers() || Qs.hasAddressSpace() || Qs.hasUnaligned();
 }
 
 bool CXXNameMangler::mangleSubstitution(QualType T) {
@@ -4542,9 +4583,11 @@ CXXNameMangler::makeFunctionReturnTypeTags(const FunctionDecl *FD) {
 
   const FunctionProtoType *Proto =
       cast<FunctionProtoType>(FD->getType()->getAs<FunctionType>());
+  FunctionTypeDepthState saved = TrackReturnTypeTags.FunctionTypeDepth.push();
   TrackReturnTypeTags.FunctionTypeDepth.enterResultType();
   TrackReturnTypeTags.mangleType(Proto->getReturnType());
   TrackReturnTypeTags.FunctionTypeDepth.leaveResultType();
+  TrackReturnTypeTags.FunctionTypeDepth.pop(saved);
 
   return TrackReturnTypeTags.AbiTagsRoot.getSortedUniqueUsedAbiTags();
 }

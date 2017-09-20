@@ -25,6 +25,7 @@
 #include "CodeGenFunction.h"
 #include "CodeGenPGO.h"
 #include "CodeGenTBAA.h"
+#include "ConstantEmitter.h"
 #include "CoverageMappingGen.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
@@ -518,6 +519,26 @@ void CodeGenModule::Release() {
                               LangOpts.CUDADeviceFlushDenormalsToZero ? 1 : 0);
   }
 
+  // Emit OpenCL specific module metadata: OpenCL/SPIR version.
+  if (LangOpts.OpenCL) {
+    EmitOpenCLMetadata();
+    // Emit SPIR version.
+    if (getTriple().getArch() == llvm::Triple::spir ||
+        getTriple().getArch() == llvm::Triple::spir64) {
+      // SPIR v2.0 s2.12 - The SPIR version used by the module is stored in the
+      // opencl.spir.version named metadata.
+      llvm::Metadata *SPIRVerElts[] = {
+          llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
+              Int32Ty, LangOpts.OpenCLVersion / 100)),
+          llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
+              Int32Ty, (LangOpts.OpenCLVersion / 100 > 1) ? 0 : 2))};
+      llvm::NamedMDNode *SPIRVerMD =
+          TheModule.getOrInsertNamedMetadata("opencl.spir.version");
+      llvm::LLVMContext &Ctx = TheModule.getContext();
+      SPIRVerMD->addOperand(llvm::MDNode::get(Ctx, SPIRVerElts));
+    }
+  }
+
   if (uint32_t PLevel = Context.getLangOpts().PICLevel) {
     assert(PLevel < 3 && "Invalid PIC Level");
     getModule().setPICLevel(static_cast<llvm::PICLevel::Level>(PLevel));
@@ -539,6 +560,20 @@ void CodeGenModule::Release() {
   EmitVersionIdentMetadata();
 
   EmitTargetMetadata();
+}
+
+void CodeGenModule::EmitOpenCLMetadata() {
+  // SPIR v2.0 s2.13 - The OpenCL version used by the module is stored in the
+  // opencl.ocl.version named metadata node.
+  llvm::Metadata *OCLVerElts[] = {
+      llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
+          Int32Ty, LangOpts.OpenCLVersion / 100)),
+      llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
+          Int32Ty, (LangOpts.OpenCLVersion % 100) / 10))};
+  llvm::NamedMDNode *OCLVerMD =
+      TheModule.getOrInsertNamedMetadata("opencl.ocl.version");
+  llvm::LLVMContext &Ctx = TheModule.getContext();
+  OCLVerMD->addOperand(llvm::MDNode::get(Ctx, OCLVerElts));
 }
 
 void CodeGenModule::UpdateCompletedType(const TagDecl *TD) {
@@ -690,9 +725,9 @@ StringRef CodeGenModule::getMangledName(GlobalDecl GD) {
     }
   }
 
-  StringRef &FoundStr = MangledDeclNames[CanonicalGD];
-  if (!FoundStr.empty())
-    return FoundStr;
+  auto FoundName = MangledDeclNames.find(CanonicalGD);
+  if (FoundName != MangledDeclNames.end())
+    return FoundName->second;
 
   const auto *ND = cast<NamedDecl>(GD.getDecl());
   SmallString<256> Buffer;
@@ -723,7 +758,7 @@ StringRef CodeGenModule::getMangledName(GlobalDecl GD) {
 
   // Keep the first result in the case of a mangling collision.
   auto Result = Manglings.insert(std::make_pair(Str, GD));
-  return FoundStr = Result.first->first();
+  return MangledDeclNames[CanonicalGD] = Result.first->first();
 }
 
 StringRef CodeGenModule::getBlockMangledName(GlobalDecl GD,
@@ -1049,11 +1084,27 @@ void CodeGenModule::setNonAliasAttributes(const Decl *D,
                                           llvm::GlobalObject *GO) {
   SetCommonAttributes(D, GO);
 
-  if (D)
+  if (D) {
+    if (auto *GV = dyn_cast<llvm::GlobalVariable>(GO)) {
+      if (auto *SA = D->getAttr<PragmaClangBSSSectionAttr>())
+        GV->addAttribute("bss-section", SA->getName());
+      if (auto *SA = D->getAttr<PragmaClangDataSectionAttr>())
+        GV->addAttribute("data-section", SA->getName());
+      if (auto *SA = D->getAttr<PragmaClangRodataSectionAttr>())
+        GV->addAttribute("rodata-section", SA->getName());
+    }
+
+    if (auto *F = dyn_cast<llvm::Function>(GO)) {
+      if (auto *SA = D->getAttr<PragmaClangTextSectionAttr>())
+       if (!D->getAttr<SectionAttr>())
+         F->addFnAttr("implicit-section-name", SA->getName());
+    }
+
     if (const SectionAttr *SA = D->getAttr<SectionAttr>())
       GO->setSection(SA->getName());
+  }
 
-  getTargetCodeGenInfo().setTargetAttributes(D, GO, *this);
+  getTargetCodeGenInfo().setTargetAttributes(D, GO, *this, ForDefinition);
 }
 
 void CodeGenModule::SetInternalFunctionAttributes(const Decl *D,
@@ -1071,7 +1122,7 @@ static void setLinkageAndVisibilityForGV(llvm::GlobalValue *GV,
                                          const NamedDecl *ND) {
   // Set linkage and visibility in case we never see a definition.
   LinkageInfo LV = ND->getLinkageAndVisibility();
-  if (LV.getLinkage() != ExternalLinkage) {
+  if (!isExternallyVisible(LV.getLinkage())) {
     // Don't set internal linkage on declarations.
   } else {
     if (ND->hasAttr<DLLImportAttr>()) {
@@ -1120,7 +1171,9 @@ void CodeGenModule::CreateFunctionTypeMetadata(const FunctionDecl *FD,
 
 void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
                                           bool IsIncompleteFunction,
-                                          bool IsThunk) {
+                                          bool IsThunk,
+                                          ForDefinition_t IsForDefinition) {
+
   if (llvm::Intrinsic::ID IID = F->getIntrinsicID()) {
     // If this is an intrinsic function, set the function's attributes
     // to the intrinsic's attributes.
@@ -1130,8 +1183,13 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
 
   const auto *FD = cast<FunctionDecl>(GD.getDecl());
 
-  if (!IsIncompleteFunction)
+  if (!IsIncompleteFunction) {
     SetLLVMFunctionAttributes(FD, getTypes().arrangeGlobalDeclaration(GD), F);
+    // Setup target-specific attributes.
+    if (!IsForDefinition)
+      getTargetCodeGenInfo().setTargetAttributes(FD, F, *this,
+                                                 NotForDefinition);
+  }
 
   // Add the Returned attribute for "this", except for iOS 5 and earlier
   // where substantial code, including the libstdc++ dylib, was compiled with
@@ -1149,6 +1207,10 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
   // overridden by a definition.
 
   setLinkageAndVisibilityForGV(F, FD);
+
+  if (FD->getAttr<PragmaClangTextSectionAttr>()) {
+    F->addFnAttr("implicit-section-name");
+  }
 
   if (const SectionAttr *SA = FD->getAttr<SectionAttr>())
     F->setSection(SA->getName());
@@ -1258,7 +1320,7 @@ void CodeGenModule::AddDependentLib(StringRef Lib) {
 /// \brief Add link options implied by the given module, including modules
 /// it depends on, using a postorder walk.
 static void addLinkOptionsPostorder(CodeGenModule &CGM, Module *Mod,
-                                    SmallVectorImpl<llvm::Metadata *> &Metadata,
+                                    SmallVectorImpl<llvm::MDNode *> &Metadata,
                                     llvm::SmallPtrSet<Module *, 16> &Visited) {
   // Import this module's parent.
   if (Mod->Parent && Visited.insert(Mod->Parent).second) {
@@ -1346,7 +1408,7 @@ void CodeGenModule::EmitModuleLinkOptions() {
   // Add link options for all of the imported modules in reverse topological
   // order.  We don't do anything to try to order import link flags with respect
   // to linker options inserted by things like #pragma comment().
-  SmallVector<llvm::Metadata *, 16> MetadataArgs;
+  SmallVector<llvm::MDNode *, 16> MetadataArgs;
   Visited.clear();
   for (Module *M : LinkModules)
     if (Visited.insert(M).second)
@@ -1355,9 +1417,9 @@ void CodeGenModule::EmitModuleLinkOptions() {
   LinkerOptionsMetadata.append(MetadataArgs.begin(), MetadataArgs.end());
 
   // Add the linker options metadata flag.
-  getModule().addModuleFlag(llvm::Module::AppendUnique, "Linker Options",
-                            llvm::MDNode::get(getLLVMContext(),
-                                              LinkerOptionsMetadata));
+  auto *NMD = getModule().getOrInsertNamedMetadata("llvm.linker.options");
+  for (auto *MD : LinkerOptionsMetadata)
+    NMD->addOperand(MD);
 }
 
 void CodeGenModule::EmitDeferred() {
@@ -2030,6 +2092,7 @@ static bool isWhiteListForHCC(CodeGenModule &CGM, GlobalDecl GD) {
   // C++11 swap/move functions are allowed to pass
   // C++11 memory_order modifiers are allowed to pass
   // C++11 complex operators are allowed to pass
+  // C++11 perfect forwarding functions are allowed to pass
   // certain C++11 math functions are allowed to pass
   // Eigen internal functions are allowed to pass
   const FunctionDecl* FuncD = dyn_cast<FunctionDecl>(D);
@@ -2041,6 +2104,7 @@ static bool isWhiteListForHCC(CodeGenModule &CGM, GlobalDecl GD) {
         MangledName.find("Kokkos4Impl") != StringRef::npos ||
         MangledName.find("St16initializer_list") != StringRef::npos ||
         MangledName.find("St7complex") != StringRef::npos ||
+        MangledName.find("St7forward") != StringRef::npos ||
         MangledName.find("5roundf") != StringRef::npos ||
         MangledName.find("Eigen8internal") != StringRef::npos) {
       return true;
@@ -2226,7 +2290,8 @@ llvm::Constant *CodeGenModule::GetOrCreateLLVMFunction(
 
   assert(F->getName() == MangledName && "name was uniqued!");
   if (D)
-    SetFunctionAttributes(GD, F, IsIncompleteFunction, IsThunk);
+    SetFunctionAttributes(GD, F, IsIncompleteFunction, IsThunk,
+                          IsForDefinition);
   if (ExtraAttrs.hasAttributes(llvm::AttributeList::FunctionIndex)) {
     llvm::AttrBuilder B(ExtraAttrs, llvm::AttributeList::FunctionIndex);
     F->addAttributes(llvm::AttributeList::FunctionIndex, B);
@@ -2466,11 +2531,13 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
       return llvm::ConstantExpr::getPointerCast(Entry, Ty);
   }
 
-  unsigned AddrSpace = GetGlobalVarAddressSpace(D, Ty->getAddressSpace());
+  auto AddrSpace = GetGlobalVarAddressSpace(D);
+  auto TargetAddrSpace = getContext().getTargetAddressSpace(AddrSpace);
+
   auto *GV = new llvm::GlobalVariable(
       getModule(), Ty->getElementType(), false,
       llvm::GlobalValue::ExternalLinkage, nullptr, MangledName, nullptr,
-      llvm::GlobalVariable::NotThreadLocal, AddrSpace);
+      llvm::GlobalVariable::NotThreadLocal, TargetAddrSpace);
 
   // If we already created a global with the same mangled name (but different
   // type) before, take its name and remove it from its parent.
@@ -2527,8 +2594,15 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
       GV->setSection(".cp.rodata");
   }
 
-  if (AddrSpace != Ty->getAddressSpace())
-    return llvm::ConstantExpr::getAddrSpaceCast(GV, Ty);
+  auto ExpectedAS =
+      D ? D->getType().getAddressSpace()
+        : static_cast<unsigned>(LangOpts.OpenCL ? LangAS::opencl_global
+                                                : LangAS::Default);
+  assert(getContext().getTargetAddressSpace(ExpectedAS) ==
+         Ty->getPointerAddressSpace());
+  if (AddrSpace != ExpectedAS)
+    return getTargetCodeGenInfo().performAddrSpaceCast(*this, GV, AddrSpace,
+                                                       ExpectedAS, Ty);
 
   return GV;
 }
@@ -2661,46 +2735,32 @@ CharUnits CodeGenModule::GetTargetTypeStoreSize(llvm::Type *Ty) const {
       getDataLayout().getTypeStoreSizeInBits(Ty));
 }
 
-unsigned CodeGenModule::GetGlobalVarAddressSpace(const VarDecl *D,
-                                                 unsigned AddrSpace) {
-  if (D) {
-    if (LangOpts.CUDA && LangOpts.CUDAIsDevice) {
-      if (D->hasAttr<CUDAConstantAttr>())
-        AddrSpace = getContext().getTargetAddressSpace(LangAS::cuda_constant);
-      else if (D->hasAttr<CUDASharedAttr>())
-        AddrSpace = getContext().getTargetAddressSpace(LangAS::cuda_shared);
-      else
-        AddrSpace = getContext().getTargetAddressSpace(LangAS::cuda_device);
-    } else if (getTriple().getArch() == llvm::Triple::amdgcn) {
-      auto LangAddr = D->getType().getAddressSpace();
-      if (LangOpts.OpenCL) {
-        assert(LangAddr == LangAS::opencl_global ||
-               LangAddr == LangAS::opencl_constant ||
-               LangAddr == LangAS::opencl_local ||
-               LangAddr >= LangAS::FirstTargetAddressSpace);
-      } else {
-        assert(LangAddr == LangAS::Default ||
-               LangAddr >= LangAS::FirstTargetAddressSpace);
-      }
-      if (!LangOpts.OpenCL && LangAddr == LangAS::Default) {
-        if (isTypeConstant(D->getType(), false)) {
-          LangAddr = LangAS::opencl_constant;
-        } else {
-          LangAddr = LangAS::opencl_global;
-        }
-        AddrSpace = getContext().getTargetAddressSpace(LangAddr);
-      }
-    }
-  }
-  
-  if (D && LangOpts.CPlusPlusAMP && LangOpts.DevicePath) {
-    if (D->hasAttr<HCCTileStaticAttr>())
-      AddrSpace = getContext().getTargetAddressSpace(LangAS::hcc_tilestatic);
-    else
-      AddrSpace = getContext().getTargetAddressSpace(LangAS::hcc_global);
+unsigned CodeGenModule::GetGlobalVarAddressSpace(const VarDecl *D) {
+  unsigned AddrSpace;
+  if (LangOpts.OpenCL) {
+    AddrSpace = D ? D->getType().getAddressSpace()
+                  : static_cast<unsigned>(LangAS::opencl_global);
+    assert(AddrSpace == LangAS::opencl_global ||
+           AddrSpace == LangAS::opencl_constant ||
+           AddrSpace == LangAS::opencl_local ||
+           AddrSpace >= LangAS::FirstTargetAddressSpace);
+    return AddrSpace;
   }
 
-  return AddrSpace;
+  if (LangOpts.CUDA && LangOpts.CUDAIsDevice) {
+    if (D && D->hasAttr<CUDAConstantAttr>())
+      return LangAS::cuda_constant;
+    else if (D && D->hasAttr<CUDASharedAttr>())
+      return LangAS::cuda_shared;
+    else
+      return LangAS::cuda_device;
+  }
+
+  if (LangOpts.CPlusPlusAMP && LangOpts.DevicePath &&
+      D && D->hasAttr<HCCTileStaticAttr>())
+    return LangAS::hcc_tilestatic;
+
+  return getTargetCodeGenInfo().getGlobalVarAddressSpace(*this, D);
 }
 
 template<typename SomeDecl>
@@ -2785,6 +2845,8 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
   const VarDecl *InitDecl;
   const Expr *InitExpr = D->getAnyInitializer(InitDecl);
 
+  Optional<ConstantEmitter> emitter;
+
   // CUDA E.2.4.1 "__shared__ variables cannot have an initialization
   // as part of their declaration."  Sema has already checked for
   // error cases, so we just need to set Init to UndefValue.
@@ -2808,7 +2870,8 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
     Init = EmitNullConstant(D->getType());
   } else {
     initializedGlobalDecl = GlobalDecl(D);
-    Init = EmitConstantInit(*InitDecl);
+    emitter.emplace(*this);
+    Init = emitter->tryEmitForInitializer(*InitDecl);
 
     if (!Init) {
       QualType T = InitExpr->getType();
@@ -2856,10 +2919,9 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
   // "extern int x[];") and then a definition of a different type (e.g.
   // "int x[10];"). This also happens when an initializer has a different type
   // from the type of the global (this happens with unions).
-  if (!GV ||
-      GV->getType()->getElementType() != InitType ||
+  if (!GV || GV->getType()->getElementType() != InitType ||
       GV->getType()->getAddressSpace() !=
-       GetGlobalVarAddressSpace(D, getContext().getTargetAddressSpace(ASTTy))) {
+          getContext().getTargetAddressSpace(GetGlobalVarAddressSpace(D))) {
 
     // Move the old entry aside so that we'll create a new one.
     Entry->setName(StringRef());
@@ -2922,7 +2984,9 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
         Linkage = llvm::GlobalValue::InternalLinkage;
     }
   }
+
   GV->setInitializer(Init);
+  if (emitter) emitter->finalize(GV);
 
   // If it is safe to mark the global 'constant', do so now.
   GV->setConstant(!NeedsGlobalCtor && !NeedsGlobalDtor &&
@@ -3009,6 +3073,14 @@ static bool isVarDeclStrongDefinition(const ASTContext &Context,
 
   // A variable cannot be both common and exist in a section.
   if (D->hasAttr<SectionAttr>())
+    return true;
+
+  // A variable cannot be both common and exist in a section.
+  // We dont try to determine which is the right section in the front-end.
+  // If no specialized section name is applicable, it will resort to default.
+  if (D->hasAttr<PragmaClangBSSSectionAttr>() ||
+      D->hasAttr<PragmaClangDataSectionAttr>() ||
+      D->hasAttr<PragmaClangRodataSectionAttr>())
     return true;
 
   // Thread local vars aren't considered common linkage.
@@ -3682,9 +3754,13 @@ GenerateStringLiteral(llvm::Constant *C, llvm::GlobalValue::LinkageTypes LT,
                       CodeGenModule &CGM, StringRef GlobalName,
                       CharUnits Alignment) {
   // OpenCL v1.2 s6.5.3: a string literal is in the constant address space.
-  unsigned AddrSpace = CGM.getContext().getTargetConstantAddressSpace();
+  unsigned AddrSpace;
   if (CGM.getLangOpts().OpenCL)
-    AddrSpace = CGM.getContext().getTargetAddressSpace(LangAS::opencl_constant);
+    AddrSpace = LangAS::opencl_constant;
+  else
+    AddrSpace =
+        CGM.getTarget().getConstantAddressSpace().getValueOr(LangAS::Default);
+  AddrSpace = CGM.getContext().getTargetAddressSpace(AddrSpace);
 
   llvm::Module &M = CGM.getModule();
   // Create a global variable for this string
@@ -3834,12 +3910,18 @@ ConstantAddress CodeGenModule::GetAddrOfGlobalTemporary(
       !EvalResult.hasSideEffects())
     Value = &EvalResult.Val;
 
+  unsigned AddrSpace =
+      VD ? GetGlobalVarAddressSpace(VD) : MaterializedType.getAddressSpace();
+
+  Optional<ConstantEmitter> emitter;
   llvm::Constant *InitialValue = nullptr;
   bool Constant = false;
   llvm::Type *Type;
   if (Value) {
     // The temporary has a constant initializer, use it.
-    InitialValue = EmitConstantValue(*Value, MaterializedType, nullptr);
+    emitter.emplace(*this);
+    InitialValue = emitter->emitForInitializer(*Value, AddrSpace,
+                                               MaterializedType);
     Constant = isTypeConstant(MaterializedType, /*ExcludeCtor*/Value);
     Type = InitialValue->getType();
   } else {
@@ -3864,20 +3946,25 @@ ConstantAddress CodeGenModule::GetAddrOfGlobalTemporary(
       Linkage = llvm::GlobalVariable::InternalLinkage;
     }
   }
-  unsigned AddrSpace = GetGlobalVarAddressSpace(
-      VD, getContext().getTargetAddressSpace(MaterializedType));
+  auto TargetAS = getContext().getTargetAddressSpace(AddrSpace);
   auto *GV = new llvm::GlobalVariable(
       getModule(), Type, Constant, Linkage, InitialValue, Name.c_str(),
-      /*InsertBefore=*/nullptr, llvm::GlobalVariable::NotThreadLocal,
-      AddrSpace);
+      /*InsertBefore=*/nullptr, llvm::GlobalVariable::NotThreadLocal, TargetAS);
+  if (emitter) emitter->finalize(GV);
   setGlobalVisibility(GV, VD);
   GV->setAlignment(Align.getQuantity());
   if (supportsCOMDAT() && GV->isWeakForLinker())
     GV->setComdat(TheModule.getOrInsertComdat(GV->getName()));
   if (VD->getTLSKind())
     setTLSMode(GV, *VD);
-  MaterializedGlobalTemporaryMap[E] = GV;
-  return ConstantAddress(GV, Align);
+  llvm::Constant *CV = GV;
+  if (AddrSpace != LangAS::Default)
+    CV = getTargetCodeGenInfo().performAddrSpaceCast(
+        *this, GV, AddrSpace, LangAS::Default,
+        Type->getPointerTo(
+            getContext().getTargetAddressSpace(LangAS::Default)));
+  MaterializedGlobalTemporaryMap[E] = CV;
+  return ConstantAddress(CV, Align);
 }
 
 /// EmitObjCPropertyImplementations - Emit information for synthesized
@@ -4031,6 +4118,7 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
     // Skip variable templates
     if (cast<VarDecl>(D)->getDescribedVarTemplate())
       return;
+    LLVM_FALLTHROUGH;
   case Decl::VarTemplateSpecialization:
     EmitGlobal(cast<VarDecl>(D));
     if (auto *DD = dyn_cast<DecompositionDecl>(D))
@@ -4602,18 +4690,19 @@ void CodeGenModule::getFunctionFeatureMap(llvm::StringMap<bool> &FeatureMap,
 
     // Make a copy of the features as passed on the command line into the
     // beginning of the additional features from the function to override.
-    ParsedAttr.first.insert(ParsedAttr.first.begin(),
+    ParsedAttr.Features.insert(ParsedAttr.Features.begin(),
                             Target.getTargetOpts().FeaturesAsWritten.begin(),
                             Target.getTargetOpts().FeaturesAsWritten.end());
 
-    if (ParsedAttr.second != "")
-      TargetCPU = ParsedAttr.second;
+    if (ParsedAttr.Architecture != "")
+      TargetCPU = ParsedAttr.Architecture ;
 
     // Now populate the feature map, first with the TargetCPU which is either
     // the default or a new one from the target attribute string. Then we'll use
     // the passed in features (FeaturesAsWritten) along with the new ones from
     // the attribute.
-    Target.initFeatureMap(FeatureMap, getDiags(), TargetCPU, ParsedAttr.first);
+    Target.initFeatureMap(FeatureMap, getDiags(), TargetCPU,
+                          ParsedAttr.Features);
   } else {
     Target.initFeatureMap(FeatureMap, getDiags(), TargetCPU,
                           Target.getTargetOpts().Features);
@@ -4629,8 +4718,8 @@ llvm::SanitizerStatReport &CodeGenModule::getSanStats() {
 llvm::Value *
 CodeGenModule::createOpenCLIntToSamplerConversion(const Expr *E,
                                                   CodeGenFunction &CGF) {
-  llvm::Constant *C = EmitConstantExpr(E, E->getType(), &CGF);
-  auto SamplerT = getOpenCLRuntime().getSamplerType();
+  llvm::Constant *C = ConstantEmitter(CGF).emitAbstract(E, E->getType());
+  auto SamplerT = getOpenCLRuntime().getSamplerType(E->getType().getTypePtr());
   auto FTy = llvm::FunctionType::get(SamplerT, {C->getType()}, false);
   return CGF.Builder.CreateCall(CreateRuntimeFunction(FTy,
                                 "__translate_sampler_initializer"),

@@ -17,13 +17,17 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TargetOptions.h"
 #include "clang/CodeGen/ModuleBuilder.h"
+#include "clang/Driver/Types.h"
+#include "clang/Frontend/ASTConsumers.h"
 #include "clang/Frontend/CompilerInstance.h"
+#include "clang/Frontend/MultiplexConsumer.h"
 #include "clang/Frontend/TextDiagnosticBuffer.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Parse/ParseAST.h"
 
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/Host.h"
@@ -50,6 +54,19 @@ static llvm::cl::list<std::string>
     ClangArgs("Xcc", llvm::cl::ZeroOrMore,
               llvm::cl::desc("Argument to pass to the CompilerInvocation"),
               llvm::cl::CommaSeparated);
+
+static llvm::cl::opt<std::string>
+    Input("x", llvm::cl::Optional,
+          llvm::cl::desc("The language to parse (default: c++)"),
+          llvm::cl::init("c++"));
+
+static llvm::cl::opt<bool>
+DumpAST("dump-ast", llvm::cl::init(false),
+        llvm::cl::desc("Dump combined AST"));
+
+static llvm::cl::opt<bool>
+DumpIR("dump-ir", llvm::cl::init(false),
+        llvm::cl::desc("Dump IR from final parse"));
 
 namespace init_convenience {
 class TestDiagnosticConsumer : public DiagnosticConsumer {
@@ -104,6 +121,7 @@ private:
     llvm::errs() << LineString << '\n';
     llvm::errs().indent(LocColumn);
     llvm::errs() << '^';
+    llvm::errs() << '\n';
   }
 
   virtual void HandleDiagnostic(DiagnosticsEngine::Level DiagLevel,
@@ -137,7 +155,7 @@ private:
 };
 
 std::unique_ptr<CompilerInstance>
-BuildCompilerInstance(ArrayRef<const char *> ClangArgv) {
+BuildCompilerInstance() {
   auto Ins = llvm::make_unique<CompilerInstance>();
   auto DC = llvm::make_unique<TestDiagnosticConsumer>();
   const bool ShouldOwnClient = true;
@@ -145,13 +163,27 @@ BuildCompilerInstance(ArrayRef<const char *> ClangArgv) {
 
   auto Inv = llvm::make_unique<CompilerInvocation>();
 
+  std::vector<const char *> ClangArgv(ClangArgs.size());
+  std::transform(ClangArgs.begin(), ClangArgs.end(), ClangArgv.begin(),
+                 [](const std::string &s) -> const char * { return s.data(); });
   CompilerInvocation::CreateFromArgs(*Inv, ClangArgv.data(),
                                      &ClangArgv.data()[ClangArgv.size()],
                                      Ins->getDiagnostics());
 
-  Inv->getLangOpts()->CPlusPlus = true;
-  Inv->getLangOpts()->CPlusPlus11 = true;
-  Inv->getHeaderSearchOpts().UseLibcxx = true;
+  {
+    using namespace driver::types;
+    ID Id = lookupTypeForTypeSpecifier(Input.c_str());
+    assert(Id != TY_INVALID);
+    if (isCXX(Id)) {
+      Inv->getLangOpts()->CPlusPlus = true;
+      Inv->getLangOpts()->CPlusPlus11 = true;
+      Inv->getHeaderSearchOpts().UseLibcxx = true;
+    }
+    if (isObjC(Id)) {
+      Inv->getLangOpts()->ObjC1 = 1;
+      Inv->getLangOpts()->ObjC2 = 1;
+    }
+  }
   Inv->getLangOpts()->Bool = true;
   Inv->getLangOpts()->WChar = true;
   Inv->getLangOpts()->Blocks = true;
@@ -174,14 +206,6 @@ BuildCompilerInstance(ArrayRef<const char *> ClangArgv) {
   Ins->createPreprocessor(TU_Complete);
 
   return Ins;
-}
-
-std::unique_ptr<CompilerInstance>
-BuildCompilerInstance(ArrayRef<std::string> ClangArgs) {
-  std::vector<const char *> ClangArgv(ClangArgs.size());
-  std::transform(ClangArgs.begin(), ClangArgs.end(), ClangArgv.begin(),
-                 [](const std::string &s) -> const char * { return s.data(); });
-  return init_convenience::BuildCompilerInstance(ClangArgv);
 }
 
 std::unique_ptr<ASTContext>
@@ -218,11 +242,8 @@ void AddExternalSource(
 }
 
 std::unique_ptr<CompilerInstance> BuildIndirect(std::unique_ptr<CompilerInstance> &CI) {
-  std::vector<const char *> ClangArgv(ClangArgs.size());
-  std::transform(ClangArgs.begin(), ClangArgs.end(), ClangArgv.begin(),
-                 [](const std::string &s) -> const char * { return s.data(); });
   std::unique_ptr<CompilerInstance> IndirectCI =
-      init_convenience::BuildCompilerInstance(ClangArgv);
+      init_convenience::BuildCompilerInstance();
   auto ST = llvm::make_unique<SelectorTable>();
   auto BC = llvm::make_unique<Builtin::Context>();
   std::unique_ptr<ASTContext> AST =
@@ -233,7 +254,7 @@ std::unique_ptr<CompilerInstance> BuildIndirect(std::unique_ptr<CompilerInstance
 }
 
 llvm::Error ParseSource(const std::string &Path, CompilerInstance &CI,
-                        CodeGenerator &CG) {
+                        ASTConsumer &Consumer) {
   SourceManager &SM = CI.getSourceManager();
   const FileEntry *FE = CI.getFileManager().getFile(Path);
   if (!FE) {
@@ -241,18 +262,16 @@ llvm::Error ParseSource(const std::string &Path, CompilerInstance &CI,
         llvm::Twine("Couldn't open ", Path), std::error_code());
   }
   SM.setMainFileID(SM.createFileID(FE, SourceLocation(), SrcMgr::C_User));
-  ParseAST(CI.getPreprocessor(), &CG, CI.getASTContext());
+  ParseAST(CI.getPreprocessor(), &Consumer, CI.getASTContext());
   return llvm::Error::success();
 }
 
 llvm::Expected<std::unique_ptr<CompilerInstance>>
 Parse(const std::string &Path,
-      llvm::ArrayRef<std::unique_ptr<CompilerInstance>> Imports) {
-  std::vector<const char *> ClangArgv(ClangArgs.size());
-  std::transform(ClangArgs.begin(), ClangArgs.end(), ClangArgv.begin(),
-                 [](const std::string &s) -> const char * { return s.data(); });
+      llvm::ArrayRef<std::unique_ptr<CompilerInstance>> Imports,
+      bool ShouldDumpAST, bool ShouldDumpIR) {
   std::unique_ptr<CompilerInstance> CI =
-      init_convenience::BuildCompilerInstance(ClangArgv);
+      init_convenience::BuildCompilerInstance();
   auto ST = llvm::make_unique<SelectorTable>();
   auto BC = llvm::make_unique<Builtin::Context>();
   std::unique_ptr<ASTContext> AST =
@@ -261,17 +280,26 @@ Parse(const std::string &Path,
   if (Imports.size())
     AddExternalSource(*CI, Imports);
 
+  std::vector<std::unique_ptr<ASTConsumer>> ASTConsumers;
+
   auto LLVMCtx = llvm::make_unique<llvm::LLVMContext>();
-  std::unique_ptr<CodeGenerator> CG =
-      init_convenience::BuildCodeGen(*CI, *LLVMCtx);
-  CG->Initialize(CI->getASTContext());
+  ASTConsumers.push_back(init_convenience::BuildCodeGen(*CI, *LLVMCtx));
+  auto &CG = *static_cast<CodeGenerator*>(ASTConsumers.back().get());
+
+  if (ShouldDumpAST)
+    ASTConsumers.push_back(CreateASTDumper("", true, false, false));
 
   CI->getDiagnosticClient().BeginSourceFile(CI->getLangOpts(),
                                             &CI->getPreprocessor());
-  if (llvm::Error PE = ParseSource(Path, *CI, *CG)) {
+  MultiplexConsumer Consumers(std::move(ASTConsumers));
+  Consumers.Initialize(CI->getASTContext());
+
+  if (llvm::Error PE = ParseSource(Path, *CI, Consumers)) {
     return std::move(PE);
   }
   CI->getDiagnosticClient().EndSourceFile();
+  if (ShouldDumpIR)
+    CG.GetModule()->print(llvm::outs(), nullptr);
   if (CI->getDiagnosticClient().getNumErrors()) {
     return llvm::make_error<llvm::StringError>(
         "Errors occured while parsing the expression.", std::error_code());
@@ -288,7 +316,8 @@ int main(int argc, const char **argv) {
   llvm::cl::ParseCommandLineOptions(argc, argv);
   std::vector<std::unique_ptr<CompilerInstance>> ImportCIs;
   for (auto I : Imports) {
-    llvm::Expected<std::unique_ptr<CompilerInstance>> ImportCI = Parse(I, {});
+    llvm::Expected<std::unique_ptr<CompilerInstance>> ImportCI =
+      Parse(I, {}, false, false);
     if (auto E = ImportCI.takeError()) {
       llvm::errs() << llvm::toString(std::move(E));
       exit(-1);
@@ -299,18 +328,12 @@ int main(int argc, const char **argv) {
   std::vector<std::unique_ptr<CompilerInstance>> IndirectCIs;
   if (!Direct) {
     for (auto &ImportCI : ImportCIs) {
-      llvm::Expected<std::unique_ptr<CompilerInstance>> IndirectCI =
-          BuildIndirect(ImportCI);
-      if (auto E = IndirectCI.takeError()) {
-        llvm::errs() << llvm::toString(std::move(E));
-        exit(-1);
-      } else {
-        IndirectCIs.push_back(std::move(*IndirectCI));
-      }
+      std::unique_ptr<CompilerInstance> IndirectCI = BuildIndirect(ImportCI);
+      IndirectCIs.push_back(std::move(IndirectCI));
     }
   }
   llvm::Expected<std::unique_ptr<CompilerInstance>> ExpressionCI =
-      Parse(Expression, Direct ? ImportCIs : IndirectCIs);
+      Parse(Expression, Direct ? ImportCIs : IndirectCIs, DumpAST, DumpIR);
   if (auto E = ExpressionCI.takeError()) {
     llvm::errs() << llvm::toString(std::move(E));
     exit(-1);

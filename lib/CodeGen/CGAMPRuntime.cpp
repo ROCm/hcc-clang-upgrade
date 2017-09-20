@@ -190,7 +190,7 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
   {
     llvm::Constant *Callee = CGM.getAddrOfCXXStructor(
       DeserializeConstructor, StructorType::Complete);
-    const FunctionProtoType *FPT = 
+    const FunctionProtoType *FPT =
       DeserializeConstructor->getType()->castAs<FunctionProtoType>();
     const CGFunctionInfo &DesFnInfo =
       CGM.getTypes().arrangeCXXStructorDeclaration(
@@ -242,7 +242,7 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
   Address index = CGF.CreateMemTemp(IndexTy);
 
   // Locate the constructor to call
-  CXXMethodDecl *IndexConstructor = findValidIndexType(IndexTy); 
+  CXXMethodDecl *IndexConstructor = findValidIndexType(IndexTy);
   assert(IndexConstructor);
   // Emit code to call the Concurrency::index<1>::__cxxamp_opencl_index()
   if (!CGF.getLangOpts().AMPCPU) {
@@ -284,7 +284,8 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
 
   const CGFunctionInfo &FnInfo = CGM.getTypes().arrangeFreeFunctionCall(KArgs, MT, false);
   CGF.EmitCall(FnInfo, CGCallee::forDirect(fnAddr), ReturnValueSlot(), KArgs);
-  CGM.getTargetCodeGenInfo().setTargetAttributes(KernelDecl, CGF.CurFn, CGM);
+  CGM.getTargetCodeGenInfo().setTargetAttributes(KernelDecl, CGF.CurFn, CGM,
+                                                 ForDefinition);
 }
 
 void CGAMPRuntime::EmitTrampolineNameBody(CodeGenFunction &CGF,
@@ -293,7 +294,7 @@ void CGAMPRuntime::EmitTrampolineNameBody(CodeGenFunction &CGF,
   assert(ClassDecl);
   // Locate the trampoline
   // Locate the operator to call
-  CXXMethodDecl *TrampolineDecl = NULL; 
+  CXXMethodDecl *TrampolineDecl = NULL;
   for (CXXRecordDecl::method_iterator Method = ClassDecl->method_begin(),
       MethodEnd = ClassDecl->method_end();
       Method != MethodEnd; ++Method) {
@@ -311,7 +312,7 @@ void CGAMPRuntime::EmitTrampolineNameBody(CodeGenFunction &CGF,
   llvm::GlobalVariable *GV = new llvm::GlobalVariable(CGM.getModule(), S->getType(),
     true, llvm::GlobalValue::PrivateLinkage, S, "__cxxamp_trampoline.kernelname");
   GV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
-  
+
   //Create GetElementPtr(0, 0)
   std::vector<llvm::Constant*> indices;
   llvm::ConstantInt *zero = llvm::ConstantInt::get(CGM.getLLVMContext(), llvm::APInt(32, StringRef("0"), 10));

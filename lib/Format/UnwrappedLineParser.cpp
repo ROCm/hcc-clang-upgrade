@@ -231,10 +231,15 @@ UnwrappedLineParser::UnwrappedLineParser(const FormatStyle &Style,
     : Line(new UnwrappedLine), MustBreakBeforeNextToken(false),
       CurrentLines(&Lines), Style(Style), Keywords(Keywords),
       CommentPragmasRegex(Style.CommentPragmas), Tokens(nullptr),
-      Callback(Callback), AllTokens(Tokens), PPBranchLevel(-1) {}
+      Callback(Callback), AllTokens(Tokens), PPBranchLevel(-1),
+      IfNdefCondition(nullptr), FoundIncludeGuardStart(false),
+      IncludeGuardRejected(false) {}
 
 void UnwrappedLineParser::reset() {
   PPBranchLevel = -1;
+  IfNdefCondition = nullptr;
+  FoundIncludeGuardStart = false;
+  IncludeGuardRejected = false;
   Line.reset(new UnwrappedLine);
   CommentsBeforeNextToken.clear();
   FormatTok = nullptr;
@@ -286,7 +291,10 @@ void UnwrappedLineParser::parseFile() {
       !Line->InPPDirective && Style.Language != FormatStyle::LK_JavaScript;
   ScopedDeclarationState DeclarationState(*Line, DeclarationScopeStack,
                                           MustBeDeclaration);
-  parseLevel(/*HasOpeningBrace=*/false);
+  if (Style.Language == FormatStyle::LK_TextProto)
+    parseBracedList();
+  else
+    parseLevel(/*HasOpeningBrace=*/false);
   // Make sure to format the remaining tokens.
   flushComments(true);
   addUnwrappedLine();
@@ -323,6 +331,11 @@ void UnwrappedLineParser::parseLevel(bool HasOpeningBrace) {
       break;
     case tok::kw_default:
     case tok::kw_case:
+      if (Style.Language == FormatStyle::LK_JavaScript && Line->MustBeDeclaration) {
+        // A 'case: string' style field declaration.
+        parseStructuralElement();
+        break;
+      }
       if (!SwitchLabelEncountered &&
           (Style.IndentCaseLabels || (Line->InPPDirective && Line->Level == 1)))
         ++Line->Level;
@@ -449,6 +462,21 @@ void UnwrappedLineParser::calculateBraceTypes(bool ExpectClassBody) {
   FormatTok = Tokens->setPosition(StoredPosition);
 }
 
+template <class T>
+static inline void hash_combine(std::size_t &seed, const T &v) {
+  std::hash<T> hasher;
+  seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+size_t UnwrappedLineParser::computePPHash() const {
+  size_t h = 0;
+  for (const auto &i : PPStack) {
+    hash_combine(h, size_t(i.Kind));
+    hash_combine(h, i.Line);
+  }
+  return h;
+}
+
 void UnwrappedLineParser::parseBlock(bool MustBeDeclaration, bool AddLevel,
                                      bool MunchSemi) {
   assert(FormatTok->isOneOf(tok::l_brace, TT_MacroBlockBegin) &&
@@ -456,16 +484,21 @@ void UnwrappedLineParser::parseBlock(bool MustBeDeclaration, bool AddLevel,
   const bool MacroBlock = FormatTok->is(TT_MacroBlockBegin);
   FormatTok->BlockKind = BK_Block;
 
+  size_t PPStartHash = computePPHash();
+
   unsigned InitialLevel = Line->Level;
-  nextToken();
+  nextToken(/*LevelDifference=*/AddLevel ? 1 : 0);
 
   if (MacroBlock && FormatTok->is(tok::l_paren))
     parseParens();
 
+  size_t NbPreprocessorDirectives =
+      CurrentLines == &Lines ? PreprocessorDirectives.size() : 0;
   addUnwrappedLine();
-  size_t OpeningLineIndex = CurrentLines->empty()
-                                ? (UnwrappedLine::kInvalidIndex)
-                                : (CurrentLines->size() - 1);
+  size_t OpeningLineIndex =
+      CurrentLines->empty()
+          ? (UnwrappedLine::kInvalidIndex)
+          : (CurrentLines->size() - 1 - NbPreprocessorDirectives);
 
   ScopedDeclarationState DeclarationState(*Line, DeclarationScopeStack,
                                           MustBeDeclaration);
@@ -483,7 +516,10 @@ void UnwrappedLineParser::parseBlock(bool MustBeDeclaration, bool AddLevel,
     return;
   }
 
-  nextToken(); // Munch the closing brace.
+  size_t PPEndHash = computePPHash();
+
+  // Munch the closing brace.
+  nextToken(/*LevelDifference=*/AddLevel ? -1 : 0);
 
   if (MacroBlock && FormatTok->is(tok::l_paren))
     parseParens();
@@ -491,7 +527,15 @@ void UnwrappedLineParser::parseBlock(bool MustBeDeclaration, bool AddLevel,
   if (MunchSemi && FormatTok->Tok.is(tok::semi))
     nextToken();
   Line->Level = InitialLevel;
-  Line->MatchingOpeningBlockLineIndex = OpeningLineIndex;
+
+  if (PPStartHash == PPEndHash) {
+    Line->MatchingOpeningBlockLineIndex = OpeningLineIndex;
+    if (OpeningLineIndex != UnwrappedLine::kInvalidIndex) {
+      // Update the opening line to add the forward reference as well
+      (*CurrentLines)[OpeningLineIndex].MatchingOpeningBlockLineIndex =
+          CurrentLines->size() - 1;
+    }
+  }
 }
 
 static bool isGoogScope(const UnwrappedLine &Line) {
@@ -598,10 +642,15 @@ void UnwrappedLineParser::parsePPDirective() {
 }
 
 void UnwrappedLineParser::conditionalCompilationCondition(bool Unreachable) {
-  if (Unreachable || (!PPStack.empty() && PPStack.back() == PP_Unreachable))
-    PPStack.push_back(PP_Unreachable);
+  size_t Line = CurrentLines->size();
+  if (CurrentLines == &PreprocessorDirectives)
+    Line += Lines.size();
+
+  if (Unreachable ||
+      (!PPStack.empty() && PPStack.back().Kind == PP_Unreachable))
+    PPStack.push_back({PP_Unreachable, Line});
   else
-    PPStack.push_back(PP_Conditional);
+    PPStack.push_back({PP_Conditional, Line});
 }
 
 void UnwrappedLineParser::conditionalCompilationStart(bool Unreachable) {
@@ -635,7 +684,7 @@ void UnwrappedLineParser::conditionalCompilationEnd() {
     }
   }
   // Guard against #endif's without #if.
-  if (PPBranchLevel > 0)
+  if (PPBranchLevel > -1)
     --PPBranchLevel;
   if (!PPChainBranchIndex.empty())
     PPChainBranchIndex.pop();
@@ -652,12 +701,35 @@ void UnwrappedLineParser::parsePPIf(bool IfDef) {
   if (IfDef && !IfNDef && FormatTok->TokenText == "SWIG")
     Unreachable = true;
   conditionalCompilationStart(Unreachable);
+  FormatToken *IfCondition = FormatTok;
+  // If there's a #ifndef on the first line, and the only lines before it are
+  // comments, it could be an include guard.
+  bool MaybeIncludeGuard = IfNDef;
+  if (!IncludeGuardRejected && !FoundIncludeGuardStart && MaybeIncludeGuard) {
+    for (auto &Line : Lines) {
+      if (!Line.Tokens.front().Tok->is(tok::comment)) {
+        MaybeIncludeGuard = false;
+        IncludeGuardRejected = true;
+        break;
+      }
+    }
+  }
+  --PPBranchLevel;
   parsePPUnknown();
+  ++PPBranchLevel;
+  if (!IncludeGuardRejected && !FoundIncludeGuardStart && MaybeIncludeGuard)
+    IfNdefCondition = IfCondition;
 }
 
 void UnwrappedLineParser::parsePPElse() {
+  // If a potential include guard has an #else, it's not an include guard.
+  if (FoundIncludeGuardStart && PPBranchLevel == 0)
+    FoundIncludeGuardStart = false;
   conditionalCompilationAlternative();
+  if (PPBranchLevel > -1)
+    --PPBranchLevel;
   parsePPUnknown();
+  ++PPBranchLevel;
 }
 
 void UnwrappedLineParser::parsePPElIf() { parsePPElse(); }
@@ -665,6 +737,17 @@ void UnwrappedLineParser::parsePPElIf() { parsePPElse(); }
 void UnwrappedLineParser::parsePPEndIf() {
   conditionalCompilationEnd();
   parsePPUnknown();
+  // If the #endif of a potential include guard is the last thing in the file,
+  // then we count it as a real include guard and subtract one from every
+  // preprocessor indent.
+  unsigned TokenPosition = Tokens->getPosition();
+  FormatToken *PeekNext = AllTokens[TokenPosition];
+  if (FoundIncludeGuardStart && PPBranchLevel == -1 && PeekNext->is(tok::eof)) {
+    for (auto &Line : Lines) {
+      if (Line.InPPDirective && Line.Level > 0)
+        --Line.Level;
+    }
+  }
 }
 
 void UnwrappedLineParser::parsePPDefine() {
@@ -674,14 +757,26 @@ void UnwrappedLineParser::parsePPDefine() {
     parsePPUnknown();
     return;
   }
+  if (IfNdefCondition && IfNdefCondition->TokenText == FormatTok->TokenText) {
+    FoundIncludeGuardStart = true;
+    for (auto &Line : Lines) {
+      if (!Line.Tokens.front().Tok->isOneOf(tok::comment, tok::hash)) {
+        FoundIncludeGuardStart = false;
+        break;
+      }
+    }
+  }
+  IfNdefCondition = nullptr;
   nextToken();
   if (FormatTok->Tok.getKind() == tok::l_paren &&
       FormatTok->WhitespaceRange.getBegin() ==
           FormatTok->WhitespaceRange.getEnd()) {
     parseParens();
   }
+  if (Style.IndentPPDirectives == FormatStyle::PPDIS_AfterHash)
+    Line->Level += PPBranchLevel + 1;
   addUnwrappedLine();
-  Line->Level = 1;
+  ++Line->Level;
 
   // Errors during a preprocessor directive can only affect the layout of the
   // preprocessor directive, and thus we ignore them. An alternative approach
@@ -695,7 +790,10 @@ void UnwrappedLineParser::parsePPUnknown() {
   do {
     nextToken();
   } while (!eof());
+  if (Style.IndentPPDirectives == FormatStyle::PPDIS_AfterHash)
+    Line->Level += PPBranchLevel + 1;
   addUnwrappedLine();
+  IfNdefCondition = nullptr;
 }
 
 // Here we blacklist certain tokens that are not usually the first token in an
@@ -739,7 +837,7 @@ static bool mustBeJSIdent(const AdditionalKeywords &Keywords,
               Keywords.kw_let, Keywords.kw_var, tok::kw_const,
               Keywords.kw_abstract, Keywords.kw_extends, Keywords.kw_implements,
               Keywords.kw_instanceof, Keywords.kw_interface,
-              Keywords.kw_throws));
+              Keywords.kw_throws, Keywords.kw_from));
 }
 
 static bool mustBeJSIdentOrValue(const AdditionalKeywords &Keywords,
@@ -809,7 +907,8 @@ void UnwrappedLineParser::readTokenWithJavaScriptASI() {
        Previous->isOneOf(tok::r_square, tok::r_paren, tok::plusplus,
                          tok::minusminus)))
     return addUnwrappedLine();
-  if (PreviousMustBeValue && isJSDeclOrStmt(Keywords, Next))
+  if ((PreviousMustBeValue || Previous->is(tok::r_paren)) &&
+      isJSDeclOrStmt(Keywords, Next))
     return addUnwrappedLine();
 }
 
@@ -827,6 +926,7 @@ void UnwrappedLineParser::parseStructuralElement() {
   case tok::at:
     nextToken();
     if (FormatTok->Tok.is(tok::l_brace)) {
+      nextToken();
       parseBracedList();
       break;
     }
@@ -913,13 +1013,22 @@ void UnwrappedLineParser::parseStructuralElement() {
     parseDoWhile();
     return;
   case tok::kw_switch:
+    if (Style.Language == FormatStyle::LK_JavaScript && Line->MustBeDeclaration)
+      // 'switch: string' field declaration.
+      break;
     parseSwitch();
     return;
   case tok::kw_default:
+    if (Style.Language == FormatStyle::LK_JavaScript && Line->MustBeDeclaration)
+      // 'default: string' field declaration.
+      break;
     nextToken();
     parseLabel();
     return;
   case tok::kw_case:
+    if (Style.Language == FormatStyle::LK_JavaScript && Line->MustBeDeclaration)
+      // 'case: string' field declaration.
+      break;
     parseCaseLabel();
     return;
   case tok::kw_try:
@@ -991,8 +1100,10 @@ void UnwrappedLineParser::parseStructuralElement() {
     switch (FormatTok->Tok.getKind()) {
     case tok::at:
       nextToken();
-      if (FormatTok->Tok.is(tok::l_brace))
+      if (FormatTok->Tok.is(tok::l_brace)) {
+        nextToken();
         parseBracedList();
+      }
       break;
     case tok::kw_enum:
       // Ignore if this is part of "template <enum ...".
@@ -1172,7 +1283,13 @@ void UnwrappedLineParser::parseStructuralElement() {
 
       nextToken();
       if (FormatTok->Tok.is(tok::l_brace)) {
+        nextToken();
         parseBracedList();
+      } else if (Style.Language == FormatStyle::LK_Proto &&
+               FormatTok->Tok.is(tok::less)) {
+        nextToken();
+        parseBracedList(/*ContinueOnSemicolons=*/false,
+                        /*ClosingBraceKind=*/tok::greater);
       }
       break;
     case tok::l_square:
@@ -1337,13 +1454,14 @@ bool UnwrappedLineParser::tryToParseBracedList() {
   assert(FormatTok->BlockKind != BK_Unknown);
   if (FormatTok->BlockKind == BK_Block)
     return false;
+  nextToken();
   parseBracedList();
   return true;
 }
 
-bool UnwrappedLineParser::parseBracedList(bool ContinueOnSemicolons) {
+bool UnwrappedLineParser::parseBracedList(bool ContinueOnSemicolons,
+                                          tok::TokenKind ClosingBraceKind) {
   bool HasError = false;
-  nextToken();
 
   // FIXME: Once we have an expression parser in the UnwrappedLineParser,
   // replace this by using parseAssigmentExpression() inside.
@@ -1370,6 +1488,10 @@ bool UnwrappedLineParser::parseBracedList(bool ContinueOnSemicolons) {
         parseChildBlock();
       }
     }
+    if (FormatTok->Tok.getKind() == ClosingBraceKind) {
+      nextToken();
+      return !HasError;
+    }
     switch (FormatTok->Tok.getKind()) {
     case tok::caret:
       nextToken();
@@ -1394,11 +1516,18 @@ bool UnwrappedLineParser::parseBracedList(bool ContinueOnSemicolons) {
       // Assume there are no blocks inside a braced init list apart
       // from the ones we explicitly parse out (like lambdas).
       FormatTok->BlockKind = BK_BracedInit;
+      nextToken();
       parseBracedList();
       break;
-    case tok::r_brace:
-      nextToken();
-      return !HasError;
+    case tok::less:
+      if (Style.Language == FormatStyle::LK_Proto) {
+        nextToken();
+        parseBracedList(/*ContinueOnSemicolons=*/false,
+                        /*ClosingBraceKind=*/tok::greater);
+      } else {
+        nextToken();
+      }
+      break;
     case tok::semi:
       // JavaScript (or more precisely TypeScript) can have semicolons in braced
       // lists (in so-called TypeMemberLists). Thus, the semicolon cannot be
@@ -1449,8 +1578,10 @@ void UnwrappedLineParser::parseParens() {
       break;
     case tok::at:
       nextToken();
-      if (FormatTok->Tok.is(tok::l_brace))
+      if (FormatTok->Tok.is(tok::l_brace)) {
+        nextToken();
         parseBracedList();
+      }
       break;
     case tok::kw_class:
       if (Style.Language == FormatStyle::LK_JavaScript)
@@ -1498,8 +1629,10 @@ void UnwrappedLineParser::parseSquare() {
     }
     case tok::at:
       nextToken();
-      if (FormatTok->Tok.is(tok::l_brace))
+      if (FormatTok->Tok.is(tok::l_brace)) {
+        nextToken();
         parseBracedList();
+      }
       break;
     default:
       nextToken();
@@ -1511,6 +1644,8 @@ void UnwrappedLineParser::parseSquare() {
 void UnwrappedLineParser::parseIfThenElse() {
   assert(FormatTok->Tok.is(tok::kw_if) && "'if' expected");
   nextToken();
+  if (FormatTok->Tok.is(tok::kw_constexpr))
+    nextToken();
   if (FormatTok->Tok.is(tok::l_paren))
     parseParens();
   bool NeedsUnwrappedLine = false;
@@ -1824,6 +1959,7 @@ bool UnwrappedLineParser::parseEnum() {
   }
 
   // Parse enum body.
+  nextToken();
   bool HasError = !parseBracedList(/*ContinueOnSemicolons=*/true);
   if (HasError) {
     if (FormatTok->is(tok::semi))
@@ -1858,6 +1994,7 @@ void UnwrappedLineParser::parseJavaEnumBody() {
   FormatTok = Tokens->setPosition(StoredPosition);
 
   if (IsSimple) {
+    nextToken();
     parseBracedList();
     addUnwrappedLine();
     return;
@@ -1911,6 +2048,17 @@ void UnwrappedLineParser::parseRecord(bool ParseAsExpr) {
          ((Style.Language == FormatStyle::LK_Java ||
            Style.Language == FormatStyle::LK_JavaScript) &&
           FormatTok->isOneOf(tok::period, tok::comma))) {
+    if (Style.Language == FormatStyle::LK_JavaScript &&
+        FormatTok->isOneOf(Keywords.kw_extends, Keywords.kw_implements)) {
+      // JavaScript/TypeScript supports inline object types in
+      // extends/implements positions:
+      //     class Foo implements {bar: number} { }
+      nextToken();
+      if (FormatTok->is(tok::l_brace)) {
+        tryToParseBracedList();
+        continue;
+      }
+    }
     bool IsNonMacroIdentifier =
         FormatTok->is(tok::identifier) &&
         FormatTok->TokenText != FormatTok->TokenText.upper();
@@ -2069,6 +2217,7 @@ void UnwrappedLineParser::parseJavaScriptEs6ImportExport() {
     }
     if (FormatTok->is(tok::l_brace)) {
       FormatTok->BlockKind = BK_Block;
+      nextToken();
       parseBracedList();
     } else {
       nextToken();
@@ -2258,13 +2407,13 @@ void UnwrappedLineParser::flushComments(bool NewlineBeforeNext) {
   CommentsBeforeNextToken.clear();
 }
 
-void UnwrappedLineParser::nextToken() {
+void UnwrappedLineParser::nextToken(int LevelDifference) {
   if (eof())
     return;
   flushComments(isOnNewLine(*FormatTok));
   pushToken(FormatTok);
   if (Style.Language != FormatStyle::LK_JavaScript)
-    readToken();
+    readToken(LevelDifference);
   else
     readTokenWithJavaScriptASI();
 }
@@ -2333,7 +2482,7 @@ void UnwrappedLineParser::distributeComments(
   }
 }
 
-void UnwrappedLineParser::readToken() {
+void UnwrappedLineParser::readToken(int LevelDifference) {
   SmallVector<FormatToken *, 1> Comments;
   do {
     FormatTok = Tokens->getNextToken();
@@ -2346,6 +2495,10 @@ void UnwrappedLineParser::readToken() {
       // directives only after that unwrapped line was finished later.
       bool SwitchToPreprocessorLines = !Line->Tokens.empty();
       ScopedLineState BlockState(*this, SwitchToPreprocessorLines);
+      assert((LevelDifference >= 0 ||
+              static_cast<unsigned>(-LevelDifference) <= Line->Level) &&
+             "LevelDifference makes Line->Level negative");
+      Line->Level += LevelDifference;
       // Comments stored before the preprocessor directive need to be output
       // before the preprocessor directive, at the same level as the
       // preprocessor directive, as we consider them to apply to the directive.
@@ -2366,7 +2519,7 @@ void UnwrappedLineParser::readToken() {
       FormatTok->MustBreakBefore = true;
     }
 
-    if (!PPStack.empty() && (PPStack.back() == PP_Unreachable) &&
+    if (!PPStack.empty() && (PPStack.back().Kind == PP_Unreachable) &&
         !Line->InPPDirective) {
       continue;
     }

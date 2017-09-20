@@ -400,7 +400,7 @@ private:
   Preprocessor &PP;
 
   /// \brief The AST context into which we'll read the AST files.
-  ASTContext &Context;
+  ASTContext *ContextObj = nullptr;
 
   /// \brief The AST consumer.
   ASTConsumer *Consumer = nullptr;
@@ -825,6 +825,7 @@ private:
   struct PragmaPackStackEntry {
     unsigned Value;
     SourceLocation Location;
+    SourceLocation PushLocation;
     StringRef SlotLabel;
   };
   llvm::SmallVector<PragmaPackStackEntry, 2> PragmaPackStack;
@@ -866,9 +867,6 @@ private:
   /// any other non-module AST file.
   SmallVector<ImportedSubmodule, 2> ImportedModules;
   //@}
-
-  /// \brief The directory that the PCH we are reading is stored in.
-  std::string CurrentDir;
 
   /// \brief The system include root to be used when loading the
   /// precompiled header.
@@ -1146,6 +1144,7 @@ private:
     time_t StoredTime;
     bool Overridden;
     bool Transient;
+    bool TopLevelModuleMap;
   };
 
   /// \brief Reads the stored information about an input file.
@@ -1386,7 +1385,7 @@ public:
   /// precompiled header will be loaded.
   ///
   /// \param Context the AST context that this precompiled header will be
-  /// loaded into.
+  /// loaded into, if any.
   ///
   /// \param PCHContainerRdr the PCHContainerOperations to use for loading and
   /// creating modules.
@@ -1418,7 +1417,7 @@ public:
   ///
   /// \param ReadTimer If non-null, a timer used to track the time spent
   /// deserializing.
-  ASTReader(Preprocessor &PP, ASTContext &Context,
+  ASTReader(Preprocessor &PP, ASTContext *Context,
             const PCHContainerReader &PCHContainerRdr,
             ArrayRef<std::shared_ptr<ModuleFileExtension>> Extensions,
             StringRef isysroot = "", bool DisableValidation = false,
@@ -2143,8 +2142,18 @@ public:
   // \brief Read a string
   static std::string ReadString(const RecordData &Record, unsigned &Idx);
 
+  // \brief Skip a string
+  static void SkipString(const RecordData &Record, unsigned &Idx) {
+    Idx += Record[Idx] + 1;
+  }
+
   // \brief Read a path
   std::string ReadPath(ModuleFile &F, const RecordData &Record, unsigned &Idx);
+
+  // \brief Skip a path
+  static void SkipPath(const RecordData &Record, unsigned &Idx) {
+    SkipString(Record, Idx);
+  }
 
   /// \brief Read a version tuple.
   static VersionTuple ReadVersionTuple(const RecordData &Record, unsigned &Idx);
@@ -2207,7 +2216,10 @@ public:
   void completeVisibleDeclsMap(const DeclContext *DC) override;
 
   /// \brief Retrieve the AST context that this AST reader supplements.
-  ASTContext &getContext() { return Context; }
+  ASTContext &getContext() {
+    assert(ContextObj && "requested AST context when not loading AST");
+    return *ContextObj;
+  }
 
   // \brief Contains the IDs for declarations that were requested before we have
   // access to a Sema object.
@@ -2248,6 +2260,12 @@ public:
                        bool IncludeSystem, bool Complain,
           llvm::function_ref<void(const serialization::InputFile &IF,
                                   bool isSystem)> Visitor);
+
+  /// Visit all the top-level module maps loaded when building the given module
+  /// file.
+  void visitTopLevelModuleMaps(serialization::ModuleFile &MF,
+                               llvm::function_ref<
+                                   void(const FileEntry *)> Visitor);
 
   bool isProcessingUpdateRecords() { return ProcessingUpdateRecords; }
 };

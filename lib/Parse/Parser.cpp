@@ -526,6 +526,8 @@ void Parser::LateTemplateParserCleanupCallback(void *P) {
 }
 
 bool Parser::ParseFirstTopLevelDecl(DeclGroupPtrTy &Result) {
+  Actions.ActOnStartOfTranslationUnit();
+
   // C11 6.9p1 says translation units must have at least one top-level
   // declaration. C++ doesn't have this restriction. We also don't want to
   // complain if we have a precompiled header, although technically if the PCH
@@ -763,6 +765,7 @@ Parser::ParseExternalDeclaration(ParsedAttributesWithRange &attrs,
     }
     // This must be 'export template'. Parse it so we can diagnose our lack
     // of support.
+    LLVM_FALLTHROUGH;
   case tok::kw_using:
   case tok::kw_namespace:
   case tok::kw_typedef:
@@ -1075,8 +1078,9 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
       TemplateInfo.Kind == ParsedTemplateInfo::Template &&
       Actions.canDelayFunctionBody(D)) {
     MultiTemplateParamsArg TemplateParameterLists(*TemplateInfo.TemplateParams);
-    
-    ParseScope BodyScope(this, Scope::FnScope|Scope::DeclScope);
+
+    ParseScope BodyScope(this, Scope::FnScope | Scope::DeclScope |
+                                   Scope::CompoundStmtScope);
     Scope *ParentScope = getCurScope()->getParent();
 
     D.setFunctionDefinitionKind(FDK_Definition);
@@ -1106,7 +1110,8 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
            (Tok.is(tok::l_brace) || Tok.is(tok::kw_try) ||
             Tok.is(tok::colon)) && 
       Actions.CurContext->isTranslationUnit()) {
-    ParseScope BodyScope(this, Scope::FnScope|Scope::DeclScope);
+    ParseScope BodyScope(this, Scope::FnScope | Scope::DeclScope |
+                                   Scope::CompoundStmtScope);
     Scope *ParentScope = getCurScope()->getParent();
 
     D.setFunctionDefinitionKind(FDK_Definition);
@@ -1124,7 +1129,8 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   }
 
   // Enter a scope for the function body.
-  ParseScope BodyScope(this, Scope::FnScope|Scope::DeclScope);
+  ParseScope BodyScope(this, Scope::FnScope | Scope::DeclScope |
+                                 Scope::CompoundStmtScope);
 
   // Tell the actions module that we have entered a function definition with the
   // specified Declarator for the function.
@@ -1881,6 +1887,7 @@ bool Parser::isTokenEqualOrEqualTypo() {
     Diag(Tok, diag::err_invalid_token_after_declarator_suggest_equal)
         << Kind
         << FixItHint::CreateReplacement(SourceRange(Tok.getLocation()), "=");
+    LLVM_FALLTHROUGH;
   case tok::equal:
     return true;
   }

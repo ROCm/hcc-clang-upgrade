@@ -15,6 +15,7 @@
 #include "CGCXXABI.h"
 #include "CGCleanup.h"
 #include "CGObjCRuntime.h"
+#include "ConstantEmitter.h"
 #include "TargetInfo.h"
 #include "clang/AST/Mangle.h"
 #include "clang/AST/StmtCXX.h"
@@ -1649,18 +1650,19 @@ void CodeGenFunction::startOutlinedSEHHelper(CodeGenFunction &ParentCGF,
     // parameters. Win32 filters take no parameters.
     if (IsFilter) {
       Args.push_back(ImplicitParamDecl::Create(
-          getContext(), nullptr, StartLoc,
+          getContext(), /*DC=*/nullptr, StartLoc,
           &getContext().Idents.get("exception_pointers"),
-          getContext().VoidPtrTy));
+          getContext().VoidPtrTy, ImplicitParamDecl::Other));
     } else {
       Args.push_back(ImplicitParamDecl::Create(
-          getContext(), nullptr, StartLoc,
+          getContext(), /*DC=*/nullptr, StartLoc,
           &getContext().Idents.get("abnormal_termination"),
-          getContext().UnsignedCharTy));
+          getContext().UnsignedCharTy, ImplicitParamDecl::Other));
     }
     Args.push_back(ImplicitParamDecl::Create(
-        getContext(), nullptr, StartLoc,
-        &getContext().Idents.get("frame_pointer"), getContext().VoidPtrTy));
+        getContext(), /*DC=*/nullptr, StartLoc,
+        &getContext().Idents.get("frame_pointer"), getContext().VoidPtrTy,
+        ImplicitParamDecl::Other));
   }
 
   QualType RetTy = IsFilter ? getContext().LongTy : getContext().VoidTy;
@@ -1799,7 +1801,8 @@ void CodeGenFunction::EnterSEHTryStmt(const SEHTryStmt &S) {
   // "catch i8* null". We can't do this on x86 because the filter has to save
   // the exception code.
   llvm::Constant *C =
-      CGM.EmitConstantExpr(Except->getFilterExpr(), getContext().IntTy, this);
+    ConstantEmitter(*this).tryEmitAbstract(Except->getFilterExpr(),
+                                           getContext().IntTy);
   if (CGM.getTarget().getTriple().getArch() != llvm::Triple::x86 && C &&
       C->isOneValue()) {
     CatchScope->setCatchAllHandler(0, createBasicBlock("__except"));

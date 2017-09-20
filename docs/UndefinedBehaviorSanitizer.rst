@@ -75,6 +75,7 @@ Available checks are:
      of a misaligned reference.
   -  ``-fsanitize=bool``: Load of a ``bool`` value which is neither
      ``true`` nor ``false``.
+  -  ``-fsanitize=builtin``: Passing invalid values to compiler builtins.
   -  ``-fsanitize=bounds``: Out of bounds array indexing, in cases
      where the array bound can be statically determined.
   -  ``-fsanitize=enum``: Load of a value of an enumerated type which
@@ -106,6 +107,8 @@ Available checks are:
      invalid pointers. These checks are made in terms of
      ``__builtin_object_size``, and consequently may be able to detect more
      problems at higher optimization levels.
+  -  ``-fsanitize=pointer-overflow``: Performing pointer arithmetic which
+     overflows.
   -  ``-fsanitize=return``: In C++, reaching the end of a
      value-returning function without returning a value.
   -  ``-fsanitize=returns-nonnull-attribute``: Returning null pointer
@@ -128,11 +131,11 @@ Available checks are:
      it is often unintentional, so UBSan offers to catch it.
   -  ``-fsanitize=vla-bound``: A variable-length array whose bound
      does not evaluate to a positive value.
-  -  ``-fsanitize=vptr``: Use of an object whose vptr indicates that
-     it is of the wrong dynamic type, or that its lifetime has not
-     begun or has ended. Incompatible with ``-fno-rtti``. Link must
-     be performed by ``clang++``, not ``clang``, to make sure C++-specific
-     parts of the runtime library and C++ standard libraries are present.
+  -  ``-fsanitize=vptr``: Use of an object whose vptr indicates that it is of
+     the wrong dynamic type, or that its lifetime has not begun or has ended.
+     Incompatible with ``-fno-rtti``. Link must be performed by ``clang++``, not
+     ``clang``, to make sure C++-specific parts of the runtime library and C++
+     standard libraries are present.
 
 You can also use the following check groups:
   -  ``-fsanitize=undefined``: All of the checks listed above other than
@@ -145,6 +148,12 @@ You can also use the following check groups:
      ``nullability-assign``, and ``nullability-return``. While violating
      nullability does not have undefined behavior, it is often unintentional,
      so UBSan offers to catch it.
+
+Volatile
+--------
+
+The ``null``, ``alignment``, ``object-size``, and ``vptr`` checks do not apply
+to pointers to types with the ``volatile`` qualifier.
 
 Stack traces and report symbolization
 =====================================

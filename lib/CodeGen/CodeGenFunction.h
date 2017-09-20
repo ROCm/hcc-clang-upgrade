@@ -111,15 +111,17 @@ enum TypeEvaluationKind {
   SANITIZER_CHECK(DynamicTypeCacheMiss, dynamic_type_cache_miss, 0)            \
   SANITIZER_CHECK(FloatCastOverflow, float_cast_overflow, 0)                   \
   SANITIZER_CHECK(FunctionTypeMismatch, function_type_mismatch, 0)             \
+  SANITIZER_CHECK(InvalidBuiltin, invalid_builtin, 0)                          \
   SANITIZER_CHECK(LoadInvalidValue, load_invalid_value, 0)                     \
   SANITIZER_CHECK(MissingReturn, missing_return, 0)                            \
   SANITIZER_CHECK(MulOverflow, mul_overflow, 0)                                \
   SANITIZER_CHECK(NegateOverflow, negate_overflow, 0)                          \
   SANITIZER_CHECK(NullabilityArg, nullability_arg, 0)                          \
-  SANITIZER_CHECK(NullabilityReturn, nullability_return, 0)                    \
+  SANITIZER_CHECK(NullabilityReturn, nullability_return, 1)                    \
   SANITIZER_CHECK(NonnullArg, nonnull_arg, 0)                                  \
-  SANITIZER_CHECK(NonnullReturn, nonnull_return, 0)                            \
+  SANITIZER_CHECK(NonnullReturn, nonnull_return, 1)                            \
   SANITIZER_CHECK(OutOfBounds, out_of_bounds, 0)                               \
+  SANITIZER_CHECK(PointerOverflow, pointer_overflow, 0)                        \
   SANITIZER_CHECK(ShiftOutOfBounds, shift_out_of_bounds, 0)                    \
   SANITIZER_CHECK(SubOverflow, sub_overflow, 0)                                \
   SANITIZER_CHECK(TypeMismatch, type_mismatch, 1)                              \
@@ -707,6 +709,7 @@ public:
                llvm::function_ref<Address()> PrivateGen) {
       assert(PerformCleanup && "adding private to dead scope");
 
+      LocalVD = LocalVD->getCanonicalDecl();
       // Only save it once.
       if (SavedLocals.count(LocalVD)) return false;
 
@@ -759,6 +762,7 @@ public:
 
     /// Checks if the global variable is captured in current function. 
     bool isGlobalVarCaptured(const VarDecl *VD) const {
+      VD = VD->getCanonicalDecl();
       return !VD->isLocalVarDeclOrParm() && CGF.LocalDeclMap.count(VD) > 0;
     }
 
@@ -1115,7 +1119,7 @@ private:
         auto IP = CGF.Builder.saveAndClearIP();
         CGF.EmitBlock(Stack.back().ExitBlock.getBlock());
         CodeGen(CGF);
-        CGF.EmitBranchThroughCleanup(Stack.back().ContBlock);
+        CGF.EmitBranch(Stack.back().ContBlock.getBlock());
         CGF.Builder.restoreIP(IP);
         Stack.back().HasBeenEmitted = true;
       }
@@ -1406,6 +1410,17 @@ private:
     return RetValNullabilityPrecondition;
   }
 
+  /// Used to store precise source locations for return statements by the
+  /// runtime return value checks.
+  Address ReturnLocation = Address::invalid();
+
+  /// Check if the return value of this function requires sanitization.
+  bool requiresReturnValueCheck() const {
+    return requiresReturnValueNullabilityCheck() ||
+           (SanOpts.has(SanitizerKind::ReturnsNonnullAttribute) &&
+            CurCodeDecl && CurCodeDecl->getAttr<ReturnsNonNullAttr>());
+  }
+
   llvm::BasicBlock *TerminateLandingPad;
   llvm::BasicBlock *TerminateHandler;
   llvm::BasicBlock *TrapBB;
@@ -1467,6 +1482,9 @@ public:
 
   const TargetInfo &getTarget() const { return Target; }
   llvm::LLVMContext &getLLVMContext() { return CGM.getLLVMContext(); }
+  const TargetCodeGenInfo &getTargetHooks() const {
+    return CGM.getTargetCodeGenInfo();
+  }
 
   //===--------------------------------------------------------------------===//
   //                                  Cleanups
@@ -1627,10 +1645,9 @@ public:
 
   void EmitForwardingCallToLambda(const CXXMethodDecl *LambdaCallOperator,
                                   CallArgList &CallArgs);
-  void EmitLambdaToBlockPointerBody(FunctionArgList &Args);
   void EmitLambdaBlockInvokeBody();
   void EmitLambdaDelegatingInvokeBody(const CXXMethodDecl *MD);
-  void EmitLambdaStaticInvokeFunction(const CXXMethodDecl *MD);
+  void EmitLambdaStaticInvokeBody(const CXXMethodDecl *MD);
   void EmitAsanPrologueOrEpilogue(bool Prologue);
 
   /// \brief Emit the unified return block, trying to avoid its emission when
@@ -1737,11 +1754,6 @@ public:
   llvm::Value *EmitVTableTypeCheckedLoad(const CXXRecordDecl *RD, llvm::Value *VTable,
                                          uint64_t VTableByteOffset);
 
-  /// CanDevirtualizeMemberFunctionCalls - Checks whether virtual calls on given
-  /// expr can be devirtualized.
-  bool CanDevirtualizeMemberFunctionCall(const Expr *Base,
-                                         const CXXMethodDecl *MD);
-
   /// EnterDtorCleanups - Enter the cleanups necessary to complete the
   /// given phase of destruction for a destructor.  The end result
   /// should call destructors on members and base classes in reverse
@@ -1777,7 +1789,7 @@ public:
                           SourceLocation EndLoc);
 
   /// Emit a test that checks if the return value \p RV is nonnull.
-  void EmitReturnValueCheck(llvm::Value *RV, SourceLocation EndLoc);
+  void EmitReturnValueCheck(llvm::Value *RV);
 
   /// EmitStartEHSpec - Emit the start of the exception spec.
   void EmitStartEHSpec(const Decl *D);
@@ -1931,17 +1943,27 @@ public:
   /// \p ArraySize is the number of array elements to be allocated if it
   ///    is not nullptr.
   ///
-  /// For certain targets the alloca address space may be different from the
-  /// default address space expected by the language. E.g. C++ expects a
-  /// temporary variable in default address space. If \p DoCast is true,
-  /// alloca will be casted to the address space expected by the language,
-  /// otherwise it stays in the alloca address space.
+  /// LangAS::Default is the address space of pointers to local variables and
+  /// temporaries, as exposed in the source language. In certain
+  /// configurations, this is not the same as the alloca address space, and a
+  /// cast is needed to lift the pointer from the alloca AS into
+  /// LangAS::Default. This can happen when the target uses a restricted
+  /// address space for the stack but the source language requires
+  /// LangAS::Default to be a generic address space. The latter condition is
+  /// common for most programming languages; OpenCL is an exception in that
+  /// LangAS::Default is the private address space, which naturally maps
+  /// to the stack.
+  ///
+  /// Because the address of a temporary is often exposed to the program in
+  /// various ways, this function will perform the cast by default. The cast
+  /// may be avoided by passing false as \p CastToDefaultAddrSpace; this is
+  /// more efficient if the caller knows that the address will not be exposed.
   llvm::AllocaInst *CreateTempAlloca(llvm::Type *Ty, const Twine &Name = "tmp",
                                      llvm::Value *ArraySize = nullptr);
   Address CreateTempAlloca(llvm::Type *Ty, CharUnits align,
                            const Twine &Name = "tmp",
                            llvm::Value *ArraySize = nullptr,
-                           bool DoCast = true);
+                           bool CastToDefaultAddrSpace = true);
   /// Get alloca instruction operand of an addrspacecast instruction.
   /// If \p Inst is alloca instruction, returns \p Inst;
   llvm::AllocaInst *getAddrSpaceCastedAlloca(llvm::Instruction *Inst) const;
@@ -1979,12 +2001,12 @@ public:
   Address CreateIRTemp(QualType T, const Twine &Name = "tmp");
 
   /// CreateMemTemp - Create a temporary memory object of the given type, with
-  /// appropriate alignment. Cast it to the expected address space if \p DoCast
-  /// is true.
+  /// appropriate alignment. Cast it to the default address space if
+  /// \p CastToDefaultAddrSpace is true.
   Address CreateMemTemp(QualType T, const Twine &Name = "tmp",
-                        bool DoCast = true);
+                        bool CastToDefaultAddrSpace = true);
   Address CreateMemTemp(QualType T, CharUnits Align, const Twine &Name = "tmp",
-                        bool DoCast = true);
+                        bool CastToDefaultAddrSpace = true);
 
   /// CreateAggTemp - Create a temporary memory object for the given
   /// aggregate type.
@@ -2575,9 +2597,11 @@ public:
   RValue EmitCoawaitExpr(const CoawaitExpr &E,
                          AggValueSlot aggSlot = AggValueSlot::ignored(),
                          bool ignoreResult = false);
+  LValue EmitCoawaitLValue(const CoawaitExpr *E);
   RValue EmitCoyieldExpr(const CoyieldExpr &E,
                          AggValueSlot aggSlot = AggValueSlot::ignored(),
                          bool ignoreResult = false);
+  LValue EmitCoyieldLValue(const CoyieldExpr *E);
   RValue EmitCoroutineIntrinsic(const CallExpr *E, unsigned int IID);
 
   void EnterCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
@@ -2749,7 +2773,9 @@ public:
   /// and initializes them with the values according to OpenMP standard.
   ///
   /// \param D Directive (possibly) with the 'linear' clause.
-  void EmitOMPLinearClauseInit(const OMPLoopDirective &D);
+  /// \return true if at least one linear variable is found that should be
+  /// initialized with the value of the original variable, false otherwise.
+  bool EmitOMPLinearClauseInit(const OMPLoopDirective &D);
 
   typedef const llvm::function_ref<void(CodeGenFunction & /*CGF*/,
                                         llvm::Value * /*OutlinedFn*/,
@@ -3145,6 +3171,7 @@ public:
   };
 
   ConstantEmission tryEmitAsConstant(DeclRefExpr *refExpr);
+  ConstantEmission tryEmitAsConstant(const MemberExpr *ME);
 
   RValue EmitPseudoObjectRValue(const PseudoObjectExpr *e,
                                 AggValueSlot slot = AggValueSlot::ignored());
@@ -3484,6 +3511,14 @@ public:
   void EmitCXXGuardedInit(const VarDecl &D, llvm::GlobalVariable *DeclPtr,
                           bool PerformInit);
 
+  enum class GuardKind { VariableGuard, TlsGuard };
+
+  /// Emit a branch to select whether or not to perform guarded initialization.
+  void EmitCXXGuardedInitBranch(llvm::Value *NeedsInit,
+                                llvm::BasicBlock *InitBlock,
+                                llvm::BasicBlock *NoInitBlock,
+                                GuardKind Kind, const VarDecl *D);
+
   /// GenerateCXXGlobalInitFunc - Generates code for initializing global
   /// variables.
   void GenerateCXXGlobalInitFunc(llvm::Function *Fn,
@@ -3576,6 +3611,33 @@ public:
   /// Given an assignment `*LHS = RHS`, emit a test that checks if \p RHS is
   /// nonnull, if \p LHS is marked _Nonnull.
   void EmitNullabilityCheck(LValue LHS, llvm::Value *RHS, SourceLocation Loc);
+
+  /// An enumeration which makes it easier to specify whether or not an
+  /// operation is a subtraction.
+  enum { NotSubtraction = false, IsSubtraction = true };
+
+  /// Same as IRBuilder::CreateInBoundsGEP, but additionally emits a check to
+  /// detect undefined behavior when the pointer overflow sanitizer is enabled.
+  /// \p SignedIndices indicates whether any of the GEP indices are signed.
+  /// \p IsSubtraction indicates whether the expression used to form the GEP
+  /// is a subtraction.
+  llvm::Value *EmitCheckedInBoundsGEP(llvm::Value *Ptr,
+                                      ArrayRef<llvm::Value *> IdxList,
+                                      bool SignedIndices,
+                                      bool IsSubtraction,
+                                      SourceLocation Loc,
+                                      const Twine &Name = "");
+
+  /// Specifies which type of sanitizer check to apply when handling a
+  /// particular builtin.
+  enum BuiltinCheckKind {
+    BCK_CTZPassedZero,
+    BCK_CLZPassedZero,
+  };
+
+  /// Emits an argument for a call to a builtin. If the builtin sanitizer is
+  /// enabled, a runtime check specified by \p Kind is also emitted.
+  llvm::Value *EmitCheckedArgForBuiltin(const Expr *E, BuiltinCheckKind Kind);
 
   /// \brief Emit a description of a type in a format suitable for passing to
   /// a runtime sanitizer handler.
@@ -3797,10 +3859,6 @@ public:
 private:
   QualType getVarArgType(const Expr *Arg);
 
-  const TargetCodeGenInfo &getTargetHooks() const {
-    return CGM.getTargetCodeGenInfo();
-  }
-
   void EmitDeclMetadata();
 
   BlockByrefHelpers *buildByrefHelpers(llvm::StructType &byrefType,
@@ -3809,6 +3867,10 @@ private:
   void AddObjCARCExceptionMetadata(llvm::Instruction *Inst);
 
   llvm::Value *GetValueForARMHint(unsigned BuiltinID);
+  llvm::Value *EmitX86CpuIs(const CallExpr *E);
+  llvm::Value *EmitX86CpuIs(StringRef CPUStr);
+  llvm::Value *EmitX86CpuSupports(const CallExpr *E);
+  llvm::Value *EmitX86CpuSupports(ArrayRef<StringRef> FeatureStrs);
 };
 
 /// Helper class with most of the code for saving a value for a

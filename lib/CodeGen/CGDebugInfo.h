@@ -278,8 +278,8 @@ class CGDebugInfo {
                                 llvm::DIFile *F,
                                 SmallVectorImpl<llvm::Metadata *> &E,
                                 llvm::DIType *RecordTy, const RecordDecl *RD);
-  void CollectRecordNestedRecord(const RecordDecl *RD,
-                                 SmallVectorImpl<llvm::Metadata *> &E);
+  void CollectRecordNestedType(const TypeDecl *RD,
+                               SmallVectorImpl<llvm::Metadata *> &E);
   void CollectRecordFields(const RecordDecl *Decl, llvm::DIFile *F,
                            SmallVectorImpl<llvm::Metadata *> &E,
                            llvm::DICompositeType *RecordTy);
@@ -367,7 +367,7 @@ public:
   void EmitFunctionDecl(GlobalDecl GD, SourceLocation Loc, QualType FnType);
 
   /// Constructs the debug code for exiting a function.
-  void EmitFunctionEnd(CGBuilderTy &Builder);
+  void EmitFunctionEnd(CGBuilderTy &Builder, llvm::Function *Fn);
 
   /// Emit metadata to indicate the beginning of a new lexical block
   /// and push the block onto the stack.
@@ -557,6 +557,9 @@ private:
   CollectAnonRecordDecls(const RecordDecl *RD, llvm::DIFile *Unit,
                          unsigned LineNo, StringRef LinkageName,
                          llvm::GlobalVariable *Var, llvm::DIScope *DContext);
+
+  /// Get the printing policy for producing names for debug info.
+  PrintingPolicy getPrintingPolicy() const;
 
   /// Get function name for the given FunctionDecl. If the name is
   /// constructed on demand (e.g., C++ destructor) then the name is

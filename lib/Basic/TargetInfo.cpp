@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Basic/TargetInfo.h"
+#include "clang/AST/Type.h"
 #include "clang/Basic/AddressSpaces.h"
 #include "clang/Basic/CharInfo.h"
 #include "clang/Basic/LangOptions.h"
@@ -143,9 +144,11 @@ const char *TargetInfo::getTypeConstantSuffix(IntType T) const {
   case UnsignedChar:
     if (getCharWidth() < getIntWidth())
       return "";
+    LLVM_FALLTHROUGH;
   case UnsignedShort:
     if (getShortWidth() < getIntWidth())
       return "";
+    LLVM_FALLTHROUGH;
   case UnsignedInt:      return "U";
   case UnsignedLong:     return "UL";
   case UnsignedLongLong: return "ULL";
@@ -345,6 +348,30 @@ bool TargetInfo::initFeatureMap(
   return true;
 }
 
+LangAS::ID TargetInfo::getOpenCLTypeAddrSpace(const Type *T) const {
+  auto BT = dyn_cast<BuiltinType>(T);
+
+  if (!BT) {
+    if (isa<PipeType>(T))
+      return LangAS::opencl_global;
+
+    return LangAS::Default;
+  }
+
+  switch (BT->getKind()) {
+#define IMAGE_TYPE(ImgType, Id, SingletonId, Access, Suffix)                   \
+  case BuiltinType::Id:                                                        \
+    return LangAS::opencl_global;
+#include "clang/Basic/OpenCLImageTypes.def"
+
+  case BuiltinType::OCLSampler:
+    return LangAS::opencl_constant;
+
+  default:
+    return LangAS::Default;
+  }
+}
+
 //===----------------------------------------------------------------------===//
 
 
@@ -505,6 +532,11 @@ bool TargetInfo::validateOutputConstraint(ConstraintInfo &Info) const {
     case '?': // Disparage slightly code.
     case '!': // Disparage severely.
     case '*': // Ignore for choosing register preferences.
+    case 'i': // Ignore i,n,E,F as output constraints (match from the other
+              // chars)
+    case 'n':
+    case 'E':
+    case 'F':
       break;  // Pass them.
     }
 

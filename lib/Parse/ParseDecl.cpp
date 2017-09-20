@@ -71,11 +71,18 @@ TypeResult Parser::ParseTypeName(SourceRange *Range,
   return Actions.ActOnTypeName(getCurScope(), DeclaratorInfo);
 }
 
+/// \brief Normalizes an attribute name by dropping prefixed and suffixed __.
+static StringRef normalizeAttrName(StringRef Name) {
+  if (Name.size() >= 4 && Name.startswith("__") && Name.endswith("__"))
+    return Name.drop_front(2).drop_back(2);
+  return Name;
+}
+
 /// isAttributeLateParsed - Return true if the attribute has arguments that
 /// require late parsing.
 static bool isAttributeLateParsed(const IdentifierInfo &II) {
 #define CLANG_ATTR_LATE_PARSED_LIST
-    return llvm::StringSwitch<bool>(II.getName())
+    return llvm::StringSwitch<bool>(normalizeAttrName(II.getName()))
 #include "clang/Parse/AttrParserStringSwitches.inc"
         .Default(false);
 #undef CLANG_ATTR_LATE_PARSED_LIST
@@ -198,13 +205,6 @@ void Parser::ParseGNUAttributes(ParsedAttributes &attrs,
     if (endLoc)
       *endLoc = Loc;
   }
-}
-
-/// \brief Normalizes an attribute name by dropping prefixed and suffixed __.
-static StringRef normalizeAttrName(StringRef Name) {
-  if (Name.size() >= 4 && Name.startswith("__") && Name.endswith("__"))
-    Name = Name.drop_front(2).drop_back(2);
-  return Name;
 }
 
 /// \brief Determine whether the given attribute has an identifier argument.
@@ -919,13 +919,18 @@ void Parser::ParseAvailabilityAttribute(IdentifierInfo &Availability,
     return;
   }
   IdentifierLoc *Platform = ParseIdentifierLoc();
-  // Canonicalize platform name from "macosx" to "macos".
-  if (Platform->Ident && Platform->Ident->getName() == "macosx")
-    Platform->Ident = PP.getIdentifierInfo("macos");
-  // Canonicalize platform name from "macosx_app_extension" to
-  // "macos_app_extension".
-  if (Platform->Ident && Platform->Ident->getName() == "macosx_app_extension")
-    Platform->Ident = PP.getIdentifierInfo("macos_app_extension");
+  if (const IdentifierInfo *const Ident = Platform->Ident) {
+    // Canonicalize platform name from "macosx" to "macos".
+    if (Ident->getName() == "macosx")
+      Platform->Ident = PP.getIdentifierInfo("macos");
+    // Canonicalize platform name from "macosx_app_extension" to
+    // "macos_app_extension".
+    else if (Ident->getName() == "macosx_app_extension")
+      Platform->Ident = PP.getIdentifierInfo("macos_app_extension");
+    else
+      Platform->Ident = PP.getIdentifierInfo(
+          AvailabilityAttr::canonicalizePlatformName(Ident->getName()));
+  }
 
   // Parse the ',' following the platform name.
   if (ExpectAndConsume(tok::comma)) {
@@ -1395,7 +1400,9 @@ void Parser::ParseLexedAttribute(LateParsedAttribute &LA,
 
       // If the Decl is on a function, add function parameters to the scope.
       bool HasFunScope = EnterScope && D->isFunctionOrFunctionTemplate();
-      ParseScope FnScope(this, Scope::FnScope|Scope::DeclScope, HasFunScope);
+      ParseScope FnScope(
+          this, Scope::FnScope | Scope::DeclScope | Scope::CompoundStmtScope,
+          HasFunScope);
       if (HasFunScope)
         Actions.ActOnReenterFunctionContext(Actions.CurScope, D);
 
@@ -2598,6 +2605,7 @@ bool Parser::ParseImplicitInt(DeclSpec &DS, CXXScopeSpec *SS,
         }
       }
       // Fall through.
+      LLVM_FALLTHROUGH;
     }
     case tok::comma:
     case tok::equal:
@@ -2674,6 +2682,8 @@ Parser::getDeclSpecContextFromDeclaratorContext(unsigned Context) {
     return DSC_class;
   if (Context == Declarator::FileContext)
     return DSC_top_level;
+  if (Context == Declarator::TemplateParamContext)
+    return DSC_template_param;
   if (Context == Declarator::TemplateTypeArgContext)
     return DSC_template_type_arg;
   if (Context == Declarator::TrailingReturnContext)
@@ -3731,6 +3741,7 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
         isInvalid = true;
         break;
       };
+      LLVM_FALLTHROUGH;
     case tok::kw___private:
     case tok::kw___global:
     case tok::kw___local:
@@ -4312,7 +4323,9 @@ void Parser::ParseEnumSpecifier(SourceLocation StartLoc, DeclSpec &DS,
                                    AS, DS.getModulePrivateSpecLoc(), TParams,
                                    Owned, IsDependent, ScopedEnumKWLoc,
                                    IsScopedUsingClassTag, BaseType,
-                                   DSC == DSC_type_specifier, &SkipBody);
+                                   DSC == DSC_type_specifier,
+                                   DSC == DSC_template_param ||
+                                   DSC == DSC_template_type_arg, &SkipBody);
 
   if (SkipBody.ShouldSkip) {
     assert(TUK == Sema::TUK_Definition && "can only skip a definition");
@@ -4366,8 +4379,15 @@ void Parser::ParseEnumSpecifier(SourceLocation StartLoc, DeclSpec &DS,
     return;
   }
 
-  if (Tok.is(tok::l_brace) && TUK != Sema::TUK_Reference)
-    ParseEnumBody(StartLoc, TagDecl);
+  if (Tok.is(tok::l_brace) && TUK != Sema::TUK_Reference) {
+    Decl *D = SkipBody.CheckSameAsPrevious ? SkipBody.New : TagDecl;
+    ParseEnumBody(StartLoc, D);
+    if (SkipBody.CheckSameAsPrevious &&
+        !Actions.ActOnDuplicateDefinition(DS, TagDecl, SkipBody)) {
+      DS.SetTypeSpecError();
+      return;
+    }
+  }
 
   if (DS.SetTypeSpecType(DeclSpec::TST_enum, StartLoc,
                          NameLoc.isValid() ? NameLoc : StartLoc,
@@ -4439,11 +4459,9 @@ void Parser::ParseEnumBody(SourceLocation StartLoc, Decl *EnumDecl) {
     }
 
     // Install the enumerator constant into EnumDecl.
-    Decl *EnumConstDecl = Actions.ActOnEnumConstant(getCurScope(), EnumDecl,
-                                                    LastEnumConstDecl,
-                                                    IdentLoc, Ident,
-                                                    attrs.getList(), EqualLoc,
-                                                    AssignedVal.get());
+    Decl *EnumConstDecl = Actions.ActOnEnumConstant(
+        getCurScope(), EnumDecl, LastEnumConstDecl, IdentLoc, Ident,
+        attrs.getList(), EqualLoc, AssignedVal.get());
     EnumAvailabilityDiags.back().done();
 
     EnumConstantDecls.push_back(EnumConstDecl);
@@ -5098,6 +5116,7 @@ void Parser::ParseTypeQualifierListOpt(
         if (TryKeywordIdentFallback(false))
           continue;
       }
+      LLVM_FALLTHROUGH;
     case tok::kw___sptr:
     case tok::kw___w64:
     case tok::kw___ptr64:
@@ -5147,6 +5166,7 @@ void Parser::ParseTypeQualifierListOpt(
         continue; // do *not* consume the next token!
       }
       // otherwise, FALL THROUGH!
+      LLVM_FALLTHROUGH;
     default:
       DoneWithTypeQuals:
       // If this is not a type-qualifier token, we're done reading type
@@ -6768,7 +6788,7 @@ void Parser::ParseTypeofSpecifier(DeclSpec &DS) {
     return;
   }
 
-  // If we get here, the operand to the typeof was an expresion.
+  // If we get here, the operand to the typeof was an expression.
   if (Operand.isInvalid()) {
     DS.SetTypeSpecError();
     return;

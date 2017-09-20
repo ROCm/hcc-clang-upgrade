@@ -606,7 +606,7 @@ bool Parser::ParseUsingDeclarator(unsigned Context, UsingDeclarator &D) {
 
   if (TryConsumeToken(tok::ellipsis, D.EllipsisLoc))
     Diag(Tok.getLocation(), getLangOpts().CPlusPlus1z ?
-         diag::warn_cxx1z_compat_using_declaration_pack :
+         diag::warn_cxx17_compat_using_declaration_pack :
          diag::ext_using_declaration_pack);
 
   return false;
@@ -724,7 +724,7 @@ Parser::ParseUsingDeclaration(unsigned Context,
 
   if (DeclsInGroup.size() > 1)
     Diag(Tok.getLocation(), getLangOpts().CPlusPlus1z ?
-         diag::warn_cxx1z_compat_multi_using_declaration :
+         diag::warn_cxx17_compat_multi_using_declaration :
          diag::ext_multi_using_declaration);
 
   // Eat ';'.
@@ -841,7 +841,9 @@ Decl *Parser::ParseStaticAssertDeclaration(SourceLocation &DeclEnd){
     return nullptr;
   }
 
-  ExprResult AssertExpr(ParseConstantExpression());
+  EnterExpressionEvaluationContext ConstantEvaluated(
+      Actions, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+  ExprResult AssertExpr(ParseConstantExpressionInExprEvalContext());
   if (AssertExpr.isInvalid()) {
     SkipMalformedDecl();
     return nullptr;
@@ -1886,7 +1888,8 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
                                        SourceLocation(), false,
                                        clang::TypeResult(),
                                        DSC == DSC_type_specifier,
-                                       &SkipBody);
+                                       DSC == DSC_template_param ||
+                                       DSC == DSC_template_type_arg, &SkipBody);
 
     // If ActOnTag said the type was dependent, try again with the
     // less common call.
@@ -1908,12 +1911,22 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
     else if (getLangOpts().CPlusPlus)
       ParseCXXMemberSpecification(StartLoc, AttrFixitLoc, attrs, TagType,
                                   TagOrTempResult.get());
-    else
-      ParseStructUnionBody(StartLoc, TagType, TagOrTempResult.get());
+    else {
+      Decl *D =
+          SkipBody.CheckSameAsPrevious ? SkipBody.New : TagOrTempResult.get();
+      // Parse the definition body.
+      ParseStructUnionBody(StartLoc, TagType, D);
+      if (SkipBody.CheckSameAsPrevious &&
+          !Actions.ActOnDuplicateDefinition(DS, TagOrTempResult.get(),
+                                            SkipBody)) {
+        DS.SetTypeSpecError();
+        return;
+      }
+    }
   }
 
   if (!TagOrTempResult.isInvalid())
-    // Delayed proccessing of attributes.
+    // Delayed processing of attributes.
     Actions.ProcessDeclAttributeDelayed(TagOrTempResult.get(), attrs.getList());
 
   const char *PrevSpec = nullptr;
@@ -2708,10 +2721,7 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
     InClassInitStyle HasInClassInit = ICIS_NoInit;
     bool HasStaticInitializer = false;
     if (Tok.isOneOf(tok::equal, tok::l_brace) && PureSpecLoc.isInvalid()) {
-      if (BitfieldSize.get()) {
-        Diag(Tok, diag::err_bitfield_member_init);
-        SkipUntil(tok::comma, StopAtSemi | StopBeforeMatch);
-      } else if (DeclaratorInfo.isDeclarationOfFunction()) {
+      if (DeclaratorInfo.isDeclarationOfFunction()) {
         // It's a pure-specifier.
         if (!TryConsumePureSpecifier(/*AllowFunctionDefinition*/ false))
           // Parse it as an expression so that Sema can diagnose it.
@@ -2722,6 +2732,10 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
                      DeclSpec::SCS_typedef &&
                  !DS.isFriendSpecified()) {
         // It's a default member initializer.
+        if (BitfieldSize.get())
+          Diag(Tok, getLangOpts().CPlusPlus2a
+                        ? diag::warn_cxx17_compat_bitfield_member_init
+                        : diag::ext_bitfield_member_init);
         HasInClassInit = Tok.is(tok::equal) ? ICIS_CopyInit : ICIS_ListInit;
       } else {
         HasStaticInitializer = true;
@@ -4216,6 +4230,7 @@ void Parser::ParseMicrosoftIfExistsClassDeclaration(DeclSpec::TST TagType,
     Diag(Result.KeywordLoc, diag::warn_microsoft_dependent_exists)
       << Result.IsIfExists;
     // Fall through to skip.
+    LLVM_FALLTHROUGH;
       
   case IEB_Skip:
     Braces.skipToEnd();

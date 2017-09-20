@@ -535,9 +535,13 @@ void Preprocessor::EnterMainSourceFile() {
 
   // Start parsing the predefines.
   EnterSourceFile(FID, nullptr, SourceLocation());
+}
 
+void Preprocessor::replayPreambleConditionalStack() {
   // Restore the conditional stack from the preamble, if there is one.
   if (PreambleConditionalStack.isReplaying()) {
+    assert(CurPPLexer &&
+           "CurPPLexer is null when calling replayPreambleConditionalStack.");
     CurPPLexer->setConditionalLevels(PreambleConditionalStack.getStack());
     PreambleConditionalStack.doneReplaying();
   }
@@ -580,7 +584,11 @@ IdentifierInfo *Preprocessor::LookUpIdentifierInfo(Token &Identifier) const {
 
   // Update the token info (identifier info and appropriate token kind).
   Identifier.setIdentifierInfo(II);
-  Identifier.setKind(II->getTokenID());
+  if (getLangOpts().MSVCCompat && II->isCPlusPlusOperatorKeyword() &&
+      getSourceManager().isInSystemHeader(Identifier.getLocation()))
+    Identifier.setKind(clang::tok::identifier);
+  else
+    Identifier.setKind(II->getTokenID());
 
   return II;
 }
@@ -624,6 +632,8 @@ static diag::kind getFutureCompatDiagKind(const IdentifierInfo &II,
     return llvm::StringSwitch<diag::kind>(II.getName())
 #define CXX11_KEYWORD(NAME, FLAGS)                                             \
         .Case(#NAME, diag::warn_cxx11_keyword)
+#define CXX2A_KEYWORD(NAME, FLAGS)                                             \
+        .Case(#NAME, diag::warn_cxx2a_keyword)
 #include "clang/Basic/TokenKinds.def"
         ;
 
@@ -705,12 +715,6 @@ bool Preprocessor::HandleIdentifier(Token &Identifier) {
     // Don't diagnose this keyword again in this translation unit.
     II.setIsFutureCompatKeyword(false);
   }
-
-  // C++ 2.11p2: If this is an alternative representation of a C++ operator,
-  // then we act as if it is the actual operator and not the textual
-  // representation of it.
-  if (II.isCPlusPlusOperatorKeyword())
-    Identifier.setIdentifierInfo(nullptr);
 
   // If this is an extension token, diagnose its use.
   // We avoid diagnosing tokens that originate from macro definitions.

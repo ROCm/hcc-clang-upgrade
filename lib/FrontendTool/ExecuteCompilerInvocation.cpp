@@ -15,6 +15,7 @@
 #include "clang/FrontendTool/Utils.h"
 #include "clang/ARCMigrate/ARCMTActions.h"
 #include "clang/CodeGen/CodeGenAction.h"
+#include "clang/Config/config.h"
 #include "clang/Driver/Options.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/CompilerInvocation.h"
@@ -85,7 +86,8 @@ CreateFrontendBaseAction(CompilerInstance &CI) {
   case PrintDeclContext:       return llvm::make_unique<DeclContextPrintAction>();
   case PrintPreamble:          return llvm::make_unique<PrintPreambleAction>();
   case PrintPreprocessedInput: {
-    if (CI.getPreprocessorOutputOpts().RewriteIncludes)
+    if (CI.getPreprocessorOutputOpts().RewriteIncludes ||
+        CI.getPreprocessorOutputOpts().RewriteImports)
       return llvm::make_unique<RewriteIncludesAction>();
     return llvm::make_unique<PrintPreprocessedAction>();
   }
@@ -177,7 +179,8 @@ bool clang::ExecuteCompilerInvocation(CompilerInstance *Clang) {
     std::unique_ptr<OptTable> Opts = driver::createDriverOptTable();
     Opts->PrintHelp(llvm::outs(), "clang -cc1",
                     "LLVM 'Clang' Compiler: http://clang.llvm.org",
-                    /*Include=*/ driver::options::CC1Option, /*Exclude=*/ 0);
+                    /*Include=*/driver::options::CC1Option,
+                    /*Exclude=*/0, /*ShowAllAliases=*/false);
     return true;
   }
 

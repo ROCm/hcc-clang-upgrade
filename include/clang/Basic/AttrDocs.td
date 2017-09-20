@@ -605,19 +605,26 @@ semantics:
   for ``T`` and ``U`` to be incompatible.
 
 The declaration of ``overloadable`` functions is restricted to function
-declarations and definitions.  Most importantly, if any function with a given
-name is given the ``overloadable`` attribute, then all function declarations
-and definitions with that name (and in that scope) must have the
-``overloadable`` attribute.  This rule even applies to redeclarations of
-functions whose original declaration had the ``overloadable`` attribute, e.g.,
+declarations and definitions.  If a function is marked with the ``overloadable``
+attribute, then all declarations and definitions of functions with that name,
+except for at most one (see the note below about unmarked overloads), must have
+the ``overloadable`` attribute.  In addition, redeclarations of a function with
+the ``overloadable`` attribute must have the ``overloadable`` attribute, and
+redeclarations of a function without the ``overloadable`` attribute must *not*
+have the ``overloadable`` attribute. e.g.,
 
 .. code-block:: c
 
   int f(int) __attribute__((overloadable));
   float f(float); // error: declaration of "f" must have the "overloadable" attribute
+  int f(int); // error: redeclaration of "f" must have the "overloadable" attribute
 
   int g(int) __attribute__((overloadable));
   int g(int) { } // error: redeclaration of "g" must also have the "overloadable" attribute
+
+  int h(int);
+  int h(int) __attribute__((overloadable)); // error: declaration of "h" must not
+                                            // have the "overloadable" attribute
 
 Functions marked ``overloadable`` must have prototypes.  Therefore, the
 following code is ill-formed:
@@ -651,7 +658,28 @@ caveats to this use of name mangling:
   linkage specification, it's name *will* be mangled in the same way as it
   would in C.
 
-Query for this feature with ``__has_extension(attribute_overloadable)``.
+For the purpose of backwards compatibility, at most one function with the same
+name as other ``overloadable`` functions may omit the ``overloadable``
+attribute. In this case, the function without the ``overloadable`` attribute
+will not have its name mangled.
+
+For example:
+
+.. code-block:: c
+
+  // Notes with mangled names assume Itanium mangling.
+  int f(int);
+  int f(double) __attribute__((overloadable));
+  void foo() {
+    f(5); // Emits a call to f (not _Z1fi, as it would with an overload that
+          // was marked with overloadable).
+    f(1.0); // Emits a call to _Z1fd.
+  }
+
+Support for unmarked overloads is not present in some versions of clang. You may
+query for it using ``__has_extension(overloadable_unmarked)``.
+
+Query for this attribute with ``__has_attribute(overloadable)``.
   }];
 }
 
@@ -882,13 +910,13 @@ the function declaration for a hypothetical function ``f``:
 
   void f(void) __attribute__((availability(macos,introduced=10.4,deprecated=10.6,obsoleted=10.7)));
 
-The availability attribute states that ``f`` was introduced in Mac OS X 10.4,
-deprecated in Mac OS X 10.6, and obsoleted in Mac OS X 10.7.  This information
+The availability attribute states that ``f`` was introduced in macOS 10.4,
+deprecated in macOS 10.6, and obsoleted in macOS 10.7.  This information
 is used by Clang to determine when it is safe to use ``f``: for example, if
-Clang is instructed to compile code for Mac OS X 10.5, a call to ``f()``
-succeeds.  If Clang is instructed to compile code for Mac OS X 10.6, the call
+Clang is instructed to compile code for macOS 10.5, a call to ``f()``
+succeeds.  If Clang is instructed to compile code for macOS 10.6, the call
 succeeds but Clang emits a warning specifying that the function is deprecated.
-Finally, if Clang is instructed to compile code for Mac OS X 10.7, the call
+Finally, if Clang is instructed to compile code for macOS 10.7, the call
 fails because ``f()`` is no longer available.
 
 The availability attribute is a comma-separated list starting with the
@@ -933,7 +961,7 @@ are:
   command-line arguments.
 
 ``macos``
-  Apple's Mac OS X operating system.  The minimum deployment target is
+  Apple's macOS operating system.  The minimum deployment target is
   specified by the ``-mmacosx-version-min=*version*`` command-line argument.
   ``macosx`` is supported for backward-compatibility reasons, but it is
   deprecated.
@@ -987,6 +1015,19 @@ When one method overrides another, the overriding method can be more widely avai
   - (id)method __attribute__((availability(macos,introduced=10.3))); // okay: method moved into base class later
   - (id)method __attribute__((availability(macos,introduced=10.5))); // error: this method was available via the base class in 10.4
   @end
+
+Starting with the macOS 10.12 SDK, the ``API_AVAILABLE`` macro from
+``<os/availability.h>`` can simplify the spelling:
+
+.. code-block:: objc
+
+  @interface A
+  - (id)method API_AVAILABLE(macos(10.11)));
+  - (id)otherMethod API_AVAILABLE(macos(10.11), ios(11.0));
+  @end
+
+Also see the documentation for `@available
+<http://clang.llvm.org/docs/LanguageExtensions.html#objective-c-available>`_
   }];
 }
 
@@ -1279,6 +1320,49 @@ or not to generate microMIPS code for that function.
 
 These attributes override the `-mmicromips` and `-mno-micromips` options
 on the command line.
+  }];
+}
+
+def MipsLongCallStyleDocs : Documentation {
+  let Category = DocCatFunction;
+  let Heading = "long_call (gnu::long_call, gnu::far)";
+  let Content = [{
+Clang supports the ``__attribute__((long_call))``, ``__attribute__((far))``,
+and ``__attribute__((near))`` attributes on MIPS targets. These attributes may
+only be added to function declarations and change the code generated
+by the compiler when directly calling the function. The ``near`` attribute
+allows calls to the function to be made using the ``jal`` instruction, which
+requires the function to be located in the same naturally aligned 256MB
+segment as the caller.  The ``long_call`` and ``far`` attributes are synonyms
+and require the use of a different call sequence that works regardless
+of the distance between the functions.
+
+These attributes have no effect for position-independent code.
+
+These attributes take priority over command line switches such
+as ``-mlong-calls`` and ``-mno-long-calls``.
+  }];
+}
+
+def MipsShortCallStyleDocs : Documentation {
+  let Category = DocCatFunction;
+  let Heading = "short_call (gnu::short_call, gnu::near)";
+  let Content = [{
+Clang supports the ``__attribute__((long_call))``, ``__attribute__((far))``,
+``__attribute__((short__call))``, and ``__attribute__((near))`` attributes
+on MIPS targets. These attributes may only be added to function declarations
+and change the code generated by the compiler when directly calling
+the function. The ``short_call`` and ``near`` attributes are synonyms and
+allow calls to the function to be made using the ``jal`` instruction, which
+requires the function to be located in the same naturally aligned 256MB segment
+as the caller.  The ``long_call`` and ``far`` attributes are synonyms and
+require the use of a different call sequence that works regardless
+of the distance between the functions.
+
+These attributes have no effect for position-independent code.
+
+These attributes take priority over command line switches such
+as ``-mlong-calls`` and ``-mno-long-calls``.
   }];
 }
 
@@ -2769,6 +2853,31 @@ For example:
   In this case, on 32-bit x86 targets, the function 'f' will use ECX and EDX as
   register parameters. However, it will not assume any scratch registers and
   should save and restore any modified registers except for ECX and EDX.
+  }];
+}
+
+def X86ForceAlignArgPointerDocs : Documentation {
+  let Category = DocCatFunction;
+  let Content = [{
+Use this attribute to force stack alignment.
+
+Legacy x86 code uses 4-byte stack alignment. Newer aligned SSE instructions
+(like 'movaps') that work with the stack require operands to be 16-byte aligned.
+This attribute realigns the stack in the function prologue to make sure the
+stack can be used with SSE instructions.
+
+Note that the x86_64 ABI forces 16-byte stack alignment at the call site.
+Because of this, 'force_align_arg_pointer' is not needed on x86_64, except in
+rare cases where the caller does not align the stack properly (e.g. flow
+jumps from i386 arch code).
+
+  .. code-block:: c
+
+    __attribute__ ((force_align_arg_pointer))
+    void f () {
+      ...
+    }
+
   }];
 }
 
