@@ -207,31 +207,32 @@ namespace
   llvm::GlobalVariable *AdjustStaticForHCCAcceleratorPath(
     CodeGenModule& CGM, const VarDecl &D, llvm::GlobalVariable* staticVar)
   {
-    const bool isHCCAcceleratorPath =
-      CGM.getLangOpts().CPlusPlusAMP && CGM.getLangOpts().DevicePath;
-    const bool isAcceleratorLocal =
-      D.hasAttr<AnnotateAttr>() &&
-      D.getAttr<AnnotateAttr>()->getAnnotation() == "accelerator";
-
-    if (isHCCAcceleratorPath && !isAcceleratorLocal) {
-      const auto name = staticVar->getName().str();
-      staticVar->setName("");
-
-      llvm::GlobalVariable *tmp = new llvm::GlobalVariable(
-        CGM.getModule(),
-        staticVar->getValueType(),
-        staticVar->isConstant(),
-        llvm::GlobalVariable::LinkageTypes::AvailableExternallyLinkage,
-        nullptr,
-        name,
-        nullptr,
-        llvm::GlobalVariable::NotThreadLocal,
-        LangAS::opencl_global);
-      staticVar->dropAllReferences();
-      staticVar->replaceAllUsesWith(tmp);
-      staticVar->eraseFromParent();
-      staticVar = tmp;
+    if (!CGM.getLangOpts().CPlusPlusAMP || !CGM.getLangOpts().DevicePath) {
+      return staticVar;
     }
+    if (D.hasAttr<HCCTileStaticAttr>()) return staticVar;
+    if (D.hasAttr<AnnotateAttr>() &&
+      D.getAttr<AnnotateAttr>()->getAnnotation() == "accelerator") {
+      return staticVar;
+    }
+
+    const auto name = staticVar->getName().str();
+    staticVar->setName("");
+
+    llvm::GlobalVariable *tmp = new llvm::GlobalVariable(
+      CGM.getModule(),
+      staticVar->getValueType(),
+      staticVar->isConstant(),
+      llvm::GlobalVariable::LinkageTypes::AvailableExternallyLinkage,
+      nullptr,
+      name,
+      nullptr,
+      llvm::GlobalVariable::NotThreadLocal,
+      LangAS::opencl_global);
+    staticVar->dropAllReferences();
+    staticVar->replaceAllUsesWith(tmp);
+    staticVar->eraseFromParent();
+    staticVar = tmp;
 
     return staticVar;
   }
