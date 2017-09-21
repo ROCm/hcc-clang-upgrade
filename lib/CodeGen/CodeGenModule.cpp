@@ -1799,8 +1799,9 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
       // Since we will emit both CPU codes and GPU codes to make C++ mangling
       // algorithm happy, we won't reject anything other than ones with only
       // restrict(cpu).  Another optimization pass will remove all CPU codes.
-      if (!Global->hasAttr<CXXAMPRestrictAMPAttr>() &&
-         Global->hasAttr<CXXAMPRestrictCPUAttr>())
+      if (!isa<VarDecl>(Global) &&
+          !Global->hasAttr<CXXAMPRestrictAMPAttr>() &&
+          Global->hasAttr<CXXAMPRestrictCPUAttr>())
         return;
     } else {
       // In host path:
@@ -2065,14 +2066,16 @@ namespace
       if (d_.count(x)) return d_[x];
 
       bool r = true;
-
-      if (!x->hasAttr<HCCTileStaticAttr>() &&
-          (x->isStaticLocal() ||
+      if ((!x->hasAttr<AnnotateAttr>() ||
+        x->getAttr<AnnotateAttr>()->getAnnotation() != "accelerator") &&
+          (x->hasGlobalStorage() ||
           x->hasExternalStorage() ||
-          x->hasGlobalStorage() ||
-          x->isExceptionVariable()))  {
+          x->isStaticLocal() ||
+          x->isStaticDataMember() ||
+          x->isFileVarDecl())) {
             r = false;
-      }
+          }
+      if (x->isExceptionVariable()) r = false;
 
       d_[x] = r;
 
@@ -2152,7 +2155,7 @@ void CodeGenModule::EmitGlobalDefinition(GlobalDecl GD, llvm::GlobalValue *GV) {
       if (!isWhiteListForHCC(*this, GD)) return;
     }
     else {
-      if (!isa<VarDecl>(D) && // TODO: this should be re-assessed.
+      if (!isa<VarDecl>(D) &&
           D->hasAttr<CXXAMPRestrictAMPAttr>() &&
           !D->hasAttr<CXXAMPRestrictCPUAttr>()) {
         return;
@@ -2605,6 +2608,48 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
         D->getType().isConstant(Context) &&
         isExternallyVisible(D->getLinkageAndVisibility().getLinkage()))
       GV->setSection(".cp.rodata");
+
+    // Check if we a have a const declaration with an initializer, we may be
+    // able to emit it as available_externally to expose it's value to the
+    // optimizer.
+    if (Context.getLangOpts().CPlusPlus && GV->hasExternalLinkage() &&
+        D->getType().isConstQualified() && !GV->hasInitializer() &&
+        !D->hasDefinition() && D->hasInit() && !D->hasAttr<DLLImportAttr>()) {
+      const auto *Record =
+          Context.getBaseElementType(D->getType())->getAsCXXRecordDecl();
+      bool HasMutableFields = Record && Record->hasMutableFields();
+      if (!HasMutableFields) {
+        const VarDecl *InitDecl;
+        const Expr *InitExpr = D->getAnyInitializer(InitDecl);
+        if (InitExpr) {
+          ConstantEmitter emitter(*this);
+          llvm::Constant *Init = emitter.tryEmitForInitializer(*InitDecl);
+          if (Init) {
+            auto *InitType = Init->getType();
+            if (GV->getType()->getElementType() != InitType) {
+              // The type of the initializer does not match the definition.
+              // This happens when an initializer has a different type from
+              // the type of the global (because of padding at the end of a
+              // structure for instance).
+              GV->setName(StringRef());
+              // Make a new global with the correct type, this is now guaranteed
+              // to work.
+              auto *NewGV = cast<llvm::GlobalVariable>(
+                  GetAddrOfGlobalVar(D, InitType, IsForDefinition));
+
+              // Erase the old global, since it is no longer used.
+              cast<llvm::GlobalValue>(GV)->eraseFromParent();
+              GV = NewGV;
+            } else {
+              GV->setInitializer(Init);
+              GV->setConstant(true);
+              GV->setLinkage(llvm::GlobalValue::AvailableExternallyLinkage);
+            }
+            emitter.finalize(GV);
+          }
+        }
+      }
+    }
   }
 
   auto ExpectedAS =

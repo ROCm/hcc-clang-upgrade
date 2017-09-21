@@ -202,6 +202,42 @@ static std::string getStaticDeclName(CodeGenModule &CGM, const VarDecl &D) {
   return ContextName;
 }
 
+namespace
+{
+  llvm::GlobalVariable *AdjustStaticForHCCAcceleratorPath(
+    CodeGenModule& CGM, const VarDecl &D, llvm::GlobalVariable* staticVar)
+  {
+    if (!CGM.getLangOpts().CPlusPlusAMP || !CGM.getLangOpts().DevicePath) {
+      return staticVar;
+    }
+    if (D.hasAttr<HCCTileStaticAttr>()) return staticVar;
+    if (D.hasAttr<AnnotateAttr>() &&
+      D.getAttr<AnnotateAttr>()->getAnnotation() == "accelerator") {
+      return staticVar;
+    }
+
+    const auto name = staticVar->getName().str();
+    staticVar->setName("");
+
+    llvm::GlobalVariable *tmp = new llvm::GlobalVariable(
+      CGM.getModule(),
+      staticVar->getValueType(),
+      staticVar->isConstant(),
+      llvm::GlobalVariable::LinkageTypes::AvailableExternallyLinkage,
+      nullptr,
+      name,
+      nullptr,
+      llvm::GlobalVariable::NotThreadLocal,
+      LangAS::opencl_global);
+    staticVar->dropAllReferences();
+    staticVar->replaceAllUsesWith(tmp);
+    staticVar->eraseFromParent();
+    staticVar = tmp;
+
+    return staticVar;
+  }
+}
+
 llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
     const VarDecl &D, llvm::GlobalValue::LinkageTypes Linkage) {
   // In general, we don't always emit static var decls once before we reference
@@ -239,6 +275,8 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
       nullptr, llvm::GlobalVariable::NotThreadLocal, TargetAS);
   GV->setAlignment(getContext().getDeclAlign(&D).getQuantity());
   setGlobalVisibility(GV, &D);
+
+  GV = AdjustStaticForHCCAcceleratorPath(*this, D, GV);
 
   if (supportsCOMDAT() && GV->isWeakForLinker())
     GV->setComdat(TheModule.getOrInsertComdat(GV->getName()));
@@ -382,6 +420,15 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   // Check to see if we already have a global variable for this
   // declaration.  This can happen when double-emitting function
   // bodies, e.g. with complete and base constructors.
+  // TODO: the HCC specific bits are too verbose and temporary.
+  const bool isHCCAcceleratorPath =
+    getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath;
+  const bool isAcceleratorLocal =
+    D.hasAttr<AnnotateAttr>() &&
+    D.getAttr<AnnotateAttr>()->getAnnotation() == "accelerator";
+
+  if (!isHCCAcceleratorPath && isAcceleratorLocal) return;
+
   llvm::Constant *addr = CGM.getOrCreateStaticVarDecl(D, Linkage);
   CharUnits alignment = getContext().getDeclAlign(&D);
 
@@ -407,8 +454,6 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   // a no-op and should not be emitted.
   bool isCudaSharedVar = getLangOpts().CUDA && getLangOpts().CUDAIsDevice &&
                          D.hasAttr<CUDASharedAttr>();
-  bool isHCCAcceleratorPath =
-      getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath;
   // If this value has an initializer, emit it.
   if (D.getInit() && !isCudaSharedVar && !isHCCAcceleratorPath)
     var = AddInitializerToStaticVarDecl(D, var);
