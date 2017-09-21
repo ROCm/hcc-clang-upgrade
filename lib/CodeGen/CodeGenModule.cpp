@@ -3738,6 +3738,10 @@ CodeGenModule::GetAddrOfConstantCFString(const StringLiteral *Literal) {
   return ConstantAddress(GV, Alignment);
 }
 
+bool CodeGenModule::getExpressionLocationsEnabled() const {
+  return !CodeGenOpts.EmitCodeView || CodeGenOpts.DebugColumnInfo;
+}
+
 QualType CodeGenModule::getObjCFastEnumerationStateType() {
   if (ObjCFastEnumerationStateType.isNull()) {
     RecordDecl *D = Context.buildImplicitRecord("__objcFastEnumerationState");
