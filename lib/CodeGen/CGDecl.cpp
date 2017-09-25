@@ -204,37 +204,25 @@ static std::string getStaticDeclName(CodeGenModule &CGM, const VarDecl &D) {
 
 namespace
 {
-  llvm::GlobalVariable *AdjustStaticForHCCAcceleratorPath(
-    CodeGenModule& CGM, const VarDecl &D, llvm::GlobalVariable* staticVar)
+  inline
+  bool isAcceleratorPath(const CodeGenModule& CGM)
   {
-    if (!CGM.getLangOpts().CPlusPlusAMP || !CGM.getLangOpts().DevicePath) {
-      return staticVar;
-    }
-    if (D.hasAttr<HCCTileStaticAttr>()) return staticVar;
-    if (D.hasAttr<AnnotateAttr>() &&
-      D.getAttr<AnnotateAttr>()->getAnnotation() == "accelerator") {
-      return staticVar;
-    }
+    return CGM.getLangOpts().CPlusPlusAMP && CGM.getLangOpts().DevicePath;
+  }
 
-    const auto name = staticVar->getName().str();
-    staticVar->setName("");
+  inline
+  bool isAcceleratorLocal(const VarDecl& D)
+  {
+    static constexpr const char accelerator_local[] = "accelerator";
 
-    llvm::GlobalVariable *tmp = new llvm::GlobalVariable(
-      CGM.getModule(),
-      staticVar->getValueType(),
-      staticVar->isConstant(),
-      llvm::GlobalVariable::LinkageTypes::AvailableExternallyLinkage,
-      nullptr,
-      name,
-      nullptr,
-      llvm::GlobalVariable::NotThreadLocal,
-      LangAS::opencl_global);
-    staticVar->dropAllReferences();
-    staticVar->replaceAllUsesWith(tmp);
-    staticVar->eraseFromParent();
-    staticVar = tmp;
+    return D.hasAttr<AnnotateAttr>() &&
+      D.getAttr<AnnotateAttr>()->getAnnotation() == accelerator_local;
+  }
 
-    return staticVar;
+  inline
+  bool isTileStatic(const VarDecl& D)
+  {
+    return D.hasAttr<HCCTileStaticAttr>();
   }
 }
 
@@ -264,19 +252,22 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
   // Local address space cannot have an initializer.
   // HCC tile_static variables cannot have an initializer.
   llvm::Constant *Init = nullptr;
-  if (Ty.getAddressSpace() != LangAS::opencl_local &&
-      !D.hasAttr<HCCTileStaticAttr>())
+  if (Ty.getAddressSpace() != LangAS::opencl_local && !isTileStatic(D))
     Init = EmitNullConstant(Ty);
   else
     Init = llvm::UndefValue::get(LTy);
+
+  if (isAcceleratorPath(*this) && !isTileStatic(D) && !isAcceleratorLocal(D)) {
+    Linkage = llvm::GlobalVariable::LinkageTypes::ExternalLinkage;
+    Init = nullptr;
+    TargetAS = LangAS::opencl_global;
+  }
 
   llvm::GlobalVariable *GV = new llvm::GlobalVariable(
       getModule(), LTy, Ty.isConstant(getContext()), Linkage, Init, Name,
       nullptr, llvm::GlobalVariable::NotThreadLocal, TargetAS);
   GV->setAlignment(getContext().getDeclAlign(&D).getQuantity());
   setGlobalVisibility(GV, &D);
-
-  GV = AdjustStaticForHCCAcceleratorPath(*this, D, GV);
 
   if (supportsCOMDAT() && GV->isWeakForLinker())
     GV->setComdat(TheModule.getOrInsertComdat(GV->getName()));
@@ -295,7 +286,7 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
   unsigned ExpectedAS = Ty.getAddressSpace();
 
   // HCC tile_static pointer would be in generic address space
-  if (D.hasAttr<HCCTileStaticAttr>()) {
+  if (isTileStatic(D)) {
     ExpectedAS = LangAS::hcc_generic;
   }
 
