@@ -17,6 +17,8 @@
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/Path.h"
 
+#include "hcc_config.hxx"
+
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -321,6 +323,61 @@ void HCC::CXXAMPLink::ConstructJob(
         HCC_TOOLCHAIN_RHEL) {
         CmdArgs.push_back("-lstdc++");
     }
+
+    if (getenv("HCC_BUILD")) {
+        CmdArgs.push_back("-L" CMAKE_BUILD_LIB_DIR);
+        CmdArgs.push_back("--rpath=" CMAKE_BUILD_LIB_DIR);
+
+        CmdArgs.push_back("-L" CMAKE_BUILD_COMPILER_RT_LIB_DIR);
+        CmdArgs.push_back("--rpath=" CMAKE_BUILD_COMPILER_RT_LIB_DIR);
+    }
+    else {
+        std::string path_hcc_lib;
+
+        if (const char *p = getenv("HCC_HOME")) {
+            path_hcc_lib = std::string(p) + std::string("/lib");
+        }
+        else {
+            path_hcc_lib = C.getDriver().Dir + "/../../" + CMAKE_INSTALL_LIB;
+        }
+
+        HCCLibPath = "-L" + path_hcc_lib;
+        CmdArgs.push_back(HCCLibPath.c_str());
+
+        HCCRLibPath = "--rpath=" + path_hcc_lib;
+        CmdArgs.push_back(HCCRLibPath.c_str());
+    }
+
+    if (getenv("HCC_GTEST")) {
+        if (getenv("HCC_BUILD")) {
+            CmdArgs.push_back("-L" CMAKE_BUILD_LIB_DIR);
+        }
+        CmdArgs.push_back("-lmcwamp_gtest");
+    }
+
+    #ifdef USE_LIBCXX
+        CmdArgs.push_back("-stdlib=libc++");
+        CmdArgs.push_back("-lc++");
+        CmdArgs.push_back("-lc++abi");
+    #endif
+
+    CmdArgs.push_back("-ldl");
+    CmdArgs.push_back("-lm");
+    CmdArgs.push_back("-lpthread");
+    CmdArgs.push_back("-lunwind");
+
+    if (const char *p = getenv("TEST_CPU"))
+        if (p == std::string("ON"))
+            CmdArgs.push_back("-lmcwamp_atomic");
+
+    CmdArgs.push_back("--whole-archive");
+    CmdArgs.push_back("-lmcwamp");
+    CmdArgs.push_back("--no-whole-archive");
+
+    #ifdef CODEXL_ACTIVITY_LOGGER_ENABLED
+        CmdArgs.push_back("-L" XSTR(CODEXL_ACTIVITY_LOGGER_LIBRARY));
+        CmdArgs.push_back("-lCXLActivityLogger");
+    #endif
 
     // specify AMDGPU target
     constexpr const char auto_tgt[] = "auto";
