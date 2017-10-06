@@ -2088,7 +2088,8 @@ static bool isWhiteListForHCC(CodeGenModule &CGM, GlobalDecl GD) {
         ClassName.find("numeric_limits") != StringRef::npos ||
         ClassName.find("pair") != StringRef::npos ||
         ClassName.find("complex") != StringRef::npos ||
-        MangledName.find("experimental8parallel") != StringRef::npos) {
+        MangledName.find("experimental8parallel") != StringRef::npos ||
+        MangledName.find("6thrust") != StringRef::npos) {
       return true;
     }
   }
