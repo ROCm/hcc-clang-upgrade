@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -std=c++1z -verify %s
+// RUN: %clang_cc1 -fsyntax-only -fdouble-square-bracket-attributes -verify %s
 
 void f(int n) {
   switch (n) {
@@ -15,15 +15,15 @@ void f(int n) {
     for (int n = 0; n != 10; ++n)
       [[fallthrough]]; // expected-error {{does not directly precede switch label}}
   case 3:
-    while (true)
+    while (1)
       [[fallthrough]]; // expected-error {{does not directly precede switch label}}
   case 4:
-    while (false)
+    while (0)
       [[fallthrough]]; // expected-error {{does not directly precede switch label}}
   case 5:
-    do [[fallthrough]]; while (true); // expected-error {{does not directly precede switch label}}
+    do [[fallthrough]]; while (1); // expected-error {{does not directly precede switch label}}
   case 6:
-    do [[fallthrough]]; while (false); // expected-error {{does not directly precede switch label}}
+    do [[fallthrough]]; while (0); // expected-error {{does not directly precede switch label}}
   case 7:
     switch (n) {
     case 0:
@@ -43,15 +43,19 @@ void f(int n) {
   }
 }
 
-[[fallthrough]] typedef int n; // expected-error {{'fallthrough' attribute cannot be applied to a declaration}}
-typedef int [[fallthrough]] n; // expected-error {{'fallthrough' attribute cannot be applied to types}}
-typedef int n [[fallthrough]]; // expected-error {{'fallthrough' attribute cannot be applied to a declaration}}
+[[fallthrough]] typedef int n1; // expected-error {{'fallthrough' attribute cannot be applied to a declaration}}
+typedef int [[fallthrough]] n2; // expected-error {{'fallthrough' attribute cannot be applied to types}}
+typedef int n3 [[fallthrough]]; // expected-error {{'fallthrough' attribute cannot be applied to a declaration}}
 
-enum [[fallthrough]] E {}; // expected-error {{'fallthrough' attribute cannot be applied to a declaration}}
-class [[fallthrough]] C {}; // expected-error {{'fallthrough' attribute cannot be applied to a declaration}}
+enum [[fallthrough]] E { // expected-error {{'fallthrough' attribute cannot be applied to a declaration}}
+  One
+};
+struct [[fallthrough]] S { // expected-error {{'fallthrough' attribute cannot be applied to a declaration}}
+  int i;
+};
 
 [[fallthrough]] // expected-error {{'fallthrough' attribute cannot be applied to a declaration}}
-void g() {
+void g(void) {
   [[fallthrough]] int n; // expected-error {{'fallthrough' attribute cannot be applied to a declaration}}
   [[fallthrough]] ++n; // expected-error-re {{{{^}}fallthrough attribute is only allowed on empty statements}}
 
@@ -68,3 +72,4 @@ void g() {
     break;
   }
 }
+
