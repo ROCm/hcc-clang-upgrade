@@ -246,7 +246,7 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
     Name = getStaticDeclName(*this, D);
 
   llvm::Type *LTy = getTypes().ConvertTypeForMem(Ty);
-  unsigned AS = GetGlobalVarAddressSpace(&D);
+  LangAS AS = GetGlobalVarAddressSpace(&D);
   unsigned TargetAS = getContext().getTargetAddressSpace(AS);
 
   // Local address space cannot have an initializer.
@@ -260,7 +260,7 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
   if (isAcceleratorPath(*this) && !isTileStatic(D) && !isAcceleratorLocal(D)) {
     Linkage = llvm::GlobalVariable::LinkageTypes::ExternalLinkage;
     Init = nullptr;
-    TargetAS = LangAS::opencl_global;
+    TargetAS = getContext().getTargetAddressSpace(LangAS::opencl_global);
   }
 
   llvm::GlobalVariable *GV = new llvm::GlobalVariable(
@@ -283,7 +283,7 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
   }
 
   // Make sure the result is of the correct type.
-  unsigned ExpectedAS = Ty.getAddressSpace();
+  LangAS ExpectedAS = Ty.getAddressSpace();
 
   // HCC tile_static pointer would be in generic address space
   if (isTileStatic(D)) {
@@ -1002,6 +1002,9 @@ void CodeGenFunction::EmitLifetimeEnd(llvm::Value *Size, llvm::Value *Addr) {
 CodeGenFunction::AutoVarEmission
 CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D) {
   QualType Ty = D.getType();
+  assert(
+      Ty.getAddressSpace() == LangAS::Default ||
+      (Ty.getAddressSpace() == LangAS::opencl_private && getLangOpts().OpenCL));
 
   AutoVarEmission emission(D);
 
