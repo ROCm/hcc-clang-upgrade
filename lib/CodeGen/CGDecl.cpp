@@ -260,7 +260,7 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
   if (isAcceleratorPath(*this) && !isTileStatic(D) && !isAcceleratorLocal(D)) {
     Linkage = llvm::GlobalVariable::LinkageTypes::ExternalLinkage;
     Init = nullptr;
-    TargetAS = LangAS::opencl_global;
+    TargetAS = getContext().getTargetAddressSpace(LangAS::opencl_global);
   }
 
   llvm::GlobalVariable *GV = new llvm::GlobalVariable(
