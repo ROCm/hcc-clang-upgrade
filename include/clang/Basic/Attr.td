@@ -210,6 +210,10 @@ class CXX11<string namespace, string name, int version = 1>
   string Namespace = namespace;
   int Version = version;
 }
+class C2x<string namespace, string name> : Spelling<name, "C2x"> {
+  string Namespace = namespace;
+}
+
 class Keyword<string name> : Spelling<name, "Keyword">;
 class Pragma<string namespace, string name> : Spelling<name, "Pragma"> {
   string Namespace = namespace;
@@ -971,7 +975,7 @@ def RenderScriptKernel : Attr {
 
 def Deprecated : InheritableAttr {
   let Spellings = [GCC<"deprecated">, Declspec<"deprecated">,
-                   CXX11<"","deprecated", 201309>];
+                   CXX11<"","deprecated", 201309>, C2x<"", "deprecated">];
   let Args = [StringArgument<"Message", 1>,
               // An optional string argument that enables us to provide a
               // Fix-It.
@@ -1018,7 +1022,7 @@ def ExtVectorType : Attr {
 }
 
 def FallThrough : StmtAttr {
-  let Spellings = [CXX11<"", "fallthrough", 201603>,
+  let Spellings = [CXX11<"", "fallthrough", 201603>, C2x<"", "fallthrough">,
                    CXX11<"clang", "fallthrough">];
 //  let Subjects = [NullStmt];
   let Documentation = [FallthroughDocs];
@@ -1961,7 +1965,8 @@ def ObjCRequiresPropertyDefs : InheritableAttr {
 }
 
 def Unused : InheritableAttr {
-  let Spellings = [CXX11<"", "maybe_unused", 201603>, GCC<"unused">];
+  let Spellings = [CXX11<"", "maybe_unused", 201603>, GCC<"unused">,
+                   C2x<"", "maybe_unused">];
   let Subjects = SubjectList<[Var, ObjCIvar, Type, Enum, EnumConstant, Label,
                               Field, ObjCMethod, FunctionLike], WarnDiag,
                              "ExpectedForMaybeUnused">;
@@ -2029,10 +2034,10 @@ def WarnUnused : InheritableAttr {
 }
 
 def WarnUnusedResult : InheritableAttr {
-  let Spellings = [CXX11<"", "nodiscard", 201603>,
+  let Spellings = [CXX11<"", "nodiscard", 201603>, C2x<"", "nodiscard">,
                    CXX11<"clang", "warn_unused_result">,
                    GCC<"warn_unused_result">];
-  let Subjects = SubjectList<[ObjCMethod, Enum, CXXRecord, FunctionLike],
+  let Subjects = SubjectList<[ObjCMethod, Enum, Record, FunctionLike],
                              WarnDiag, "ExpectedFunctionMethodEnumOrClass">;
   let Documentation = [WarnUnusedResultsDocs];
 }
@@ -2069,7 +2074,7 @@ def AnyX86Interrupt : InheritableAttr, TargetSpecificAttr<TargetAnyX86> {
   let Subjects = SubjectList<[HasFunctionProto]>;
   let ParseKind = "Interrupt";
   let HasCustomParsing = 1;
-  let Documentation = [AnyX86InterruptDocs];
+  let Documentation = [Undocumented];
 }
 
 def AnyX86NoCallerSavedRegisters : InheritableAttr,
