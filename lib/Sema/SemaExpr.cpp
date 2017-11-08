@@ -14214,21 +14214,6 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
       }
     } else if (Constructor->getInheritedConstructor()) {
       DefineInheritingConstructor(Loc, Constructor);
-    } else if (LangOpts.CPlusPlusAMP) {
-      if (Constructor->hasAttr<CXXAMPRestrictAMPAttr>() &&
-          Constructor->hasAttr<AnnotateAttr>() &&
-          Constructor->getAttr<AnnotateAttr>()->getAnnotation() ==
-            "auto_deserialize") {
-#if 0
-        DeclarationNameInfo  AmpFunInfo = Func -> getNameInfo();
-        std::string MethodFunName = AmpFunInfo.getAsString();
-        llvm::errs() << "Definiting Function = " << MethodFunName << "\n";
-#endif
-
-        // do not generate deserializer in case there are previous errors
-        if (!this->getDiagnostics().hasErrorOccurred())
-          DefineAmpGpuDeSerializeFunction(Loc, Constructor);
-      }
     }
   } else if (CXXDestructorDecl *Destructor =
                  dyn_cast<CXXDestructorDecl>(Func)) {
@@ -14241,16 +14226,7 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
     if (Destructor->isVirtual() && getLangOpts().AppleKext)
       MarkVTableUsed(Loc, Destructor->getParent());
   } else if (CXXMethodDecl *MethodDecl = dyn_cast<CXXMethodDecl>(Func)) {
-    // C++AMP
-    DeclarationNameInfo  AmpFunInfo = Func -> getNameInfo();
-    std::string MethodFunName = AmpFunInfo.getAsString();
-    std::string AmpFunName = "__cxxamp_serialize";
-    if (AmpFunName == MethodFunName) {
-      DefineAmpCpuSerializeFunction(Loc, MethodDecl);
-    } else if (MethodFunName == "__cxxamp_trampoline"||
-         MethodFunName == "__cxxamp_trampoline_name") {
-      DefineAMPTrampoline(Loc, MethodDecl);
-    } else if (MethodDecl->isOverloadedOperator()) {
+    if (MethodDecl->isOverloadedOperator()) {
       if (isHIPFunctor(MethodDecl)) { // TODO: temporary.
         auto t = findCall(MethodDecl->getBody());
         if (t) {

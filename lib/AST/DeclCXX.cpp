@@ -464,17 +464,6 @@ bool CXXRecordDecl::isTriviallyCopyable() const {
   return true;
 }
 
-CXXMethodDecl *CXXRecordDecl::getCXXAMPDeserializationConstructor() const {
-  CXXMethodDecl *Deserializer = NULL;
-  for (ctor_iterator CtorIt = ctor_begin(), CtorE = ctor_end();
-      CtorIt != CtorE; ++CtorIt) {
-    if (CtorIt->hasAttr<AnnotateAttr>())
-        if (CtorIt->getAttr<AnnotateAttr>()->getAnnotation().find("deserialize") != StringRef::npos)
-            Deserializer = *CtorIt;
-  }
-  return Deserializer;
-}
-
 void CXXRecordDecl::markedVirtualFunctionPure() {
   // C++ [class.abstract]p2: 
   //   A class is abstract if it has at least one pure virtual function.

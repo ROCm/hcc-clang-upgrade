@@ -775,14 +775,13 @@ namespace
   inline
   bool is_hcc_kernel_wrapper(const FunctionDecl* f)
   {
-    static constexpr const char pre[] = "Kernel_wrapper";
-
     if (!isa<CXXMethodDecl>(f)) return false;
 
     auto call_op = cast<CXXMethodDecl>(f);
 
     return call_op->getOverloadedOperator() == OO_Call &&
-      call_op->getParent()->getName().find(pre) != StringRef::npos;
+      call_op->hasAttr<AnnotateAttr>() &&
+      call_op->getAttr<AnnotateAttr>()->getAnnotation() == "__HC_kernel__";
   }
 }
 
@@ -956,13 +955,13 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   if (getLangOpts().CPlusPlusAMP) {
     if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D)) {
       if (is_hcc_kernel_wrapper(FD) ||
-        (FD->hasAttr<AnnotateAttr>() &&
-         FD->getAttr<AnnotateAttr>()->getAnnotation() ==
-           "__HIP_global_function__")) {
+          (FD->hasAttr<AnnotateAttr>() &&
+           FD->getAttr<AnnotateAttr>()->getAnnotation() ==
+             "__HIP_global_function__")) {
         Fn->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
         Fn->setDoesNotRecurse();
         Fn->setDoesNotThrow();
-        Fn->setLinkage(llvm::Function::LinkageTypes::WeakODRLinkage);
+        Fn->setLinkage(llvm::GlobalValue::LinkageTypes::WeakODRLinkage);
       }
     }
   }
@@ -1337,16 +1336,6 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     EmitDestructorBody(Args);
   else if (isa<CXXConstructorDecl>(FD))
     EmitConstructorBody(Args);
-  else if (getContext().getLangOpts().CPlusPlusAMP &&
-           CGM.getCodeGenOpts().AMPIsDevice &&
-           FD->hasAttr<AnnotateAttr>() &&
-           FD->getAttr<AnnotateAttr>()->getAnnotation() == "__cxxamp_trampoline")
-    CGM.getAMPRuntime().EmitTrampolineBody(*this, FD, Args);
-  else if (getContext().getLangOpts().CPlusPlusAMP &&
-           (!CGM.getCodeGenOpts().AMPIsDevice || CGM.getCodeGenOpts().AMPCPU)&&
-           FD->hasAttr<AnnotateAttr>() &&
-           FD->getAttr<AnnotateAttr>()->getAnnotation() == "__cxxamp_trampoline_name")
-    CGM.getAMPRuntime().EmitTrampolineNameBody(*this, FD, Args);
   else if (getContext().getLangOpts().CPlusPlus &&
            (!CGM.getCodeGenOpts().AMPIsDevice || CGM.getCodeGenOpts().AMPCPU) &&
            FD->hasAttr<AnnotateAttr>() &&

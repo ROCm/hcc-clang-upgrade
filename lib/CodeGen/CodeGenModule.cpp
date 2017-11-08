@@ -2076,21 +2076,29 @@ namespace
     // TODO: this does not yet include the actual checking of function bodies.
     std::unordered_map<const Decl*, bool> d_;
 
+    static
+    bool isAcceleratorLocal_(const VarDecl* x)
+    { // This is the HCC expression of the HSA concept of an agent allocated
+      // global variable.
+      static constexpr const char accelerator_local[] = "accelerator";
+
+      return x->hasAttr<AnnotateAttr>() &&
+        x->getAttr<AnnotateAttr>()->getAnnotation() == accelerator_local;
+    }
+
+    static
+    bool isGlobal_(const VarDecl* x)
+    {
+      return x->isFileVarDecl() || x->hasGlobalStorage();
+    }
+
     bool allowed_(const VarDecl* x)
     {
       if (!x) return true;
       if (d_.count(x)) return d_[x];
 
       bool r = true;
-      if ((!x->hasAttr<AnnotateAttr>() ||
-        x->getAttr<AnnotateAttr>()->getAnnotation() != "accelerator") &&
-          (x->hasGlobalStorage() ||
-          x->hasExternalStorage() ||
-          x->isStaticLocal() ||
-          x->isStaticDataMember() ||
-          x->isFileVarDecl())) {
-            r = false;
-          }
+      if (isGlobal_(x) && !isAcceleratorLocal_(x)) r = false;
       if (x->isExceptionVariable()) r = false;
 
       d_[x] = r;

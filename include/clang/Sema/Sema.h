@@ -4420,19 +4420,6 @@ public:
                                         bool GNUSyntax,
                                         ExprResult Init);
 
-  // C++AMP restriction specifier calculation routines for special member function
-  void InheritSMFDtorIntersections(CXXRecordDecl* RDecl,
-                                   bool& CPUAttr, bool& AMPAttr,
-                                   bool& ParentCPUAttr, bool& ParentAMPAttr);
-  void InheritSMFCtorIntersections(CXXRecordDecl* RDecl,
-                                   bool& CPUAttr, bool& AMPAttr,
-                                   bool& ParentCPUAttr, bool& ParentAMPAttr,
-                                   int flag, bool ConstParam = true);
-  void InheritSMFMethodIntersections(CXXRecordDecl* RDecl,
-                                     bool& CPUAttr, bool& AMPAttr,
-                                     bool& ParentCPUAttr, bool& ParentAMPAttr,
-                                     int flag, bool ConstParam = true);
-
 private:
   static BinaryOperatorKind ConvertTokenKindToBinaryOpcode(tok::TokenKind Kind);
 
@@ -4946,22 +4933,6 @@ public:
   /// \brief Defines an implicitly-declared copy assignment operator.
   void DefineImplicitCopyAssignment(SourceLocation CurrentLocation,
                                     CXXMethodDecl *MethodDecl);
-
-  /// \brief Defines an AMP CUP-side serialize function.
-  void DefineAmpCpuSerializeFunction(SourceLocation CurrentLocation,
-                                     CXXMethodDecl *MethodDecl);
-  /// \brief Defines an AMP GPU-side deserialize function.
-  void DefineAmpGpuDeSerializeFunction(SourceLocation CurrentLocation,
-                                       CXXMethodDecl *MethodDecl);
-  /// \brief Declare trampoline name lookup code for AMP CPU-side
-  void DeclareAMPTrampolineName(CXXRecordDecl *ClassDecl,
-                                DeclarationName Name);
-  /// \brief Declare trampoline code for AMP GPU-side entry
-  void DeclareAMPTrampoline(CXXRecordDecl *ClassDecl,
-                            DeclarationName Name);
-  /// \brief Define trampoline code for AMP GPU-side entry
-  void DefineAMPTrampoline(SourceLocation CurrentLocation,
-                           CXXMethodDecl *OperatorCall);
 
   /// \brief Declare the implicit move assignment operator for the given class.
   ///
@@ -5834,19 +5805,6 @@ public:
   ///
   /// \returns true if any work was done, false otherwise.
   bool DefineUsedVTables();
-
-  /// \brief Test if a given class requires a
-  /// C++AMP deserializer declaration
-  bool NeedAMPDeserializer(CXXRecordDecl *ClassDecl);
-  /// \brief Test if a given class has a C++AMP deserializer declaration
-  bool HasDeclaredAMPDeserializer(CXXRecordDecl *ClassDecl);
-
-  // Declare C++AMP serializer and deserializer
-  typedef SmallVector<QualType, 16> AMPDeserializerArgs;
-  void DeclareAMPSerializer(CXXRecordDecl *ClassDecl,
-                            DeclarationName Name);
-  void DeclareAMPDeserializer(CXXRecordDecl *ClassDecl,
-                              AMPDeserializerArgs *Args);
 
   void AddImplicitlyDeclaredMembersToClass(CXXRecordDecl *ClassDecl);
 
