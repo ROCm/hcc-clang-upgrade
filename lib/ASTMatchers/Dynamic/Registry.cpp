@@ -388,10 +388,8 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(nullStmt);
   REGISTER_MATCHER(numSelectorArgs);
   REGISTER_MATCHER(ofClass);
-  REGISTER_MATCHER(objcCatchStmt);
   REGISTER_MATCHER(objcCategoryDecl);
   REGISTER_MATCHER(objcCategoryImplDecl);
-  REGISTER_MATCHER(objcFinallyStmt);
   REGISTER_MATCHER(objcImplementationDecl);
   REGISTER_MATCHER(objcInterfaceDecl);
   REGISTER_MATCHER(objcIvarDecl);
@@ -400,8 +398,6 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(objcObjectPointerType);
   REGISTER_MATCHER(objcPropertyDecl);
   REGISTER_MATCHER(objcProtocolDecl);
-  REGISTER_MATCHER(objcThrowStmt);
-  REGISTER_MATCHER(objcTryStmt);
   REGISTER_MATCHER(on);
   REGISTER_MATCHER(onImplicitObjectArgument);
   REGISTER_MATCHER(opaqueValueExpr);

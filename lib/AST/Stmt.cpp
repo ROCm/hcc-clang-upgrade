@@ -1,4 +1,4 @@
-//===- Stmt.cpp - Statement AST Node Implementation -----------------------===//
+//===--- Stmt.cpp - Statement AST Node Implementation ---------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -13,8 +13,6 @@
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTDiagnostic.h"
-#include "clang/AST/Decl.h"
-#include "clang/AST/DeclGroup.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/ExprOpenMP.h"
@@ -24,24 +22,10 @@
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/CharInfo.h"
-#include "clang/Basic/LLVM.h"
-#include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Lex/Token.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/Compiler.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include <algorithm>
-#include <cassert>
-#include <cstring>
-#include <string>
-#include <utility>
-
 using namespace clang;
 
 static struct StmtClassNameTable {
@@ -166,7 +150,6 @@ const Stmt *Stmt::stripLabelLikeStatements() const {
 }
 
 namespace {
-
   struct good {};
   struct bad {};
 
@@ -208,8 +191,7 @@ namespace {
   (void) is_good(implements_getLocStart(&type::getLocStart))
 #define ASSERT_IMPLEMENTS_getLocEnd(type) \
   (void) is_good(implements_getLocEnd(&type::getLocEnd))
-
-} // namespace
+}
 
 /// Check whether the various Stmt classes implement their member
 /// functions.
@@ -240,7 +222,6 @@ Stmt::child_range Stmt::children() {
 //
 // See also Expr.cpp:getExprLoc().
 namespace {
-
   /// This implementation is used when a class provides a custom
   /// implementation of getSourceRange.
   template <class S, class T>
@@ -259,8 +240,7 @@ namespace {
     return SourceRange(static_cast<const S*>(stmt)->getLocStart(),
                        static_cast<const S*>(stmt)->getLocEnd());
   }
-
-} // namespace
+}
 
 SourceRange Stmt::getSourceRange() const {
   switch (getStmtClass()) {
@@ -306,7 +286,7 @@ CompoundStmt::CompoundStmt(const ASTContext &C, ArrayRef<Stmt*> Stmts,
   assert(CompoundStmtBits.NumStmts == Stmts.size() &&
          "NumStmts doesn't fit in bits of CompoundStmtBits.NumStmts!");
 
-  if (Stmts.empty()) {
+  if (Stmts.size() == 0) {
     Body = nullptr;
     return;
   }
@@ -428,7 +408,6 @@ StringRef GCCAsmStmt::getOutputConstraint(unsigned i) const {
 Expr *GCCAsmStmt::getInputExpr(unsigned i) {
   return cast<Expr>(Exprs[i + NumOutputs]);
 }
-
 void GCCAsmStmt::setInputExpr(unsigned i, Expr *E) {
   Exprs[i + NumOutputs] = E;
 }
@@ -527,7 +506,7 @@ unsigned GCCAsmStmt::AnalyzeAsmString(SmallVectorImpl<AsmStringPiece>&Pieces,
   unsigned LastAsmStringToken = 0;
   unsigned LastAsmStringOffset = 0;
 
-  while (true) {
+  while (1) {
     // Done with the string?
     if (CurPtr == StrEnd) {
       if (!CurStringPiece.empty())
@@ -703,7 +682,6 @@ Expr *MSAsmStmt::getOutputExpr(unsigned i) {
 Expr *MSAsmStmt::getInputExpr(unsigned i) {
   return cast<Expr>(Exprs[i + NumOutputs]);
 }
-
 void MSAsmStmt::setInputExpr(unsigned i, Expr *E) {
   Exprs[i + NumOutputs] = E;
 }
@@ -718,8 +696,9 @@ GCCAsmStmt::GCCAsmStmt(const ASTContext &C, SourceLocation asmloc,
                        StringLiteral **constraints, Expr **exprs,
                        StringLiteral *asmstr, unsigned numclobbers,
                        StringLiteral **clobbers, SourceLocation rparenloc)
-    : AsmStmt(GCCAsmStmtClass, asmloc, issimple, isvolatile, numoutputs,
-              numinputs, numclobbers), RParenLoc(rparenloc), AsmStr(asmstr) {
+  : AsmStmt(GCCAsmStmtClass, asmloc, issimple, isvolatile, numoutputs,
+            numinputs, numclobbers), RParenLoc(rparenloc), AsmStr(asmstr) {
+
   unsigned NumExprs = NumOutputs + NumInputs;
 
   Names = new (C) IdentifierInfo*[NumExprs];
@@ -742,9 +721,10 @@ MSAsmStmt::MSAsmStmt(const ASTContext &C, SourceLocation asmloc,
                      ArrayRef<StringRef> constraints, ArrayRef<Expr*> exprs,
                      StringRef asmstr, ArrayRef<StringRef> clobbers,
                      SourceLocation endloc)
-    : AsmStmt(MSAsmStmtClass, asmloc, issimple, isvolatile, numoutputs,
-              numinputs, clobbers.size()), LBraceLoc(lbraceloc),
-              EndLoc(endloc), NumAsmToks(asmtoks.size()) {
+  : AsmStmt(MSAsmStmtClass, asmloc, issimple, isvolatile, numoutputs,
+            numinputs, clobbers.size()), LBraceLoc(lbraceloc),
+            EndLoc(endloc), NumAsmToks(asmtoks.size()) {
+
   initialize(C, asmstr, asmtoks, constraints, exprs, clobbers);
 }
 
@@ -929,9 +909,14 @@ Expr* ReturnStmt::getRetValue() {
   return cast_or_null<Expr>(RetExpr);
 }
 
-SEHTryStmt::SEHTryStmt(bool IsCXXTry, SourceLocation TryLoc, Stmt *TryBlock,
+SEHTryStmt::SEHTryStmt(bool IsCXXTry,
+                       SourceLocation TryLoc,
+                       Stmt *TryBlock,
                        Stmt *Handler)
-    : Stmt(SEHTryStmtClass), IsCXXTry(IsCXXTry), TryLoc(TryLoc) {
+  : Stmt(SEHTryStmtClass),
+    IsCXXTry(IsCXXTry),
+    TryLoc(TryLoc)
+{
   Children[TRY]     = TryBlock;
   Children[HANDLER] = Handler;
 }
@@ -950,8 +935,12 @@ SEHFinallyStmt* SEHTryStmt::getFinallyHandler() const {
   return dyn_cast<SEHFinallyStmt>(getHandler());
 }
 
-SEHExceptStmt::SEHExceptStmt(SourceLocation Loc, Expr *FilterExpr, Stmt *Block)
-    : Stmt(SEHExceptStmtClass), Loc(Loc) {
+SEHExceptStmt::SEHExceptStmt(SourceLocation Loc,
+                             Expr *FilterExpr,
+                             Stmt *Block)
+  : Stmt(SEHExceptStmtClass),
+    Loc(Loc)
+{
   Children[FILTER_EXPR] = FilterExpr;
   Children[BLOCK]       = Block;
 }
@@ -961,8 +950,12 @@ SEHExceptStmt* SEHExceptStmt::Create(const ASTContext &C, SourceLocation Loc,
   return new(C) SEHExceptStmt(Loc,FilterExpr,Block);
 }
 
-SEHFinallyStmt::SEHFinallyStmt(SourceLocation Loc, Stmt *Block)
-    : Stmt(SEHFinallyStmtClass), Loc(Loc), Block(Block) {}
+SEHFinallyStmt::SEHFinallyStmt(SourceLocation Loc,
+                               Stmt *Block)
+  : Stmt(SEHFinallyStmtClass),
+    Loc(Loc),
+    Block(Block)
+{}
 
 SEHFinallyStmt* SEHFinallyStmt::Create(const ASTContext &C, SourceLocation Loc,
                                        Stmt *Block) {
@@ -1044,7 +1037,7 @@ CapturedStmt::CapturedStmt(Stmt *S, CapturedRegionKind Kind,
 
 CapturedStmt::CapturedStmt(EmptyShell Empty, unsigned NumCaptures)
   : Stmt(CapturedStmtClass, Empty), NumCaptures(NumCaptures),
-    CapDeclAndKind(nullptr, CR_Default) {
+    CapDeclAndKind(nullptr, CR_Default), TheRecordDecl(nullptr) {
   getStoredStmts()[NumCaptures] = nullptr;
 }
 
@@ -1097,7 +1090,6 @@ Stmt::child_range CapturedStmt::children() {
 CapturedDecl *CapturedStmt::getCapturedDecl() {
   return CapDeclAndKind.getPointer();
 }
-
 const CapturedDecl *CapturedStmt::getCapturedDecl() const {
   return CapDeclAndKind.getPointer();
 }

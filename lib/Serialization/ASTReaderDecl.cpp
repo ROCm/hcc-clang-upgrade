@@ -1863,7 +1863,8 @@ ASTDeclReader::VisitCXXRecordDeclImpl(CXXRecordDecl *D) {
 
 void ASTDeclReader::VisitCXXDeductionGuideDecl(CXXDeductionGuideDecl *D) {
   VisitFunctionDecl(D);
-  D->IsCopyDeductionCandidate = Record.readInt();
+  if (Record.readInt())
+    D->setIsCopyDeductionCandidate();
 }
 
 void ASTDeclReader::VisitCXXMethodDecl(CXXMethodDecl *D) {

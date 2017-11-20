@@ -50,8 +50,8 @@ TEST_F(UsingDeclarationsSorterTest, SwapsTwoConsecutiveUsingDeclarations) {
             "using aa;",
             sortUsingDeclarations("using aa;\n"
                                   "using a;"));
-  EXPECT_EQ("using a;\n"
-            "using ::a;",
+  EXPECT_EQ("using ::a;\n"
+            "using a;",
             sortUsingDeclarations("using a;\n"
                                   "using ::a;"));
 
@@ -86,32 +86,21 @@ TEST_F(UsingDeclarationsSorterTest, SwapsTwoConsecutiveUsingDeclarations) {
                                   "using a, b;"));
 }
 
-TEST_F(UsingDeclarationsSorterTest, UsingDeclarationOrder) {
+TEST_F(UsingDeclarationsSorterTest, SortsCaseSensitively) {
   EXPECT_EQ("using A;\n"
             "using a;",
             sortUsingDeclarations("using A;\n"
                                   "using a;"));
-  EXPECT_EQ("using a;\n"
-            "using A;",
+  EXPECT_EQ("using A;\n"
+            "using a;",
             sortUsingDeclarations("using a;\n"
                                   "using A;"));
-  EXPECT_EQ("using a;\n"
-            "using B;",
+  EXPECT_EQ("using B;\n"
+            "using a;",
             sortUsingDeclarations("using B;\n"
                                   "using a;"));
 
-  // Ignores leading '::'.
-  EXPECT_EQ("using ::a;\n"
-            "using A;",
-            sortUsingDeclarations("using ::a;\n"
-                                  "using A;"));
-
-  EXPECT_EQ("using ::A;\n"
-            "using a;",
-            sortUsingDeclarations("using ::A;\n"
-                                  "using a;"));
-
-  // Sorts '_' before 'a' and 'A'.
+  // Sorts '_' right before 'A'.
   EXPECT_EQ("using _;\n"
             "using A;",
             sortUsingDeclarations("using A;\n"
@@ -125,56 +114,16 @@ TEST_F(UsingDeclarationsSorterTest, UsingDeclarationOrder) {
             sortUsingDeclarations("using a::a;\n"
                                   "using a::_;"));
 
-  // Sorts non-namespace names before namespace names at the same level.
   EXPECT_EQ("using ::testing::_;\n"
             "using ::testing::Aardvark;\n"
-            "using ::testing::kMax;\n"
             "using ::testing::Xylophone;\n"
             "using ::testing::apple::Honeycrisp;\n"
             "using ::testing::zebra::Stripes;",
             sortUsingDeclarations("using ::testing::Aardvark;\n"
                                   "using ::testing::Xylophone;\n"
-                                  "using ::testing::kMax;\n"
                                   "using ::testing::_;\n"
                                   "using ::testing::apple::Honeycrisp;\n"
                                   "using ::testing::zebra::Stripes;"));
-}
-
-TEST_F(UsingDeclarationsSorterTest, SortsStably) {
-  EXPECT_EQ("using a;\n"
-            "using a;\n"
-            "using A;\n"
-            "using a;\n"
-            "using A;\n"
-            "using a;\n"
-            "using A;\n"
-            "using a;\n"
-            "using B;\n"
-            "using b;\n"
-            "using b;\n"
-            "using B;\n"
-            "using b;\n"
-            "using b;\n"
-            "using b;\n"
-            "using B;\n"
-            "using b;",
-            sortUsingDeclarations("using a;\n"
-                                  "using B;\n"
-                                  "using a;\n"
-                                  "using b;\n"
-                                  "using A;\n"
-                                  "using a;\n"
-                                  "using b;\n"
-                                  "using B;\n"
-                                  "using b;\n"
-                                  "using A;\n"
-                                  "using a;\n"
-                                  "using b;\n"
-                                  "using b;\n"
-                                  "using B;\n"
-                                  "using b;\n"
-                                  "using A;\n"
-                                  "using a;"));
 }
 
 TEST_F(UsingDeclarationsSorterTest, SortsMultipleTopLevelDeclarations) {
@@ -190,14 +139,14 @@ TEST_F(UsingDeclarationsSorterTest, SortsMultipleTopLevelDeclarations) {
                                   "using c;"));
 
   EXPECT_EQ("#include <iostream>\n"
+            "using ::std::endl;\n"
             "using std::cin;\n"
             "using std::cout;\n"
-            "using ::std::endl;\n"
             "int main();",
             sortUsingDeclarations("#include <iostream>\n"
                                   "using std::cout;\n"
-                                  "using ::std::endl;\n"
                                   "using std::cin;\n"
+                                  "using ::std::endl;\n"
                                   "int main();"));
 }
 
@@ -346,13 +295,6 @@ TEST_F(UsingDeclarationsSorterTest, SortsPartialRangeOfUsingDeclarations) {
                                   "using f;\n"
                                   "using e;",
                                   {tooling::Range(19, 1)}));
-}
-
-TEST_F(UsingDeclarationsSorterTest, SortsUsingDeclarationsWithLeadingkComments) {
-  EXPECT_EQ("/* comment */ using a;\n"
-            "/* comment */ using b;",
-            sortUsingDeclarations("/* comment */ using b;\n"
-                                  "/* comment */ using a;"));
 }
 
 } // end namespace

@@ -806,6 +806,11 @@ CXCodeCompleteResults *clang_codeCompleteAt(CXTranslationUnit TU,
         llvm::makeArrayRef(unsaved_files, num_unsaved_files), options);
   };
 
+  if (getenv("LIBCLANG_NOTHREADS")) {
+    CodeCompleteAtImpl();
+    return result;
+  }
+
   llvm::CrashRecoveryContext CRC;
 
   if (!RunSafely(CRC, CodeCompleteAtImpl)) {

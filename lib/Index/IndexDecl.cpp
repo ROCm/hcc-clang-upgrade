@@ -354,10 +354,12 @@ public:
         gatherTemplatePseudoOverrides(D, Relations);
         IndexCtx.indexTagDecl(D, Relations);
       } else {
+        auto *Parent = dyn_cast<NamedDecl>(D->getDeclContext());
         SmallVector<SymbolRelation, 1> Relations;
         gatherTemplatePseudoOverrides(D, Relations);
-        return IndexCtx.handleDecl(D, D->getLocation(), SymbolRoleSet(),
-                                   Relations, D->getLexicalDeclContext());
+        return IndexCtx.handleReference(D, D->getLocation(), Parent,
+                                        D->getLexicalDeclContext(),
+                                        SymbolRoleSet(), Relations);
       }
     }
     return true;

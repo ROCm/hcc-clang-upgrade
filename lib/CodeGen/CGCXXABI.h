@@ -73,10 +73,9 @@ protected:
     return CGF.CXXStructorImplicitParamValue;
   }
 
-  /// Loads the incoming C++ this pointer as it was passed by the caller.
-  llvm::Value *loadIncomingCXXThis(CodeGenFunction &CGF);
-
-  void setCXXABIThisValue(CodeGenFunction &CGF, llvm::Value *ThisPtr);
+  /// Perform prolog initialization of the parameter variable suitable
+  /// for 'this' emitted by buildThisParam.
+  void EmitThisParam(CodeGenFunction &CGF);
 
   ASTContext &getContext() const { return CGM.getContext(); }
 
@@ -357,6 +356,13 @@ public:
   /// of a virtual function.
   virtual CharUnits getVirtualFunctionPrologueThisAdjustment(GlobalDecl GD) {
     return CharUnits::Zero();
+  }
+
+  /// Perform ABI-specific "this" parameter adjustment in a virtual function
+  /// prologue.
+  virtual llvm::Value *adjustThisParameterInVirtualFunctionPrologue(
+      CodeGenFunction &CGF, GlobalDecl GD, llvm::Value *This) {
+    return This;
   }
 
   /// Emit the ABI-specific prolog for the function.
