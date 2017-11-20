@@ -277,7 +277,6 @@ getExecutionModeForDirective(CodeGenModule &CGM,
     return CGOpenMPRuntimeNVPTX::ExecutionMode::Generic;
   case OMPD_target_parallel:
   case OMPD_target_parallel_for:
-  case OMPD_target_parallel_for_simd:
     return CGOpenMPRuntimeNVPTX::ExecutionMode::Spmd;
   default:
     llvm_unreachable("Unsupported directive on NVPTX device.");
@@ -411,6 +410,7 @@ void CGOpenMPRuntimeNVPTX::emitSpmdKernel(const OMPExecutableDirective &D,
   CodeGen.setAction(Action);
   emitTargetOutlinedFunctionHelper(D, ParentName, OutlinedFn, OutlinedFnID,
                                    IsOffloadEntry, CodeGen);
+  return;
 }
 
 void CGOpenMPRuntimeNVPTX::emitSpmdEntryHeader(

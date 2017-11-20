@@ -725,8 +725,7 @@ void tools::SplitDebugInfo(const ToolChain &TC, Compilation &C, const Tool &T,
   ExtractArgs.push_back(Output.getFilename());
   ExtractArgs.push_back(OutFile);
 
-  const char *Exec =
-      Args.MakeArgString(TC.GetProgramPath(CLANG_DEFAULT_OBJCOPY));
+  const char *Exec = Args.MakeArgString(TC.GetProgramPath("objcopy"));
   InputInfo II(types::TY_Object, Output.getFilename(), Output.getFilename());
 
   // First extract the dwo sections.

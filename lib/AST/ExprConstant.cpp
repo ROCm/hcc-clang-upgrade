@@ -1351,11 +1351,10 @@ namespace {
         Designator.setInvalid();
         return;
       }
-      if (checkSubobject(Info, E, CSK_ArrayToPointer)) {
-        assert(getType(Base)->isPointerType() || getType(Base)->isArrayType());
-        Designator.FirstEntryIsAnUnsizedArray = true;
-        Designator.addUnsizedArrayUnchecked(ElemTy);
-      }
+
+      assert(getType(Base)->isPointerType() || getType(Base)->isArrayType());
+      Designator.FirstEntryIsAnUnsizedArray = true;
+      Designator.addUnsizedArrayUnchecked(ElemTy);
     }
     void addArray(EvalInfo &Info, const Expr *E, const ConstantArrayType *CAT) {
       if (checkSubobject(Info, E, CSK_ArrayToPointer))

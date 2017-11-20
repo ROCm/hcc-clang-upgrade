@@ -1,4 +1,4 @@
-//===- Stmt.h - Classes for representing statements -------------*- C++ -*-===//
+//===--- Stmt.h - Classes for representing statements -----------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -22,40 +22,34 @@
 #include "clang/Basic/SourceLocation.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/PointerIntPair.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator.h"
-#include "llvm/ADT/iterator_range.h"
-#include "llvm/Support/Casting.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <algorithm>
-#include <cassert>
-#include <cstddef>
-#include <iterator>
 #include <string>
 
 namespace llvm {
-
-class FoldingSetNodeID;
-
-} // namespace llvm
+  class FoldingSetNodeID;
+}
 
 namespace clang {
-
-class ASTContext;
-class Attr;
-class CapturedDecl;
-class Decl;
-class Expr;
-class LabelDecl;
-class ODRHash;
-class PrinterHelper;
-struct PrintingPolicy;
-class RecordDecl;
-class SourceManager;
-class StringLiteral;
-class Token;
-class VarDecl;
+  class ASTContext;
+  class Attr;
+  class CapturedDecl;
+  class Decl;
+  class Expr;
+  class IdentifierInfo;
+  class LabelDecl;
+  class ODRHash;
+  class ParmVarDecl;
+  class PrinterHelper;
+  struct PrintingPolicy;
+  class QualType;
+  class RecordDecl;
+  class SourceManager;
+  class StringLiteral;
+  class SwitchStmt;
+  class Token;
+  class VarDecl;
 
 //===----------------------------------------------------------------------===//
 // AST classes for statements.
@@ -78,13 +72,9 @@ public:
 
   // Make vanilla 'new' and 'delete' illegal for Stmts.
 protected:
-  friend class ASTStmtReader;
-  friend class ASTStmtWriter;
-
   void *operator new(size_t bytes) noexcept {
     llvm_unreachable("Stmts cannot be allocated with regular 'new'.");
   }
-
   void operator delete(void *data) noexcept {
     llvm_unreachable("Stmts cannot be released with regular 'delete'.");
   }
@@ -99,7 +89,6 @@ protected:
 
   class CompoundStmtBitfields {
     friend class CompoundStmt;
-
     unsigned : NumStmtBits;
 
     unsigned NumStmts : 32 - NumStmtBits;
@@ -107,36 +96,34 @@ protected:
 
   class IfStmtBitfields {
     friend class IfStmt;
-
     unsigned : NumStmtBits;
 
     unsigned IsConstexpr : 1;
   };
 
   class ExprBitfields {
-    friend class ASTStmtReader; // deserialization
-    friend class AtomicExpr; // ctor
-    friend class BlockDeclRefExpr; // ctor
-    friend class CallExpr; // ctor
-    friend class CXXConstructExpr; // ctor
-    friend class CXXDependentScopeMemberExpr; // ctor
-    friend class CXXNewExpr; // ctor
-    friend class CXXUnresolvedConstructExpr; // ctor
-    friend class DeclRefExpr; // computeDependence
-    friend class DependentScopeDeclRefExpr; // ctor
-    friend class DesignatedInitExpr; // ctor
     friend class Expr;
+    friend class DeclRefExpr; // computeDependence
     friend class InitListExpr; // ctor
+    friend class DesignatedInitExpr; // ctor
+    friend class BlockDeclRefExpr; // ctor
+    friend class ASTStmtReader; // deserialization
+    friend class CXXNewExpr; // ctor
+    friend class DependentScopeDeclRefExpr; // ctor
+    friend class CXXConstructExpr; // ctor
+    friend class CallExpr; // ctor
+    friend class OffsetOfExpr; // ctor
+    friend class ObjCMessageExpr; // ctor
     friend class ObjCArrayLiteral; // ctor
     friend class ObjCDictionaryLiteral; // ctor
-    friend class ObjCMessageExpr; // ctor
-    friend class OffsetOfExpr; // ctor
-    friend class OpaqueValueExpr; // ctor
-    friend class OverloadExpr; // ctor
-    friend class ParenListExpr; // ctor
-    friend class PseudoObjectExpr; // ctor
     friend class ShuffleVectorExpr; // ctor
-
+    friend class ParenListExpr; // ctor
+    friend class CXXUnresolvedConstructExpr; // ctor
+    friend class CXXDependentScopeMemberExpr; // ctor
+    friend class OverloadExpr; // ctor
+    friend class PseudoObjectExpr; // ctor
+    friend class AtomicExpr; // ctor
+    friend class OpaqueValueExpr; // ctor
     unsigned : NumStmtBits;
 
     unsigned ValueKind : 2;
@@ -150,7 +137,6 @@ protected:
 
   class CharacterLiteralBitfields {
     friend class CharacterLiteral;
-
     unsigned : NumExprBits;
 
     unsigned Kind : 3;
@@ -167,7 +153,6 @@ protected:
 
   class FloatingLiteralBitfields {
     friend class FloatingLiteral;
-
     unsigned : NumExprBits;
 
     unsigned Semantics : 3; // Provides semantics for APFloat construction
@@ -176,7 +161,6 @@ protected:
 
   class UnaryExprOrTypeTraitExprBitfields {
     friend class UnaryExprOrTypeTraitExpr;
-
     unsigned : NumExprBits;
 
     unsigned Kind : 2;
@@ -184,9 +168,8 @@ protected:
   };
 
   class DeclRefExprBitfields {
-    friend class ASTStmtReader; // deserialization
     friend class DeclRefExpr;
-
+    friend class ASTStmtReader; // deserialization
     unsigned : NumExprBits;
 
     unsigned HasQualifier : 1;
@@ -198,7 +181,6 @@ protected:
 
   class CastExprBitfields {
     friend class CastExpr;
-
     unsigned : NumExprBits;
 
     unsigned Kind : 6;
@@ -207,15 +189,14 @@ protected:
 
   class CallExprBitfields {
     friend class CallExpr;
-
     unsigned : NumExprBits;
 
     unsigned NumPreArgs : 1;
   };
 
   class ExprWithCleanupsBitfields {
-    friend class ASTStmtReader; // deserialization
     friend class ExprWithCleanups;
+    friend class ASTStmtReader; // deserialization
 
     unsigned : NumExprBits;
 
@@ -226,8 +207,8 @@ protected:
   };
 
   class PseudoObjectExprBitfields {
-    friend class ASTStmtReader; // deserialization
     friend class PseudoObjectExpr;
+    friend class ASTStmtReader; // deserialization
 
     unsigned : NumExprBits;
 
@@ -239,7 +220,6 @@ protected:
 
   class ObjCIndirectCopyRestoreExprBitfields {
     friend class ObjCIndirectCopyRestoreExpr;
-
     unsigned : NumExprBits;
 
     unsigned ShouldCopy : 1;
@@ -256,9 +236,9 @@ protected:
   };
 
   class TypeTraitExprBitfields {
+    friend class TypeTraitExpr;
     friend class ASTStmtReader;
     friend class ASTStmtWriter;
-    friend class TypeTraitExpr;
     
     unsigned : NumExprBits;
     
@@ -300,6 +280,9 @@ protected:
     CoawaitExprBitfields CoawaitBits;
   };
 
+  friend class ASTStmtReader;
+  friend class ASTStmtWriter;
+
 public:
   // Only allow allocation of Stmts using the allocator in ASTContext
   // or by doing a placement new.
@@ -322,7 +305,7 @@ public:
   /// \brief A placeholder type used to construct an empty shell of a
   /// type, that will be filled in later (e.g., by some
   /// de-serialization).
-  struct EmptyShell {};
+  struct EmptyShell { };
 
 protected:
   /// Iterator for iterating over Stmt * arrays that contain only Expr *
@@ -378,7 +361,6 @@ public:
   StmtClass getStmtClass() const {
     return static_cast<StmtClass>(StmtBits.sClass);
   }
-
   const char *getStmtClassName() const;
 
   /// SourceLocation tokens are not useful in isolation - they are low level
@@ -437,11 +419,11 @@ public:
   /// Child Iterators: All subclasses must implement 'children'
   /// to permit easy iteration over the substatements/subexpessions of an
   /// AST node.  This permits easy iteration over all nodes in the AST.
-  using child_iterator = StmtIterator;
-  using const_child_iterator = ConstStmtIterator;
+  typedef StmtIterator       child_iterator;
+  typedef ConstStmtIterator  const_child_iterator;
 
-  using child_range = llvm::iterator_range<child_iterator>;
-  using const_child_range = llvm::iterator_range<const_child_iterator>;
+  typedef llvm::iterator_range<child_iterator> child_range;
+  typedef llvm::iterator_range<const_child_iterator> const_child_range;
 
   child_range children();
   const_child_range children() const {
@@ -484,16 +466,18 @@ public:
 /// expressions. For example, CompoundStmt mixes statements, expressions
 /// and declarations (variables, types). Another example is ForStmt, where
 /// the first statement can be an expression or a declaration.
+///
 class DeclStmt : public Stmt {
   DeclGroupRef DG;
   SourceLocation StartLoc, EndLoc;
 
 public:
-  DeclStmt(DeclGroupRef dg, SourceLocation startLoc, SourceLocation endLoc)
-      : Stmt(DeclStmtClass), DG(dg), StartLoc(startLoc), EndLoc(endLoc) {}
+  DeclStmt(DeclGroupRef dg, SourceLocation startLoc,
+           SourceLocation endLoc) : Stmt(DeclStmtClass), DG(dg),
+                                    StartLoc(startLoc), EndLoc(endLoc) {}
 
   /// \brief Build an empty declaration statement.
-  explicit DeclStmt(EmptyShell Empty) : Stmt(DeclStmtClass, Empty) {}
+  explicit DeclStmt(EmptyShell Empty) : Stmt(DeclStmtClass, Empty) { }
 
   /// isSingleDecl - This method returns true if this DeclStmt refers
   /// to a single Decl.
@@ -526,10 +510,10 @@ public:
                        child_iterator(DG.end(), DG.end()));
   }
 
-  using decl_iterator = DeclGroupRef::iterator;
-  using const_decl_iterator = DeclGroupRef::const_iterator;
-  using decl_range = llvm::iterator_range<decl_iterator>;
-  using decl_const_range = llvm::iterator_range<const_decl_iterator>;
+  typedef DeclGroupRef::iterator decl_iterator;
+  typedef DeclGroupRef::const_iterator const_decl_iterator;
+  typedef llvm::iterator_range<decl_iterator> decl_range;
+  typedef llvm::iterator_range<const_decl_iterator> decl_const_range;
 
   decl_range decls() { return decl_range(decl_begin(), decl_end()); }
   decl_const_range decls() const {
@@ -540,12 +524,10 @@ public:
   const_decl_iterator decl_begin() const { return DG.begin(); }
   const_decl_iterator decl_end() const { return DG.end(); }
 
-  using reverse_decl_iterator = std::reverse_iterator<decl_iterator>;
-
+  typedef std::reverse_iterator<decl_iterator> reverse_decl_iterator;
   reverse_decl_iterator decl_rbegin() {
     return reverse_decl_iterator(decl_end());
   }
-
   reverse_decl_iterator decl_rend() {
     return reverse_decl_iterator(decl_begin());
   }
@@ -561,18 +543,15 @@ class NullStmt : public Stmt {
   ///   #define CALL(x)
   ///   CALL(0);
   /// @endcode
-  bool HasLeadingEmptyMacro = false;
-
+  bool HasLeadingEmptyMacro;
 public:
-  friend class ASTStmtReader;
-  friend class ASTStmtWriter;
-
   NullStmt(SourceLocation L, bool hasLeadingEmptyMacro = false)
-      : Stmt(NullStmtClass), SemiLoc(L),
-        HasLeadingEmptyMacro(hasLeadingEmptyMacro) {}
+    : Stmt(NullStmtClass), SemiLoc(L),
+      HasLeadingEmptyMacro(hasLeadingEmptyMacro) {}
 
   /// \brief Build an empty null statement.
-  explicit NullStmt(EmptyShell Empty) : Stmt(NullStmtClass, Empty) {}
+  explicit NullStmt(EmptyShell Empty) : Stmt(NullStmtClass, Empty),
+      HasLeadingEmptyMacro(false) { }
 
   SourceLocation getSemiLoc() const { return SemiLoc; }
   void setSemiLoc(SourceLocation L) { SemiLoc = L; }
@@ -589,14 +568,18 @@ public:
   child_range children() {
     return child_range(child_iterator(), child_iterator());
   }
+
+  friend class ASTStmtReader;
+  friend class ASTStmtWriter;
 };
 
 /// CompoundStmt - This represents a group of statements like { stmt stmt }.
+///
 class CompoundStmt : public Stmt {
-  friend class ASTStmtReader;
-
-  Stmt** Body = nullptr;
+  Stmt** Body;
   SourceLocation LBraceLoc, RBraceLoc;
+
+  friend class ASTStmtReader;
 
 public:
   CompoundStmt(const ASTContext &C, ArrayRef<Stmt*> Stmts,
@@ -604,12 +587,13 @@ public:
 
   // \brief Build an empty compound statement with a location.
   explicit CompoundStmt(SourceLocation Loc)
-      : Stmt(CompoundStmtClass), LBraceLoc(Loc), RBraceLoc(Loc) {
+    : Stmt(CompoundStmtClass), Body(nullptr), LBraceLoc(Loc), RBraceLoc(Loc) {
     CompoundStmtBits.NumStmts = 0;
   }
 
   // \brief Build an empty compound statement.
-  explicit CompoundStmt(EmptyShell Empty) : Stmt(CompoundStmtClass, Empty) {
+  explicit CompoundStmt(EmptyShell Empty)
+    : Stmt(CompoundStmtClass, Empty), Body(nullptr) {
     CompoundStmtBits.NumStmts = 0;
   }
 
@@ -618,8 +602,8 @@ public:
   bool body_empty() const { return CompoundStmtBits.NumStmts == 0; }
   unsigned size() const { return CompoundStmtBits.NumStmts; }
 
-  using body_iterator = Stmt **;
-  using body_range = llvm::iterator_range<body_iterator>;
+  typedef Stmt** body_iterator;
+  typedef llvm::iterator_range<body_iterator> body_range;
 
   body_range body() { return body_range(body_begin(), body_end()); }
   body_iterator body_begin() { return Body; }
@@ -632,36 +616,31 @@ public:
     Body[size()-1] = S;
   }
 
-  using const_body_iterator = Stmt* const *;
-  using body_const_range = llvm::iterator_range<const_body_iterator>;
+  typedef Stmt* const * const_body_iterator;
+  typedef llvm::iterator_range<const_body_iterator> body_const_range;
 
   body_const_range body() const {
     return body_const_range(body_begin(), body_end());
   }
-
   const_body_iterator body_begin() const { return Body; }
   const_body_iterator body_end() const { return Body + size(); }
-
   const Stmt *body_front() const {
     return !body_empty() ? Body[0] : nullptr;
   }
-
   const Stmt *body_back() const {
     return !body_empty() ? Body[size() - 1] : nullptr;
   }
 
-  using reverse_body_iterator = std::reverse_iterator<body_iterator>;
-
+  typedef std::reverse_iterator<body_iterator> reverse_body_iterator;
   reverse_body_iterator body_rbegin() {
     return reverse_body_iterator(body_end());
   }
-
   reverse_body_iterator body_rend() {
     return reverse_body_iterator(body_begin());
   }
 
-  using const_reverse_body_iterator =
-      std::reverse_iterator<const_body_iterator>;
+  typedef std::reverse_iterator<const_body_iterator>
+          const_reverse_body_iterator;
 
   const_reverse_body_iterator body_rbegin() const {
     return const_reverse_body_iterator(body_end());
@@ -697,14 +676,16 @@ class SwitchCase : public Stmt {
 protected:
   // A pointer to the following CaseStmt or DefaultStmt class,
   // used by SwitchStmt.
-  SwitchCase *NextSwitchCase = nullptr;
+  SwitchCase *NextSwitchCase;
   SourceLocation KeywordLoc;
   SourceLocation ColonLoc;
 
   SwitchCase(StmtClass SC, SourceLocation KWLoc, SourceLocation ColonLoc)
-      : Stmt(SC), KeywordLoc(KWLoc), ColonLoc(ColonLoc) {}
+    : Stmt(SC), NextSwitchCase(nullptr), KeywordLoc(KWLoc), ColonLoc(ColonLoc) {
+  }
 
-  SwitchCase(StmtClass SC, EmptyShell) : Stmt(SC) {}
+  SwitchCase(StmtClass SC, EmptyShell)
+    : Stmt(SC), NextSwitchCase(nullptr) {}
 
 public:
   const SwitchCase *getNextSwitchCase() const { return NextSwitchCase; }
@@ -737,7 +718,6 @@ class CaseStmt : public SwitchCase {
   enum { LHS, RHS, SUBSTMT, END_EXPR };
   Stmt* SubExprs[END_EXPR];  // The expression for the RHS is Non-null for
                              // GNU "case 1 ... 4" extension
-
 public:
   CaseStmt(Expr *lhs, Expr *rhs, SourceLocation caseLoc,
            SourceLocation ellipsisLoc, SourceLocation colonLoc)
@@ -749,7 +729,7 @@ public:
   }
 
   /// \brief Build an empty switch case statement.
-  explicit CaseStmt(EmptyShell Empty) : SwitchCase(CaseStmtClass, Empty) {}
+  explicit CaseStmt(EmptyShell Empty) : SwitchCase(CaseStmtClass, Empty) { }
 
   SourceLocation getCaseLoc() const { return KeywordLoc; }
   void setCaseLoc(SourceLocation L) { KeywordLoc = L; }
@@ -765,11 +745,9 @@ public:
   const Expr *getLHS() const {
     return reinterpret_cast<const Expr*>(SubExprs[LHS]);
   }
-
   const Expr *getRHS() const {
     return reinterpret_cast<const Expr*>(SubExprs[RHS]);
   }
-
   const Stmt *getSubStmt() const { return SubExprs[SUBSTMT]; }
 
   void setSubStmt(Stmt *S) { SubExprs[SUBSTMT] = S; }
@@ -777,7 +755,6 @@ public:
   void setRHS(Expr *Val) { SubExprs[RHS] = reinterpret_cast<Stmt*>(Val); }
 
   SourceLocation getLocStart() const LLVM_READONLY { return KeywordLoc; }
-
   SourceLocation getLocEnd() const LLVM_READONLY {
     // Handle deeply nested case statements with iteration instead of recursion.
     const CaseStmt *CS = this;
@@ -799,14 +776,13 @@ public:
 
 class DefaultStmt : public SwitchCase {
   Stmt* SubStmt;
-
 public:
   DefaultStmt(SourceLocation DL, SourceLocation CL, Stmt *substmt) :
     SwitchCase(DefaultStmtClass, DL, CL), SubStmt(substmt) {}
 
   /// \brief Build an empty default statement.
   explicit DefaultStmt(EmptyShell Empty)
-      : SwitchCase(DefaultStmtClass, Empty) {}
+    : SwitchCase(DefaultStmtClass, Empty) { }
 
   Stmt *getSubStmt() { return SubStmt; }
   const Stmt *getSubStmt() const { return SubStmt; }
@@ -836,6 +812,7 @@ inline SourceLocation SwitchCase::getLocEnd() const {
 
 /// LabelStmt - Represents a label, which has a substatement.  For example:
 ///    foo: return;
+///
 class LabelStmt : public Stmt {
   SourceLocation IdentLoc;
   LabelDecl *TheDecl;
@@ -850,7 +827,7 @@ public:
   }
 
   // \brief Build an empty label statement.
-  explicit LabelStmt(EmptyShell Empty) : Stmt(LabelStmtClass, Empty) {}
+  explicit LabelStmt(EmptyShell Empty) : Stmt(LabelStmtClass, Empty) { }
 
   SourceLocation getIdentLoc() const { return IdentLoc; }
   LabelDecl *getDecl() const { return TheDecl; }
@@ -871,16 +848,18 @@ public:
   }
 };
 
+
 /// \brief Represents an attribute applied to a statement.
 ///
 /// Represents an attribute applied to a statement. For example:
 ///   [[omp::for(...)]] for (...) { ... }
+///
 class AttributedStmt : public Stmt {
-  friend class ASTStmtReader;
-
   Stmt *SubStmt;
   SourceLocation AttrLoc;
   unsigned NumAttrs;
+
+  friend class ASTStmtReader;
 
   AttributedStmt(SourceLocation Loc, ArrayRef<const Attr*> Attrs, Stmt *SubStmt)
     : Stmt(AttributedStmtClass), SubStmt(SubStmt), AttrLoc(Loc),
@@ -903,7 +882,6 @@ class AttributedStmt : public Stmt {
 public:
   static AttributedStmt *Create(const ASTContext &C, SourceLocation Loc,
                                 ArrayRef<const Attr*> Attrs, Stmt *SubStmt);
-
   // \brief Build an empty attributed statement.
   static AttributedStmt *CreateEmpty(const ASTContext &C, unsigned NumAttrs);
 
@@ -911,7 +889,6 @@ public:
   ArrayRef<const Attr*> getAttrs() const {
     return llvm::makeArrayRef(getAttrArrayPtr(), NumAttrs);
   }
-
   Stmt *getSubStmt() { return SubStmt; }
   const Stmt *getSubStmt() const { return SubStmt; }
 
@@ -925,7 +902,9 @@ public:
   }
 };
 
+
 /// IfStmt - This represents an if/then/else.
+///
 class IfStmt : public Stmt {
   enum { INIT, VAR, COND, THEN, ELSE, END_EXPR };
   Stmt* SubExprs[END_EXPR];
@@ -940,7 +919,7 @@ public:
          Stmt *elsev = nullptr);
 
   /// \brief Build an empty if/then/else statement
-  explicit IfStmt(EmptyShell Empty) : Stmt(IfStmtClass, Empty) {}
+  explicit IfStmt(EmptyShell Empty) : Stmt(IfStmtClass, Empty) { }
 
   /// \brief Retrieve the variable declared in this "if" statement, if any.
   ///
@@ -984,7 +963,6 @@ public:
   bool isObjCAvailabilityCheck() const;
 
   SourceLocation getLocStart() const LLVM_READONLY { return IfLoc; }
-
   SourceLocation getLocEnd() const LLVM_READONLY {
     if (SubExprs[ELSE])
       return SubExprs[ELSE]->getLocEnd();
@@ -1004,11 +982,11 @@ public:
 };
 
 /// SwitchStmt - This represents a 'switch' stmt.
+///
 class SwitchStmt : public Stmt {
   SourceLocation SwitchLoc;
   enum { INIT, VAR, COND, BODY, END_EXPR };
   Stmt* SubExprs[END_EXPR];
-
   // This points to a linked list of case and default statements and, if the
   // SwitchStmt is a switch on an enum value, records whether all the enum
   // values were covered by CaseStmts.  The coverage information value is meant
@@ -1019,7 +997,7 @@ public:
   SwitchStmt(const ASTContext &C, Stmt *Init, VarDecl *Var, Expr *cond);
 
   /// \brief Build a empty switch statement.
-  explicit SwitchStmt(EmptyShell Empty) : Stmt(SwitchStmtClass, Empty) {}
+  explicit SwitchStmt(EmptyShell Empty) : Stmt(SwitchStmtClass, Empty) { }
 
   /// \brief Retrieve the variable declared in this "switch" statement, if any.
   ///
@@ -1062,7 +1040,6 @@ public:
     SubExprs[BODY] = S;
     SwitchLoc = SL;
   }
-
   void addSwitchCase(SwitchCase *SC) {
     assert(!SC->getNextSwitchCase()
            && "case/default already added to a switch");
@@ -1079,7 +1056,6 @@ public:
   bool isAllEnumCasesCovered() const { return FirstCase.getInt(); }
 
   SourceLocation getLocStart() const LLVM_READONLY { return SwitchLoc; }
-
   SourceLocation getLocEnd() const LLVM_READONLY {
     return SubExprs[BODY] ? SubExprs[BODY]->getLocEnd() : SubExprs[COND]->getLocEnd();
   }
@@ -1094,18 +1070,19 @@ public:
   }
 };
 
+
 /// WhileStmt - This represents a 'while' stmt.
+///
 class WhileStmt : public Stmt {
   SourceLocation WhileLoc;
   enum { VAR, COND, BODY, END_EXPR };
   Stmt* SubExprs[END_EXPR];
-
 public:
   WhileStmt(const ASTContext &C, VarDecl *Var, Expr *cond, Stmt *body,
             SourceLocation WL);
 
   /// \brief Build an empty while statement.
-  explicit WhileStmt(EmptyShell Empty) : Stmt(WhileStmtClass, Empty) {}
+  explicit WhileStmt(EmptyShell Empty) : Stmt(WhileStmtClass, Empty) { }
 
   /// \brief Retrieve the variable declared in this "while" statement, if any.
   ///
@@ -1135,7 +1112,6 @@ public:
   void setWhileLoc(SourceLocation L) { WhileLoc = L; }
 
   SourceLocation getLocStart() const LLVM_READONLY { return WhileLoc; }
-
   SourceLocation getLocEnd() const LLVM_READONLY {
     return SubExprs[BODY]->getLocEnd();
   }
@@ -1151,6 +1127,7 @@ public:
 };
 
 /// DoStmt - This represents a 'do/while' stmt.
+///
 class DoStmt : public Stmt {
   SourceLocation DoLoc;
   enum { BODY, COND, END_EXPR };
@@ -1167,7 +1144,7 @@ public:
   }
 
   /// \brief Build an empty do-while statement.
-  explicit DoStmt(EmptyShell Empty) : Stmt(DoStmtClass, Empty) {}
+  explicit DoStmt(EmptyShell Empty) : Stmt(DoStmtClass, Empty) { }
 
   Expr *getCond() { return reinterpret_cast<Expr*>(SubExprs[COND]); }
   const Expr *getCond() const { return reinterpret_cast<Expr*>(SubExprs[COND]);}
@@ -1197,9 +1174,11 @@ public:
   }
 };
 
+
 /// ForStmt - This represents a 'for (init;cond;inc)' stmt.  Note that any of
 /// the init/cond/inc parts of the ForStmt will be null if they were not
 /// specified in the source.
+///
 class ForStmt : public Stmt {
   SourceLocation ForLoc;
   enum { INIT, CONDVAR, COND, INC, BODY, END_EXPR };
@@ -1212,7 +1191,7 @@ public:
           SourceLocation RP);
 
   /// \brief Build an empty for statement.
-  explicit ForStmt(EmptyShell Empty) : Stmt(ForStmtClass, Empty) {}
+  explicit ForStmt(EmptyShell Empty) : Stmt(ForStmtClass, Empty) { }
 
   Stmt *getInit() { return SubExprs[INIT]; }
 
@@ -1255,7 +1234,6 @@ public:
   void setRParenLoc(SourceLocation L) { RParenLoc = L; }
 
   SourceLocation getLocStart() const LLVM_READONLY { return ForLoc; }
-
   SourceLocation getLocEnd() const LLVM_READONLY {
     return SubExprs[BODY]->getLocEnd();
   }
@@ -1271,17 +1249,17 @@ public:
 };
 
 /// GotoStmt - This represents a direct goto.
+///
 class GotoStmt : public Stmt {
   LabelDecl *Label;
   SourceLocation GotoLoc;
   SourceLocation LabelLoc;
-
 public:
   GotoStmt(LabelDecl *label, SourceLocation GL, SourceLocation LL)
-      : Stmt(GotoStmtClass), Label(label), GotoLoc(GL), LabelLoc(LL) {}
+    : Stmt(GotoStmtClass), Label(label), GotoLoc(GL), LabelLoc(LL) {}
 
   /// \brief Build an empty goto statement.
-  explicit GotoStmt(EmptyShell Empty) : Stmt(GotoStmtClass, Empty) {}
+  explicit GotoStmt(EmptyShell Empty) : Stmt(GotoStmtClass, Empty) { }
 
   LabelDecl *getLabel() const { return Label; }
   void setLabel(LabelDecl *D) { Label = D; }
@@ -1305,11 +1283,11 @@ public:
 };
 
 /// IndirectGotoStmt - This represents an indirect goto.
+///
 class IndirectGotoStmt : public Stmt {
   SourceLocation GotoLoc;
   SourceLocation StarLoc;
   Stmt *Target;
-
 public:
   IndirectGotoStmt(SourceLocation gotoLoc, SourceLocation starLoc,
                    Expr *target)
@@ -1318,7 +1296,7 @@ public:
 
   /// \brief Build an empty indirect goto statement.
   explicit IndirectGotoStmt(EmptyShell Empty)
-      : Stmt(IndirectGotoStmtClass, Empty) {}
+    : Stmt(IndirectGotoStmtClass, Empty) { }
 
   void setGotoLoc(SourceLocation L) { GotoLoc = L; }
   SourceLocation getGotoLoc() const { return GotoLoc; }
@@ -1347,15 +1325,16 @@ public:
   child_range children() { return child_range(&Target, &Target+1); }
 };
 
+
 /// ContinueStmt - This represents a continue.
+///
 class ContinueStmt : public Stmt {
   SourceLocation ContinueLoc;
-
 public:
   ContinueStmt(SourceLocation CL) : Stmt(ContinueStmtClass), ContinueLoc(CL) {}
 
   /// \brief Build an empty continue statement.
-  explicit ContinueStmt(EmptyShell Empty) : Stmt(ContinueStmtClass, Empty) {}
+  explicit ContinueStmt(EmptyShell Empty) : Stmt(ContinueStmtClass, Empty) { }
 
   SourceLocation getContinueLoc() const { return ContinueLoc; }
   void setContinueLoc(SourceLocation L) { ContinueLoc = L; }
@@ -1374,6 +1353,7 @@ public:
 };
 
 /// BreakStmt - This represents a break.
+///
 class BreakStmt : public Stmt {
   SourceLocation BreakLoc;
 
@@ -1384,7 +1364,7 @@ public:
   }
 
   /// \brief Build an empty break statement.
-  explicit BreakStmt(EmptyShell Empty) : Stmt(BreakStmtClass, Empty) {}
+  explicit BreakStmt(EmptyShell Empty) : Stmt(BreakStmtClass, Empty) { }
 
   SourceLocation getBreakLoc() const { return BreakLoc; }
   void setBreakLoc(SourceLocation L) { BreakLoc = L; }
@@ -1402,6 +1382,7 @@ public:
   }
 };
 
+
 /// ReturnStmt - This represents a return, optionally of an expression:
 ///   return;
 ///   return 4;
@@ -1410,6 +1391,7 @@ public:
 /// return a value, and it allows returning a value in functions declared to
 /// return void.  We explicitly model this in the AST, which means you can't
 /// depend on the return type of the function and the presence of an argument.
+///
 class ReturnStmt : public Stmt {
   SourceLocation RetLoc;
   Stmt *RetExpr;
@@ -1423,7 +1405,7 @@ public:
         NRVOCandidate(NRVOCandidate) {}
 
   /// \brief Build an empty return expression.
-  explicit ReturnStmt(EmptyShell Empty) : Stmt(ReturnStmtClass, Empty) {}
+  explicit ReturnStmt(EmptyShell Empty) : Stmt(ReturnStmtClass, Empty) { }
 
   const Expr *getRetValue() const;
   Expr *getRetValue();
@@ -1441,7 +1423,6 @@ public:
   void setNRVOCandidate(const VarDecl *Var) { NRVOCandidate = Var; }
 
   SourceLocation getLocStart() const LLVM_READONLY { return RetLoc; }
-
   SourceLocation getLocEnd() const LLVM_READONLY {
     return RetExpr ? RetExpr->getLocEnd() : RetLoc;
   }
@@ -1458,12 +1439,10 @@ public:
 };
 
 /// AsmStmt is the base class for GCCAsmStmt and MSAsmStmt.
+///
 class AsmStmt : public Stmt {
 protected:
-  friend class ASTStmtReader;
-
   SourceLocation AsmLoc;
-
   /// \brief True if the assembly statement does not have any input or output
   /// operands.
   bool IsSimple;
@@ -1476,17 +1455,19 @@ protected:
   unsigned NumInputs;
   unsigned NumClobbers;
 
-  Stmt **Exprs = nullptr;
+  Stmt **Exprs;
 
   AsmStmt(StmtClass SC, SourceLocation asmloc, bool issimple, bool isvolatile,
-          unsigned numoutputs, unsigned numinputs, unsigned numclobbers)
-      : Stmt (SC), AsmLoc(asmloc), IsSimple(issimple), IsVolatile(isvolatile),
-        NumOutputs(numoutputs), NumInputs(numinputs),
-        NumClobbers(numclobbers) {}
+          unsigned numoutputs, unsigned numinputs, unsigned numclobbers) :
+    Stmt (SC), AsmLoc(asmloc), IsSimple(issimple), IsVolatile(isvolatile),
+    NumOutputs(numoutputs), NumInputs(numinputs), NumClobbers(numclobbers) { }
+
+  friend class ASTStmtReader;
 
 public:
   /// \brief Build an empty inline-assembly statement.
-  explicit AsmStmt(StmtClass SC, EmptyShell Empty) : Stmt(SC, Empty) {}
+  explicit AsmStmt(StmtClass SC, EmptyShell Empty) :
+    Stmt(SC, Empty), Exprs(nullptr) { }
 
   SourceLocation getAsmLoc() const { return AsmLoc; }
   void setAsmLoc(SourceLocation L) { AsmLoc = L; }
@@ -1549,10 +1530,10 @@ public:
 
   // Input expr iterators.
 
-  using inputs_iterator = ExprIterator;
-  using const_inputs_iterator = ConstExprIterator;
-  using inputs_range = llvm::iterator_range<inputs_iterator>;
-  using inputs_const_range = llvm::iterator_range<const_inputs_iterator>;
+  typedef ExprIterator inputs_iterator;
+  typedef ConstExprIterator const_inputs_iterator;
+  typedef llvm::iterator_range<inputs_iterator> inputs_range;
+  typedef llvm::iterator_range<const_inputs_iterator> inputs_const_range;
 
   inputs_iterator begin_inputs() {
     return &Exprs[0] + NumOutputs;
@@ -1578,19 +1559,17 @@ public:
 
   // Output expr iterators.
 
-  using outputs_iterator = ExprIterator;
-  using const_outputs_iterator = ConstExprIterator;
-  using outputs_range = llvm::iterator_range<outputs_iterator>;
-  using outputs_const_range = llvm::iterator_range<const_outputs_iterator>;
+  typedef ExprIterator outputs_iterator;
+  typedef ConstExprIterator const_outputs_iterator;
+  typedef llvm::iterator_range<outputs_iterator> outputs_range;
+  typedef llvm::iterator_range<const_outputs_iterator> outputs_const_range;
 
   outputs_iterator begin_outputs() {
     return &Exprs[0];
   }
-
   outputs_iterator end_outputs() {
     return &Exprs[0] + NumOutputs;
   }
-
   outputs_range outputs() {
     return outputs_range(begin_outputs(), end_outputs());
   }
@@ -1598,11 +1577,9 @@ public:
   const_outputs_iterator begin_outputs() const {
     return &Exprs[0];
   }
-
   const_outputs_iterator end_outputs() const {
     return &Exprs[0] + NumOutputs;
   }
-
   outputs_const_range outputs() const {
     return outputs_const_range(begin_outputs(), end_outputs());
   }
@@ -1613,16 +1590,17 @@ public:
 };
 
 /// This represents a GCC inline-assembly statement extension.
+///
 class GCCAsmStmt : public AsmStmt {
-  friend class ASTStmtReader;
-
   SourceLocation RParenLoc;
   StringLiteral *AsmStr;
 
   // FIXME: If we wanted to, we could allocate all of these in one big array.
-  StringLiteral **Constraints = nullptr;
-  StringLiteral **Clobbers = nullptr;
-  IdentifierInfo **Names = nullptr;
+  StringLiteral **Constraints;
+  StringLiteral **Clobbers;
+  IdentifierInfo **Names;
+
+  friend class ASTStmtReader;
 
 public:
   GCCAsmStmt(const ASTContext &C, SourceLocation asmloc, bool issimple,
@@ -1632,7 +1610,8 @@ public:
              StringLiteral **clobbers, SourceLocation rparenloc);
 
   /// \brief Build an empty inline-assembly statement.
-  explicit GCCAsmStmt(EmptyShell Empty) : AsmStmt(GCCAsmStmtClass, Empty) {}
+  explicit GCCAsmStmt(EmptyShell Empty) : AsmStmt(GCCAsmStmtClass, Empty),
+    Constraints(nullptr), Clobbers(nullptr), Names(nullptr) { }
 
   SourceLocation getRParenLoc() const { return RParenLoc; }
   void setRParenLoc(SourceLocation L) { RParenLoc = L; }
@@ -1652,7 +1631,6 @@ public:
       String,  // String in .ll asm string form, "$" -> "$$" and "%%" -> "%".
       Operand  // Operand reference, with optional modifier %c4.
     };
-
   private:
     Kind MyKind;
     std::string Str;
@@ -1660,13 +1638,13 @@ public:
 
     // Source range for operand references.
     CharSourceRange Range;
-
   public:
     AsmStringPiece(const std::string &S) : MyKind(String), Str(S) {}
     AsmStringPiece(unsigned OpNo, const std::string &S, SourceLocation Begin,
                    SourceLocation End)
-        : MyKind(Operand), Str(S), OperandNo(OpNo),
-          Range(CharSourceRange::getCharRange(Begin, End)) {}
+      : MyKind(Operand), Str(S), OperandNo(OpNo),
+        Range(CharSourceRange::getCharRange(Begin, End)) {
+    }
 
     bool isString() const { return MyKind == String; }
     bool isOperand() const { return MyKind == Operand; }
@@ -1767,8 +1745,8 @@ private:
                                       unsigned NumInputs,
                                       StringLiteral **Clobbers,
                                       unsigned NumClobbers);
-
 public:
+
   //===--- Other ---===//
 
   /// getNamedOperand - Given a symbolic operand reference like %[foo],
@@ -1777,7 +1755,6 @@ public:
   int getNamedOperand(StringRef SymbolicName) const;
 
   StringRef getClobber(unsigned i) const;
-
   StringLiteral *getClobberStringLiteral(unsigned i) { return Clobbers[i]; }
   const StringLiteral *getClobberStringLiteral(unsigned i) const {
     return Clobbers[i];
@@ -1792,17 +1769,18 @@ public:
 };
 
 /// This represents a Microsoft inline-assembly statement extension.
+///
 class MSAsmStmt : public AsmStmt {
-  friend class ASTStmtReader;
-
   SourceLocation LBraceLoc, EndLoc;
   StringRef AsmStr;
 
-  unsigned NumAsmToks = 0;
+  unsigned NumAsmToks;
 
-  Token *AsmToks = nullptr;
-  StringRef *Constraints = nullptr;
-  StringRef *Clobbers = nullptr;
+  Token *AsmToks;
+  StringRef *Constraints;
+  StringRef *Clobbers;
+
+  friend class ASTStmtReader;
 
 public:
   MSAsmStmt(const ASTContext &C, SourceLocation asmloc,
@@ -1813,7 +1791,8 @@ public:
             ArrayRef<StringRef> clobbers, SourceLocation endloc);
 
   /// \brief Build an empty MS-style inline-assembly statement.
-  explicit MSAsmStmt(EmptyShell Empty) : AsmStmt(MSAsmStmtClass, Empty) {}
+  explicit MSAsmStmt(EmptyShell Empty) : AsmStmt(MSAsmStmtClass, Empty),
+    NumAsmToks(0), AsmToks(nullptr), Constraints(nullptr), Clobbers(nullptr) { }
 
   SourceLocation getLBraceLoc() const { return LBraceLoc; }
   void setLBraceLoc(SourceLocation L) { LBraceLoc = L; }
@@ -1863,11 +1842,9 @@ public:
   ArrayRef<StringRef> getAllConstraints() const {
     return llvm::makeArrayRef(Constraints, NumInputs + NumOutputs);
   }
-
   ArrayRef<StringRef> getClobbers() const {
     return llvm::makeArrayRef(Clobbers, NumClobbers);
   }
-
   ArrayRef<Expr*> getAllExprs() const {
     return llvm::makeArrayRef(reinterpret_cast<Expr**>(Exprs),
                               NumInputs + NumOutputs);
@@ -1879,8 +1856,8 @@ private:
   void initialize(const ASTContext &C, StringRef AsmString,
                   ArrayRef<Token> AsmToks, ArrayRef<StringRef> Constraints,
                   ArrayRef<Expr*> Exprs, ArrayRef<StringRef> Clobbers);
-
 public:
+
   SourceLocation getLocStart() const LLVM_READONLY { return AsmLoc; }
   SourceLocation getLocEnd() const LLVM_READONLY { return EndLoc; }
 
@@ -1894,16 +1871,18 @@ public:
 };
 
 class SEHExceptStmt : public Stmt {
-  friend class ASTReader;
-  friend class ASTStmtReader;
-
   SourceLocation  Loc;
-  Stmt *Children[2];
+  Stmt           *Children[2];
 
   enum { FILTER_EXPR, BLOCK };
 
-  SEHExceptStmt(SourceLocation Loc, Expr *FilterExpr, Stmt *Block);
-  explicit SEHExceptStmt(EmptyShell E) : Stmt(SEHExceptStmtClass, E) {}
+  SEHExceptStmt(SourceLocation Loc,
+                Expr *FilterExpr,
+                Stmt *Block);
+
+  friend class ASTReader;
+  friend class ASTStmtReader;
+  explicit SEHExceptStmt(EmptyShell E) : Stmt(SEHExceptStmtClass, E) { }
 
 public:
   static SEHExceptStmt* Create(const ASTContext &C,
@@ -1932,17 +1911,19 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == SEHExceptStmtClass;
   }
+
 };
 
 class SEHFinallyStmt : public Stmt {
+  SourceLocation  Loc;
+  Stmt           *Block;
+
+  SEHFinallyStmt(SourceLocation Loc,
+                 Stmt *Block);
+
   friend class ASTReader;
   friend class ASTStmtReader;
-
-  SourceLocation  Loc;
-  Stmt *Block;
-
-  SEHFinallyStmt(SourceLocation Loc, Stmt *Block);
-  explicit SEHFinallyStmt(EmptyShell E) : Stmt(SEHFinallyStmtClass, E) {}
+  explicit SEHFinallyStmt(EmptyShell E) : Stmt(SEHFinallyStmtClass, E) { }
 
 public:
   static SEHFinallyStmt* Create(const ASTContext &C,
@@ -1964,15 +1945,13 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == SEHFinallyStmtClass;
   }
+
 };
 
 class SEHTryStmt : public Stmt {
-  friend class ASTReader;
-  friend class ASTStmtReader;
-
-  bool IsCXXTry;
+  bool            IsCXXTry;
   SourceLocation  TryLoc;
-  Stmt *Children[2];
+  Stmt           *Children[2];
 
   enum { TRY = 0, HANDLER = 1 };
 
@@ -1981,7 +1960,9 @@ class SEHTryStmt : public Stmt {
              Stmt *TryBlock,
              Stmt *Handler);
 
-  explicit SEHTryStmt(EmptyShell E) : Stmt(SEHTryStmtClass, E) {}
+  friend class ASTReader;
+  friend class ASTStmtReader;
+  explicit SEHTryStmt(EmptyShell E) : Stmt(SEHTryStmtClass, E) { }
 
 public:
   static SEHTryStmt* Create(const ASTContext &C, bool isCXXTry,
@@ -2016,15 +1997,15 @@ public:
 };
 
 /// Represents a __leave statement.
+///
 class SEHLeaveStmt : public Stmt {
   SourceLocation LeaveLoc;
-
 public:
   explicit SEHLeaveStmt(SourceLocation LL)
       : Stmt(SEHLeaveStmtClass), LeaveLoc(LL) {}
 
   /// \brief Build an empty __leave statement.
-  explicit SEHLeaveStmt(EmptyShell Empty) : Stmt(SEHLeaveStmtClass, Empty) {}
+  explicit SEHLeaveStmt(EmptyShell Empty) : Stmt(SEHLeaveStmtClass, Empty) { }
 
   SourceLocation getLeaveLoc() const { return LeaveLoc; }
   void setLeaveLoc(SourceLocation L) { LeaveLoc = L; }
@@ -2069,8 +2050,6 @@ public:
     SourceLocation Loc;
 
   public:
-    friend class ASTStmtReader;
-
     /// \brief Create a new capture.
     ///
     /// \param Loc The source location associated with this capture.
@@ -2078,6 +2057,7 @@ public:
     /// \param Kind The kind of capture (this, ByRef, ...).
     ///
     /// \param Var The variable being captured, or null if capturing this.
+    ///
     Capture(SourceLocation Loc, VariableCaptureKind Kind,
             VarDecl *Var = nullptr);
 
@@ -2109,6 +2089,8 @@ public:
     ///
     /// This operation is only valid if this capture captures a variable.
     VarDecl *getCapturedVar() const;
+
+    friend class ASTStmtReader;
   };
 
 private:
@@ -2120,7 +2102,7 @@ private:
   llvm::PointerIntPair<CapturedDecl *, 1, CapturedRegionKind> CapDeclAndKind;
 
   /// \brief The record for captured variables, a RecordDecl or CXXRecordDecl.
-  RecordDecl *TheRecordDecl = nullptr;
+  RecordDecl *TheRecordDecl;
 
   /// \brief Construct a captured statement.
   CapturedStmt(Stmt *S, CapturedRegionKind Kind, ArrayRef<Capture> Captures,
@@ -2140,8 +2122,6 @@ private:
   void setCapturedStmt(Stmt *S) { getStoredStmts()[NumCaptures] = S; }
 
 public:
-  friend class ASTStmtReader;
-
   static CapturedStmt *Create(const ASTContext &Context, Stmt *S,
                               CapturedRegionKind Kind,
                               ArrayRef<Capture> Captures,
@@ -2181,10 +2161,10 @@ public:
   bool capturesVariable(const VarDecl *Var) const;
 
   /// \brief An iterator that walks over the captures.
-  using capture_iterator = Capture *;
-  using const_capture_iterator = const Capture *;
-  using capture_range = llvm::iterator_range<capture_iterator>;
-  using capture_const_range = llvm::iterator_range<const_capture_iterator>;
+  typedef Capture *capture_iterator;
+  typedef const Capture *const_capture_iterator;
+  typedef llvm::iterator_range<capture_iterator> capture_range;
+  typedef llvm::iterator_range<const_capture_iterator> capture_const_range;
 
   capture_range captures() {
     return capture_range(capture_begin(), capture_end());
@@ -2207,14 +2187,14 @@ public:
   unsigned capture_size() const { return NumCaptures; }
 
   /// \brief Iterator that walks over the capture initialization arguments.
-  using capture_init_iterator = Expr **;
-  using capture_init_range = llvm::iterator_range<capture_init_iterator>;
+  typedef Expr **capture_init_iterator;
+  typedef llvm::iterator_range<capture_init_iterator> capture_init_range;
 
   /// \brief Const iterator that walks over the capture initialization
   /// arguments.
-  using const_capture_init_iterator = Expr *const *;
-  using const_capture_init_range =
-      llvm::iterator_range<const_capture_init_iterator>;
+  typedef Expr *const *const_capture_init_iterator;
+  typedef llvm::iterator_range<const_capture_init_iterator>
+      const_capture_init_range;
 
   capture_init_range capture_inits() {
     return capture_init_range(capture_init_begin(), capture_init_end());
@@ -2246,11 +2226,9 @@ public:
   SourceLocation getLocStart() const LLVM_READONLY {
     return getCapturedStmt()->getLocStart();
   }
-
   SourceLocation getLocEnd() const LLVM_READONLY {
     return getCapturedStmt()->getLocEnd();
   }
-
   SourceRange getSourceRange() const LLVM_READONLY {
     return getCapturedStmt()->getSourceRange();
   }
@@ -2260,8 +2238,10 @@ public:
   }
 
   child_range children();
+
+  friend class ASTStmtReader;
 };
 
-} // namespace clang
+}  // end namespace clang
 
-#endif // LLVM_CLANG_AST_STMT_H
+#endif

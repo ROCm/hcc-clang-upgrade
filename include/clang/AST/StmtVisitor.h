@@ -1,4 +1,4 @@
-//===- StmtVisitor.h - Visitor for Stmt subclasses --------------*- C++ -*-===//
+//===--- StmtVisitor.h - Visitor for Stmt subclasses ------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -17,19 +17,14 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/ExprOpenMP.h"
-#include "clang/AST/Stmt.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/AST/StmtOpenMP.h"
-#include "clang/Basic/LLVM.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/ErrorHandling.h"
-#include <utility>
 
 namespace clang {
 
-template <typename T> struct make_ptr { using type = T *; };
-template <typename T> struct make_const_ptr { using type = const T *; };
+template <typename T> struct make_ptr       { typedef       T *type; };
+template <typename T> struct make_const_ptr { typedef const T *type; };
 
 /// StmtVisitorBase - This class implements a simple visitor for Stmt
 /// subclasses. Since Expr derives from Stmt, this also includes support for
@@ -38,12 +33,14 @@ template<template <typename> class Ptr, typename ImplClass, typename RetTy=void,
          class... ParamTys>
 class StmtVisitorBase {
 public:
+
 #define PTR(CLASS) typename Ptr<CLASS>::type
 #define DISPATCH(NAME, CLASS) \
   return static_cast<ImplClass*>(this)->Visit ## NAME( \
     static_cast<PTR(CLASS)>(S), std::forward<ParamTys>(P)...)
 
   RetTy Visit(PTR(Stmt) S, ParamTys... P) {
+
     // If we have a binary expr, dispatch to the subcode of the binop.  A smart
     // optimizer (e.g. LLVM) will fold this comparison into the switch stmt
     // below.
@@ -227,6 +224,6 @@ template<class ImplClass, typename RetTy = void>
 class ConstOMPClauseVisitor :
       public OMPClauseVisitorBase <ImplClass, make_const_ptr, RetTy> {};
 
-} // namespace clang
+}  // end namespace clang
 
-#endif // LLVM_CLANG_AST_STMTVISITOR_H
+#endif

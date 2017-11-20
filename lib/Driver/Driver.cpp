@@ -656,6 +656,8 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
   //
   // TODO: Add support for other offloading programming models here.
   //
+
+  return;
 }
 
 Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
