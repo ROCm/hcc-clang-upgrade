@@ -5767,7 +5767,8 @@ Decl *Sema::ActOnDeclarator(Scope *S, Declarator &D) {
 
             // FIXME: There is a clang bug in ClassTemplateSpecializationDecl which we can't
             // interate its base classes
-            if(!dyn_cast<ClassTemplateSpecializationDecl>(DestRecordDecl)) {
+            if(!getLangOpts().HSAExtension &&
+               !dyn_cast<ClassTemplateSpecializationDecl>(DestRecordDecl)) {
               // Empty class type of array element
               if(DestRecordDecl && DestRecordDecl->isEmpty() && dyn_cast<ArrayType>(VD->getType()))
                 Diag(Dcl->getLocation(), diag::err_amp_need_4_byte_aligned);
@@ -5776,7 +5777,7 @@ Decl *Sema::ActOnDeclarator(Scope *S, Declarator &D) {
               std::vector<FieldDecl*> FoundVec;
               bool Aligned = true;
               Track4ByteAligned(DestRecordDecl, *this, D, FoundVec, Aligned);
-              if(!getLangOpts().HSAExtension && !Aligned) {
+              if(!Aligned) {
                   for (unsigned i=0; i<FoundVec.size(); i++)
                     if(FoundVec[i])
                      Diag(FoundVec[i]->getInnerLocStart(), diag::err_amp_need_4_byte_aligned);
@@ -10422,10 +10423,17 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   }
 
   // C++AMP
-  // C linkage functions can't have multiple restrction specifiers
+  // C linkage functions can't have multiple restriction specifiers
   //   extern "C" void foo() restrict(amp, cpu) {}  // Error
+  // However, for HIP __global__ functions we allow it orthogonally to the
+  // linkage specifier, since our mechanism for implementing restrictions is not
+  // in any way impacting mangling, unlike what the original C++AMP had.
+  // TODO: this is too verbose, should be split up into separate functions.
   if (getLangOpts().CPlusPlusAMP && NewFD->isExternC() &&
-    NewFD->hasAttr<CXXAMPRestrictCPUAttr>() && NewFD->hasAttr<CXXAMPRestrictAMPAttr>())
+    NewFD->hasAttr<CXXAMPRestrictCPUAttr>() &&
+    NewFD->hasAttr<CXXAMPRestrictAMPAttr>() &&
+    (!NewFD->hasAttr<AnnotateAttr>() ||
+     NewFD->getAttr<AnnotateAttr>()->getAnnotation() != "__HIP_global_function__"))
     Diag(NewFD->getLocation(), diag::err_amp_c_linkage_function_has_multiple_restrictions)
           << NewFD->getDeclName();
 
