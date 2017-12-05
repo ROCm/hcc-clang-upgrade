@@ -2256,7 +2256,7 @@ bool Parser::ParseUnqualifiedIdTemplateId(CXXScopeSpec &SS,
 ///            !     =    <  >    += -=   *=  /=  %=
 ///            ^=    &=   |= <<   >> >>= <<=  ==  !=
 ///            <=    >=   && ||   ++ --   ,   ->* ->
-///            ()    []
+///            ()    []   <=>
 ///
 ///       conversion-function-id: [C++ 12.3.2]
 ///         operator conversion-type-id
