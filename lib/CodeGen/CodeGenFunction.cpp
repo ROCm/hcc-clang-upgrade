@@ -463,6 +463,12 @@ bool CodeGenFunction::ShouldXRayInstrumentFunction() const {
   return CGM.getCodeGenOpts().XRayInstrumentFunctions;
 }
 
+/// AlwaysEmitXRayCustomEvents - Return true if we should emit IR for calls to
+/// the __xray_customevent(...) builin calls, when doing XRay instrumentation.
+bool CodeGenFunction::AlwaysEmitXRayCustomEvents() const {
+  return CGM.getCodeGenOpts().XRayAlwaysEmitCustomEvents;
+}
+
 llvm::Constant *
 CodeGenFunction::EncodeAddrForUseInPrologue(llvm::Function *F,
                                             llvm::Constant *Addr) {
@@ -879,6 +885,8 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   // Apply sanitizer attributes to the function.
   if (SanOpts.hasOneOf(SanitizerKind::Address | SanitizerKind::KernelAddress))
     Fn->addFnAttr(llvm::Attribute::SanitizeAddress);
+  if (SanOpts.hasOneOf(SanitizerKind::HWAddress))
+    Fn->addFnAttr(llvm::Attribute::SanitizeHWAddress);
   if (SanOpts.has(SanitizerKind::Thread))
     Fn->addFnAttr(llvm::Attribute::SanitizeThread);
   if (SanOpts.has(SanitizerKind::Memory))

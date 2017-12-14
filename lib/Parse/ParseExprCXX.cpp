@@ -1079,7 +1079,7 @@ static void
 addConstexprToLambdaDeclSpecifier(Parser &P, SourceLocation ConstexprLoc,
                                   DeclSpec &DS) {
   if (ConstexprLoc.isValid()) {
-    P.Diag(ConstexprLoc, !P.getLangOpts().CPlusPlus1z
+    P.Diag(ConstexprLoc, !P.getLangOpts().CPlusPlus17
                              ? diag::ext_constexpr_on_lambda_cxx17
                              : diag::warn_cxx14_compat_constexpr_on_lambda);
     const char *PrevSpec = nullptr;
@@ -1787,6 +1787,8 @@ Parser::ParseCXXTypeConstructExpression(const DeclSpec &DS) {
 ///         type-specifier-seq declarator '=' assignment-expression
 /// [C++11] type-specifier-seq declarator '=' initializer-clause
 /// [C++11] type-specifier-seq declarator braced-init-list
+/// [Clang] type-specifier-seq ref-qualifier[opt] '[' identifier-list ']'
+///             brace-or-equal-initializer
 /// [GNU]   type-specifier-seq declarator simple-asm-expr[opt] attributes[opt]
 ///             '=' assignment-expression
 ///
@@ -1832,7 +1834,7 @@ Sema::ConditionResult Parser::ParseCXXCondition(StmtResult *InitStmt,
   }
 
   case ConditionOrInitStatement::InitStmtDecl: {
-    Diag(Tok.getLocation(), getLangOpts().CPlusPlus1z
+    Diag(Tok.getLocation(), getLangOpts().CPlusPlus17
                                 ? diag::warn_cxx14_compat_init_statement
                                 : diag::ext_init_statement)
         << (CK == Sema::ConditionKind::Switch);
@@ -2256,7 +2258,7 @@ bool Parser::ParseUnqualifiedIdTemplateId(CXXScopeSpec &SS,
 ///            !     =    <  >    += -=   *=  /=  %=
 ///            ^=    &=   |= <<   >> >>= <<=  ==  !=
 ///            <=    >=   && ||   ++ --   ,   ->* ->
-///            ()    []
+///            ()    []   <=>
 ///
 ///       conversion-function-id: [C++ 12.3.2]
 ///         operator conversion-type-id
@@ -2552,7 +2554,7 @@ bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
                                           /*IsCtorOrDtorName=*/true,
                                           /*NonTrivialTypeSourceInfo=*/true);
       Result.setConstructorName(Ty, IdLoc, IdLoc);
-    } else if (getLangOpts().CPlusPlus1z &&
+    } else if (getLangOpts().CPlusPlus17 &&
                AllowDeductionGuide && SS.isEmpty() &&
                Actions.isDeductionGuideName(getCurScope(), *Id, IdLoc,
                                             &TemplateName)) {
