@@ -957,10 +957,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
 
   if (getLangOpts().CPlusPlusAMP) {
     if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D)) {
-      if (is_hcc_kernel_wrapper(FD) ||
-          (FD->hasAttr<AnnotateAttr>() &&
-           FD->getAttr<AnnotateAttr>()->getAnnotation() ==
-             "__HIP_global_function__")) {
+      if (is_hcc_kernel_wrapper(FD)) {
         Fn->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
         Fn->setDoesNotRecurse();
         Fn->setDoesNotThrow();
@@ -1348,15 +1345,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   if (isa<CXXDestructorDecl>(FD))
     EmitDestructorBody(Args);
   else if (isa<CXXConstructorDecl>(FD))
-    EmitConstructorBody(Args);
-  else if (getContext().getLangOpts().CPlusPlus &&
-           (!CGM.getCodeGenOpts().AMPIsDevice || CGM.getCodeGenOpts().AMPCPU) &&
-           FD->hasAttr<AnnotateAttr>() &&
-           FD->getAttr<AnnotateAttr>()->getAnnotation() == "__HIP_global_function__") {
-    // We do not emit __global__ functions on the host path, we only want them
-    // to have a correct address which we can use to obtain the mangled name
-    // from the ELF.
-  }
+    EmitConstructorBody(Args)
   else if (getLangOpts().CUDA &&
            !getLangOpts().CUDAIsDevice &&
            FD->hasAttr<CUDAGlobalAttr>())
