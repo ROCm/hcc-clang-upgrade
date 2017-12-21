@@ -3762,48 +3762,6 @@ Sema::BuildMemInitializer(Decl *ConstructorD,
       if ((Member = dyn_cast<FieldDecl>(Result.front())) ||
           (Member = dyn_cast<IndirectFieldDecl>(Result.front()))) {
 
-        // C++AMP
-        // FIMXE: Need to consider non member initializer cases
-        if(getLangOpts().CPlusPlusAMP && ClassDecl->isStruct()
-          && (Constructor->hasAttr<CXXAMPRestrictAMPAttr>() ||
-          Constructor->hasAttr<CXXAMPRestrictCPUAttr>())) {
-          // Can't use IsIncompatibleType
-          const Type* Ty  = Member->getType().getTypePtrOrNull();
-          QualType TheType = Member->getType();
-          if(Ty) {
-            // Case by case
-            if(Ty->isPointerType())
-              TheType = Ty->getPointeeType();
-            if(Ty->isArrayType())
-              TheType = dyn_cast<ArrayType>(Ty)->getElementType();
-            if(!TheType.isNull() && TheType->isRecordType()) {
-              CXXRecordDecl* RDecl = TheType->getAsCXXRecordDecl();
-                if (RDecl->getName() == "array")
-                  Diag(Member->getLocStart(), diag::err_amp_incompatible);
-            }
-          }
-          // Checke if it is array_view's reference or pointer
-          if(Ty && (Ty->isPointerType() ||Ty->isReferenceType())) {
-            const Type* TargetTy = Ty->getPointeeType().getTypePtrOrNull();
-            if(const TemplateSpecializationType* TST = TargetTy->getAs<TemplateSpecializationType>()) {
-              // Check if it is a TemplateSpecializationType
-              // FIXME: should consider alias Template
-              // Get its underlying template decl*
-              if(ClassTemplateDecl* CTDecl = dyn_cast_or_null<ClassTemplateDecl>(
-                TST->getTemplateName().getAsTemplateDecl())) {
-                if(CXXRecordDecl* RDecl = CTDecl->getTemplatedDecl())
-                  if(RDecl->getName() == "array_view") {
-                    #if 0
-                    Diag(ClassDecl->getLocStart(), diag::err_amp_type_unsupported)
-                      << ClassDecl->getName();
-                    #endif
-                    Diag(Member->getLocation(), diag::err_amp_unsupported_reference_or_pointer);
-                  }
-              }
-            }
-          }
-        }
-
         if (EllipsisLoc.isValid())
           Diag(EllipsisLoc, diag::err_pack_expansion_member_init)
             << MemberOrBase

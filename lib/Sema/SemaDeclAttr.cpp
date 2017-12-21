@@ -418,20 +418,6 @@ static void handleSimpleAttributeWithExclusions(Sema &S, Decl *D,
                                                                           Attr);
 }
 
-static void handleHCGridLaunchAttr(Sema &S, Decl *D,
-                                   const AttributeList &Attr) {
-  if (!isa<FunctionDecl>(D)) {
-    return;
-  }
-  D->addAttr(::new (S.Context)
-             HCGridLaunchAttr(Attr.getRange(), S.Context,
-                              Attr.getAttributeSpellingListIndex()));
-  // make all hc_grid_launch functions always be emitted
-  D->addAttr(::new (S.Context)
-             UsedAttr(Attr.getRange(), S.Context,
-                              Attr.getAttributeSpellingListIndex()));
-}
-
 /// \brief Check if the passed-in expression is of type int or bool.
 static bool isIntOrBool(Expr *Exp) {
   QualType QT = Exp->getType();
@@ -6136,24 +6122,6 @@ static void handleOpenCLAccessAttr(Sema &S, Decl *D,
       Attr.getRange(), S.Context, Attr.getAttributeSpellingListIndex()));
 }
 
-//===----------------------------------------------------------------------===//
-// C++ AMP specific attribute handlers.
-// FIXME: Merge these handlers with handleSimpleAttribute
-//===----------------------------------------------------------------------===//
-
-static void handleAutoAttr(Sema &S, Decl *D, const AttributeList &Attr) {
-  if (S.LangOpts.CUDA) {
-    // No support for now
-  } else if (S.LangOpts.CPlusPlusAMP) {
-    D->addAttr(::new (S.Context) AlwaysInlineAttr(Attr.getRange(),
-          S.Context, Attr.getAttributeSpellingListIndex()));
-    D->addAttr(::new (S.Context) CXXAMPRestrictAUTOAttr(Attr.getRange(),
-          S.Context, Attr.getAttributeSpellingListIndex()));
-  } else {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "auto";
-  }
-}
-
 static void handleDeviceAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   if (S.LangOpts.CUDA) {
     // check the attribute arguments.
@@ -6171,14 +6139,6 @@ static void handleDeviceAttr(Sema &S, Decl *D, const AttributeList &Attr) {
     D->addAttr(::new (S.Context)
                CUDADeviceAttr(Attr.getRange(), S.Context,
                               Attr.getAttributeSpellingListIndex()));
-  } else if (S.LangOpts.CPlusPlusAMP) {
-    if (!S.LangOpts.AMPCPU)
-      D->addAttr(::new (S.Context) AlwaysInlineAttr(Attr.getRange(),
-                                                    S.Context, Attr.getAttributeSpellingListIndex()));
-    D->addAttr(::new (S.Context) CXXAMPRestrictAMPAttr(Attr.getRange(),
-          S.Context, Attr.getAttributeSpellingListIndex()));
-  } else {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "device";
   }
 }
 
@@ -6197,11 +6157,6 @@ static void handleHostAttr(Sema &S, Decl *D, const AttributeList &Attr) {
     D->addAttr(::new (S.Context)
                CUDAHostAttr(Attr.getRange(), S.Context,
                             Attr.getAttributeSpellingListIndex()));
-  } else if (S.LangOpts.CPlusPlusAMP) {
-    D->addAttr(::new (S.Context) CXXAMPRestrictCPUAttr(Attr.getRange(),
-          S.Context, Attr.getAttributeSpellingListIndex()));
-  } else {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "host";
   }
 }
 
@@ -6221,8 +6176,6 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   // Ignore C++11 attributes on declarator chunks: they appertain to the type
   // instead.
   if (Attr.isCXX11Attribute() && !IncludeCXX11Attributes &&
-      Attr.getKind() != AttributeList::AT_HC_HC &&
-      Attr.getKind() != AttributeList::AT_HC_CPU &&
       Attr.getKind() != AttributeList::AT_AMDGPUWavesPerEU &&
       Attr.getKind() != AttributeList::AT_AMDGPUFlatWorkGroupSize &&
       Attr.getKind() != AttributeList::AT_AMDGPUMaxWorkGroupDim)
@@ -6374,9 +6327,6 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_ExtVectorType:
     handleExtVectorTypeAttr(S, scope, D, Attr);
     break;
-  case AttributeList::AT_HCGridLaunch:
-    handleHCGridLaunchAttr(S, D, Attr);
-    break;
   case AttributeList::AT_ExternalSourceSymbol:
     handleExternalSourceSymbolAttr(S, D, Attr);
     break;
@@ -6403,17 +6353,6 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
     break;
   case AttributeList::AT_CUDAGlobal:
     handleGlobalAttr(S, D, Attr);
-    break;
-  case AttributeList::AT_HC_HC:
-  case AttributeList::AT_CXXAMPRestrictAMP:
-    handleDeviceAttr(S, D, Attr);
-    break;
-  case AttributeList::AT_HC_CPU:
-  case AttributeList::AT_CXXAMPRestrictCPU:
-    handleHostAttr(S, D, Attr);
-    break;
-  case AttributeList::AT_CXXAMPRestrictAUTO:
-    handleAutoAttr(S, D, Attr);
     break;
   case AttributeList::AT_CUDADevice:
     handleSimpleAttributeWithExclusions<CUDADeviceAttr, CUDAGlobalAttr>(S, D,

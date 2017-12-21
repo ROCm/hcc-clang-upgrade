@@ -3820,7 +3820,7 @@ static void TryConstructorInitialization(Sema &S,
   if (Kind.getKind() == InitializationKind::IK_Default &&
       Entity.getType().isConstQualified()) {
     if (!CtorDecl->getParent()->allowConstDefaultInit()) {
-      if (!maybeRecoverWithZeroInitialization(S, Sequence, Entity)/* && NotCXXAMPSpec*/)
+      if (!maybeRecoverWithZeroInitialization(S, Sequence, Entity))
         Sequence.SetFailed(InitializationSequence::FK_DefaultInitOfConst);
       return;
     }
@@ -4399,39 +4399,6 @@ static void TryReferenceInitializationCore(Sema &S,
   Sema::ReferenceCompareResult RefRelationship
     = S.CompareReferenceRelationship(DeclLoc, cv1T1, cv2T2, DerivedToBase,
                                      ObjCConversion, ObjCLifetimeConversion);
-
-  // C++AMP
-  if(S.getLangOpts().CPlusPlusAMP && isLValueRef && InitCategory.isLValue() &&
-    T2->isFunctionType()) {
-    // Case by case
-    //      int glorp(int x) __GPU_ONLY {
-    //          return 668 + x;
-    //      }
-    //
-    //      int main() {
-    //         typedef int FT(int);
-    //         FT& p = glorp;   // Error: initialize function reference with a function with 
-    //                                  // incompatible restriction specifier
-    //         printf("%d\n", p(-2));
-    //         return 1;
-    //      }
-     const DeclRefExpr* Decl = dyn_cast<DeclRefExpr>(Initializer);
-    // FIXME: better to check source & target signature and invoke function conversion error
-    // when implement amp restriction into signature
-    if(Decl && Decl->getDecl()) {
-      bool EntityCPU = false;
-      bool EntityAMP = false;
-      if(Entity.getDecl()) {
-        EntityCPU = Entity.getDecl()->hasAttr<CXXAMPRestrictCPUAttr>();
-        EntityAMP = Entity.getDecl()->hasAttr<CXXAMPRestrictAMPAttr>();
-      }
-      if(!(EntityCPU ==Decl->getDecl()->hasAttr<CXXAMPRestrictCPUAttr>() &&
-        EntityAMP == Decl->getDecl()->hasAttr<CXXAMPRestrictAMPAttr>())){
-        if(!(EntityAMP && EntityCPU) && (EntityAMP ||EntityCPU))
-          S.Diag(DeclLoc, diag::err_amp_function_conversion);
-      }
-    }
-  }
 
   // C++0x [dcl.init.ref]p5:
   //   A reference to type "cv1 T1" is initialized by an expression of type
@@ -5341,13 +5308,6 @@ void InitializationSequence::InitializeFrom(Sema &S,
 
   // Handle default initialization.
   if (Kind.getKind() == InitializationKind::IK_Default) {
-    // C++ AMP specific
-    // Prevent tile_static variables being initialized
-    if (S.getLangOpts().CPlusPlusAMP &&
-        Entity.getDecl() &&
-        Entity.getDecl()->hasAttr<HCCTileStaticAttr>())
-        return;
-
     TryDefaultInitialization(S, Entity, Kind, *this);
     return;
   }
@@ -7899,23 +7859,11 @@ bool InitializationSequence::Diagnose(Sema &S,
         // If this is a defaulted or implicitly-declared function, then
         // it was implicitly deleted. Make it clear that the deletion was
         // implicit.
-        if (S.isImplicitlyDeleted(Best->Function)) {
-          // C++AMP
-          bool check = true;
-          if(S.getLangOpts().CPlusPlusAMP) {
-            FunctionDecl* F = S.getCurFunctionDecl();
-            // FIXME:Best->Function loses C++AMP restriction after getting candidate
-            if(F && (F->hasAttr<CXXAMPRestrictAMPAttr>() ||
-              F->hasAttr<CXXAMPRestrictCPUAttr>())){
-              check = false;
-             }
-          }
-          if(check) {
-            S.Diag(Kind.getLocation(), diag::err_ovl_deleted_special_init)
+        if (S.isImplicitlyDeleted(Best->Function))
+          S.Diag(Kind.getLocation(), diag::err_ovl_deleted_special_init)
             << S.getSpecialMember(cast<CXXMethodDecl>(Best->Function))
             << DestType << ArgsRange;
-          }
-        } else
+        else
           S.Diag(Kind.getLocation(), diag::err_ovl_deleted_init)
             << true << DestType << ArgsRange;
 

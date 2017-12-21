@@ -853,8 +853,8 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   // Therefore, in the following case StartFunction() might be called twice
   // for function foo(), and thus we need to relax the assert check for C++AMP.
   //
-  // void foo() restrict(amp) { return 1; }
-  // void foo() restrict(cpu) { return 2; }
+  // void foo() /*restrict(amp)*/ { return 1; }
+  // void foo() /*restrict(cpu)*/ { return 2; }
 
   if (getContext().getLangOpts().CPlusPlusAMP &&
       (CGM.getCodeGenOpts().AMPIsDevice || CGM.getCodeGenOpts().AMPCPU)) {

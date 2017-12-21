@@ -930,9 +930,6 @@ public:
            !isLambda();
   }
 
-  /// \brief Returns the deserialization constructor for this class.
-  CXXMethodDecl *getCXXAMPDeserializationConstructor() const;
-
   /// \brief Determine whether this class has any user-declared constructors.
   ///
   /// When true, a default constructor will not be implicitly declared.

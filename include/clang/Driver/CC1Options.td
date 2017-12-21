@@ -814,15 +814,6 @@ def famp_cpu : Flag<["-"], "famp-cpu">,
 def fhsa_extension : Flag<["-"], "fhsa-ext">,
   HelpText<"Enable HSA-specific rules for C++AMP kernels">;
 
-def fno_auto_auto : Flag<["-"], "fno-auto-auto">,
-  HelpText<"Disable auto-auto feature (Obsolete, use -fauto-auto to explicit enable it instead)">;
-
-def fauto_auto : Flag<["-"], "fauto-auto">,
-  HelpText<"Enable auto-auto feature">;
-
-def fauto_compile_for_accelerator : Flag<["-"], "fauto-compile-for-accelerator">,
-  HelpText<"Enable auto-compile-for-accelerator feature">;
-
 } // let Flags = [CC1Option]
 
 //===----------------------------------------------------------------------===//

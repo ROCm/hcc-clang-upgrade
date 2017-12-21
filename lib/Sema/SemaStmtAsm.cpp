@@ -216,15 +216,6 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     return NS;
   }
 
-  // If we're compiling HCC file and function attributes indicate that it's not
-  // for this compilation side, skip all the checks.
-  if (!DeclAttrsMatchHCCMode(getLangOpts(), getCurFunctionDecl())) {
-    GCCAsmStmt *NS = new (Context) GCCAsmStmt(
-        Context, AsmLoc, IsSimple, IsVolatile, NumOutputs, NumInputs, Names,
-        Constraints, Exprs.data(), AsmString, NumClobbers, Clobbers, RParenLoc);
-    return NS;
-  }
-
   for (unsigned i = 0; i != NumOutputs; i++) {
     StringLiteral *Literal = Constraints[i];
     assert(Literal->isAscii());

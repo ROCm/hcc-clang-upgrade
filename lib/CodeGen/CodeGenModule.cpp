@@ -932,11 +932,6 @@ void CodeGenModule::SetLLVMFunctionAttributes(const Decl *D,
   // HCC-specific
   if (D) {
     llvm::AttrBuilder B;
-    if (D->hasAttr<HCGridLaunchAttr>()) {
-      // hc_grid_launch attribute implies noinline and will win over always_inline
-      B.addAttribute("hc_grid_launch");
-      B.addAttribute(llvm::Attribute::NoInline);
-    }
     F->addAttributes(llvm::AttributeList::FunctionIndex, B);
   }
 }
@@ -1814,29 +1809,6 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
     }
   }
 
-  // If this is C++AMP, be selective about which declarations we emit.
-  if (LangOpts.CPlusPlusAMP && !CodeGenOpts.AMPCPU) {
-    if (CodeGenOpts.AMPIsDevice) {
-      // If -famp-is-device switch is on, we are in GPU build path.
-      // Since we will emit both CPU codes and GPU codes to make C++ mangling
-      // algorithm happy, we won't reject anything other than ones with only
-      // restrict(cpu).  Another optimization pass will remove all CPU codes.
-      if (!isa<VarDecl>(Global) &&
-          !Global->hasAttr<CXXAMPRestrictAMPAttr>() &&
-          Global->hasAttr<CXXAMPRestrictCPUAttr>())
-        return;
-    } else {
-      // In host path:
-      // let file-scope global variables be emitted
-      // let functions qualifired with restrict(amp) or [[hc]],
-      // but not with restrict(cpu) or [[cpu]] not be emitted
-      if (!isa<VarDecl>(Global) &&
-          Global->hasAttr<CXXAMPRestrictAMPAttr>() &&
-          !Global->hasAttr<CXXAMPRestrictCPUAttr>())
-        return;
-    }
-  }
-
   // Ignore declarations, they will be emitted on their first use.
   if (const auto *FD = dyn_cast<FunctionDecl>(Global)) {
     // Forward declarations are emitted lazily on first use.
@@ -2143,7 +2115,7 @@ namespace
   public:
     bool operator()(const Decl* x)
     {
-      if (!x || x->hasAttr<CXXAMPRestrictAMPAttr>()) return true;
+      if (!x) return true;
 
       if (d_.count(x)) return d_[x];
       if (d_.count(x->getNonClosureContext()) &&
@@ -2183,11 +2155,6 @@ void CodeGenModule::EmitGlobalDefinition(GlobalDecl GD, llvm::GlobalValue *GV) {
     if (CodeGenOpts.AMPIsDevice) {
       // If -famp-is-device switch is on, we are in GPU build path.
       if (!isWhiteListForHCC(*this, GD)) return;
-    }
-    else if (!isa<VarDecl>(D) &&
-      D->hasAttr<CXXAMPRestrictAMPAttr>() &&
-      !D->hasAttr<CXXAMPRestrictCPUAttr>()) {
-      return;
     }
   }
 
@@ -3429,10 +3396,6 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
     GV = cast<llvm::GlobalValue>(GetAddrOfFunction(GD, Ty, /*ForVTable=*/false,
                                                    /*DontDefer=*/true,
                                                    ForDefinition));
-
-  if (D->getAttr<CXXAMPRestrictAMPAttr>()) {
-    cast<llvm::Function>(GV)->addFnAttr("HC");
-  }
 
   // Relax the rule for C++AMP
   if (!LangOpts.CPlusPlusAMP) {

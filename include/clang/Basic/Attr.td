@@ -793,18 +793,6 @@ def Const : InheritableAttr {
   let Documentation = [Undocumented];
 }
 
-def HC_HC : InheritableAttr {
-  let Spellings = [CXX11<"","hc", 201511>];
-  let Subjects = SubjectList<[Var, Function], ErrorDiag>;
-  let Documentation = [Undocumented];
-}
-
-def HC_CPU : InheritableAttr {
-  let Spellings = [CXX11<"","cpu", 201511>];
-  let Subjects = SubjectList<[Function], ErrorDiag>;
-  let Documentation = [Undocumented];
-}
-
 def Constructor : InheritableAttr {
   let Spellings = [GCC<"constructor">];
   let Args = [DefaultIntArgument<"Priority", 65535>];
@@ -2803,29 +2791,6 @@ def InternalLinkage : InheritableAttr {
   let Spellings = [Clang<"internal_linkage">];
   let Subjects = SubjectList<[Var, Function, CXXRecord]>;
   let Documentation = [InternalLinkageDocs];
-}
-
-// C++AMP attributes
-
-def CXXAMPRestrictAMP : InheritableAttr {
-  let Spellings = [GNU<"amp">, GNU<"hc">];
-  let Documentation = [Undocumented];
-}
-
-def CXXAMPRestrictAUTO : InheritableAttr {
-  let Spellings = [GNU<"auto">];
-  let Documentation = [Undocumented];
-}
-
-def CXXAMPRestrictCPU : InheritableAttr {
-  let Spellings = [GNU<"cpu">];
-  let Documentation = [Undocumented];
-}
-
-def HCGridLaunch : InheritableAttr {
-  let Spellings = [GNU<"hc_grid_launch">, CXX11<"", "hc_grid_launch", 201511>];
-  let Subjects = SubjectList<[Function]>;
-  let Documentation = [Undocumented];
 }
 
 def HCCTileStatic : InheritableAttr {

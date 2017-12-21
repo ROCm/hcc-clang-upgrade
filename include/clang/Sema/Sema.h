@@ -1826,11 +1826,6 @@ public:
                bool IsAddressOfOperand,
                std::unique_ptr<CorrectionCandidateCallback> CCC = nullptr);
 
-  // C++AMP declarator diagnostic functions
-  bool DiagnoseCXXAMPDecl(Decl* Dcl, bool CheckContainer = false, bool IsInfer = false);
-  bool IsCXXAMPTileStatic(Declarator &D);
-  void DiagnosticCXXAMPTileStatic(Declarator &D, Decl *Dcl);
-
   /// Describes the detailed kind of a template name. Used in diagnostics.
   enum class TemplateNameKindForDiagnostics {
     ClassTemplate,
@@ -2022,9 +2017,6 @@ public:
   /// order to parse the rest of the program (for instance, if it is
   /// \c constexpr in C++11 or has an 'auto' return type in C++14).
   bool canSkipFunctionBody(Decl *D);
-
-  // C++AMP restriction specifier inferring routine
-  void TryCXXAMPRestrictionInferring(Decl *D, Stmt *Body);
 
   void computeNRVO(Stmt *Body, sema::FunctionScopeInfo *Scope);
   Decl *ActOnFinishFunctionBody(Decl *Decl, Stmt *Body);
@@ -2496,11 +2488,6 @@ public:
     /// non-function.
     Ovl_NonFunction
   };
-
-  // C++AMP diagnostic routine on destructor overload resolution
-  void DiagnoseCXXAMPDtorOverload(FunctionDecl *New,
-                           const LookupResult &Old);
-
   OverloadKind CheckOverload(Scope *S,
                              FunctionDecl *New,
                              const LookupResult &OldDecls,
@@ -2800,15 +2787,6 @@ public:
                                             OverloadCandidateSet& CandidateSet,
                                             bool PartialOverloading = false);
 
-  // GridLaunch scope checking rountine
-  bool IsGridLaunchKernel();
-  // C++AMP restriction specifier scope checking routines
-  bool IsInAMPRestricted();
-  // Determine if in CPU and/or AMP restricted codes
-  bool IsInAnyExplicitRestricted();
-  void GetCXXAMPParentRestriction(Scope* SC, bool& ParentCPU,
-    bool& ParentAMP, bool&ParentAUTO);
-
   // Emit as a 'note' the specific overload candidate
   void NoteOverloadCandidate(NamedDecl *Found, FunctionDecl *Fn,
                              QualType DestType = QualType(),
@@ -2924,10 +2902,6 @@ public:
                                            LookupResult &MemberLookup,
                                            OverloadCandidateSet *CandidateSet,
                                            Expr *Range, ExprResult *CallExpr);
-
-  // C++AMP diagnostic routine on overloaded call expressions
-  void DiagnoseCXXAMPOverloadedCallExpr(SourceLocation LParenLoc,
-                                        FunctionDecl* Callee);
 
   ExprResult BuildOverloadedCallExpr(Scope *S, Expr *Fn,
                                      UnresolvedLookupExpr *ULE,
@@ -3120,17 +3094,7 @@ public:
   typedef std::function<ExprResult(Sema &, TypoExpr *, TypoCorrection)>
       TypoRecoveryCallback;
 
-  // C++AMP type checking routine for kernel codes
-public:
-  bool IsIncompatibleType(const Type* Ty, bool CheckContainer = false, bool IsInfer = false);
-
 private:
-  // C++AMP type checking routine for kernel codes
-  bool IsCXXAMPUnsupportedPointerType(const Type* Ty,
-    bool CheckContainer = false, bool IsInfer = false);
-  bool IsCXXAMPUnsupportedReferenceType(const Type* Ty,
-    bool CheckContainer = false, bool IsInfer = false);
-
   bool CppLookupName(LookupResult &R, Scope *S);
 
   struct TypoExprState {
@@ -4362,10 +4326,6 @@ public:
   void CheckStaticArrayArgument(SourceLocation CallLoc,
                                 ParmVarDecl *Param,
                                 const Expr *ArgExpr);
-
-  // C++AMP diagnotic routine on C++ method call expressions
-  void DiagnoseCXXAMPMethodCallExpr(SourceLocation LParenLoc,
-                                    CXXMethodDecl *Callee);
 
   /// ActOnCallExpr - Handle a call to Fn with the specified array of arguments.
   /// This provides the location of the left/right parens and a list of comma
@@ -6337,12 +6297,6 @@ public:
     /// via template argument deduction.
     CTAK_DeducedFromArrayBound
   };
-
-  // C++AMP diagnotic routine for template arguments
-  void DiagnoseCXXAMPTemplateArgument(NamedDecl *Param,
-                                      const TemplateArgumentLoc &AL,
-                                      NamedDecl *Template,
-                                      SourceLocation TemplateLoc);
 
   bool CheckTemplateArgument(NamedDecl *Param,
                              TemplateArgumentLoc &Arg,
@@ -9454,9 +9408,6 @@ public:
     /// represent it in the AST.
     Incompatible
   };
-
-  // C++AMP diagnostic routine for expressions
-  void DiagnoseCXXAMPExpr(Expr* Stripped, ExprResult &HS, bool DiagnoseWhenStatic=false);
 
   /// DiagnoseAssignmentResult - Emit a diagnostic, if required, for the
   /// assignment conversion type specified by ConvTy.  This returns true if the
