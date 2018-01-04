@@ -865,6 +865,10 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
     // Apply the no_sanitize* attributes to SanOpts.
     for (auto Attr : D->specific_attrs<NoSanitizeAttr>())
       SanOpts.Mask &= ~Attr->getMask();
+    // Device code has all sanitizers disabled for now
+    for (auto Attr : D->specific_attrs<CXXAMPRestrictAMPAttr>())
+      SanOpts.clear();
+
   }
 
   // Apply sanitizer attributes to the function.
