@@ -866,7 +866,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
     for (auto Attr : D->specific_attrs<NoSanitizeAttr>())
       SanOpts.Mask &= ~Attr->getMask();
     // Device code has all sanitizers disabled for now
-    for (auto Attr : D->specific_attrs<CXXAMPRestrictAMPAttr>())
+    if (D->hasAttr<CXXAMPRestrictAMPAttr>())
       SanOpts.clear();
 
   }
