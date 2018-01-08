@@ -883,10 +883,6 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
     // Apply the no_sanitize* attributes to SanOpts.
     for (auto Attr : D->specific_attrs<NoSanitizeAttr>())
       SanOpts.Mask &= ~Attr->getMask();
-    // Device code has all sanitizers disabled for now
-    if (D->hasAttr<CXXAMPRestrictAMPAttr>())
-      SanOpts.clear();
-
   }
 
   // Apply sanitizer attributes to the function.
@@ -1349,7 +1345,12 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   if (isa<CXXDestructorDecl>(FD))
     EmitDestructorBody(Args);
   else if (isa<CXXConstructorDecl>(FD))
-    EmitConstructorBody(Args)
+    EmitConstructorBody(Args);
+  else if (getContext().getLangOpts().CPlusPlusAMP &&
+           (!CGM.getCodeGenOpts().AMPIsDevice || CGM.getCodeGenOpts().AMPCPU) &&
+           is_hcc_kernel_wrapper(FD)) {
+    // We do not emit the body of Kernel_wrapper::operator() on the host path.
+  }
   else if (getLangOpts().CUDA &&
            !getLangOpts().CUDAIsDevice &&
            FD->hasAttr<CUDAGlobalAttr>())
