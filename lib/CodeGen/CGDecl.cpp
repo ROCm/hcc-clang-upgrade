@@ -418,11 +418,6 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   // TODO: the HCC specific bits are too verbose and temporary.
   const bool isHCCAcceleratorPath =
     getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath;
-  const bool isAcceleratorLocal =
-    D.hasAttr<AnnotateAttr>() &&
-    D.getAttr<AnnotateAttr>()->getAnnotation() == "accelerator";
-
-  if (!isHCCAcceleratorPath && isAcceleratorLocal) return;
 
   llvm::Constant *addr = CGM.getOrCreateStaticVarDecl(D, Linkage);
   CharUnits alignment = getContext().getDeclAlign(&D);
