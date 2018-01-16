@@ -231,9 +231,12 @@ class GCC<string name> : Spelling<name, "GCC"> {
   let KnownToGCC = 1;
 }
 
-// The Clang spelling implies GNU<name> and CXX11<"clang", name>. This spelling
-// should be used for any Clang-specific attributes.
-class Clang<string name> : Spelling<name, "Clang">;
+// The Clang spelling implies GNU<name>, CXX11<"clang", name>, and optionally,
+// C2x<"clang", name>. This spelling should be used for any Clang-specific
+// attributes.
+class Clang<string name, bit allowInC = 0> : Spelling<name, "Clang"> {
+  bit AllowInC = allowInC;
+}
 
 class Accessor<string name, list<Spelling> spellings> {
   string Name = name;
@@ -439,9 +442,6 @@ class Attr {
   // Set to true if all of the attribute's arguments should be parsed in an
   // unevaluated context.
   bit ParseArgumentsAsUnevaluated = 0;
-  // Set to true if this attribute can be duplicated on a subject when merging
-  // attributes. By default, attributes are not merged.
-  bit DuplicatesAllowedWhileMerging = 0;
   // Set to true if this attribute meaningful when applied to or inherited 
   // in a class template definition.
   bit MeaningfulToClassTemplateDefinition = 0;
@@ -476,7 +476,11 @@ class TypeAttr : Attr {
 class StmtAttr : Attr;
 
 /// An inheritable attribute is inherited by later redeclarations.
-class InheritableAttr : Attr;
+class InheritableAttr : Attr {
+  // Set to true if this attribute can be duplicated on a subject when inheriting
+  // attributes from prior declarations.
+  bit InheritEvenIfAlreadyPresent = 0;
+}
 
 /// A target-specific attribute.  This class is meant to be used as a mixin
 /// with InheritableAttr or Attr depending on the attribute's needs.
@@ -619,7 +623,7 @@ def AnalyzerNoReturn : InheritableAttr {
 }
 
 def Annotate : InheritableParamAttr {
-  let Spellings = [Clang<"annotate">];
+  let Spellings = [Clang<"annotate", 1>];
   let Args = [StringArgument<"Annotation">];
   // Ensure that the annotate attribute can be used with
   // '#pragma clang attribute' even though it has no subject list.
@@ -707,7 +711,7 @@ static llvm::StringRef canonicalizePlatformName(llvm::StringRef Platform) {
              .Default(Platform);
 } }];
   let HasCustomParsing = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Subjects = SubjectList<[Named]>;
   let Documentation = [AvailabilityDocs];
 }
@@ -1399,7 +1403,7 @@ def NonNull : InheritableParamAttr {
     return false;
   } }];
   // FIXME: We should merge duplicates into a single nonnull attribute.
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Documentation = [NonNullDocs];
 }
 
@@ -1863,12 +1867,27 @@ def Target : InheritableAttr {
       std::vector<std::string> Features;
       StringRef Architecture;
       bool DuplicateArchitecture = false;
+      bool operator ==(const ParsedTargetAttr &Other) const {
+        return DuplicateArchitecture == Other.DuplicateArchitecture &&
+               Architecture == Other.Architecture && Features == Other.Features;
+      }
     };
     ParsedTargetAttr parse() const {
       return parse(getFeaturesStr());
     }
+
+    template<class Compare>
+    ParsedTargetAttr parse(Compare cmp) const {
+      ParsedTargetAttr Attrs = parse();
+      std::sort(std::begin(Attrs.Features), std::end(Attrs.Features), cmp);
+      return Attrs;
+    }
+
+    bool isDefaultVersion() const { return getFeaturesStr() == "default"; }
+
     static ParsedTargetAttr parse(StringRef Features) {
       ParsedTargetAttr Ret;
+      if (Features == "default") return Ret;
       SmallVector<StringRef, 1> AttrFeatures;
       Features.split(AttrFeatures, ",");
 
@@ -1936,7 +1955,7 @@ def DiagnoseIf : InheritableAttr {
                            ["DT_Error", "DT_Warning"]>,
               BoolArgument<"ArgDependent", 0, /*fake*/ 1>,
               NamedArgument<"Parent", 0, /*fake*/ 1>];
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let LateParsed = 1;
   let AdditionalMembers = [{
     bool isError() const { return diagnosticType == DT_Error; }
@@ -2179,7 +2198,7 @@ def AssertCapability : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Args = [VariadicExprArgument<"Args">];
   let Accessors = [Accessor<"isShared",
                     [Clang<"assert_shared_capability">]>];
@@ -2195,7 +2214,7 @@ def AcquireCapability : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Args = [VariadicExprArgument<"Args">];
   let Accessors = [Accessor<"isShared",
                     [Clang<"acquire_shared_capability">,
@@ -2211,7 +2230,7 @@ def TryAcquireCapability : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Args = [ExprArgument<"SuccessValue">, VariadicExprArgument<"Args">];
   let Accessors = [Accessor<"isShared",
                     [Clang<"try_acquire_shared_capability">]>];
@@ -2227,7 +2246,7 @@ def ReleaseCapability : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Args = [VariadicExprArgument<"Args">];
   let Accessors = [Accessor<"isShared",
                     [Clang<"release_shared_capability">]>,
@@ -2246,7 +2265,7 @@ def RequiresCapability : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Subjects = SubjectList<[Function]>;
   let Accessors = [Accessor<"isShared", [Clang<"requires_shared_capability">,
                                          Clang<"shared_locks_required">]>];
@@ -2265,7 +2284,7 @@ def GuardedBy : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Subjects = SubjectList<[Field, SharedVar]>;
   let Documentation = [Undocumented];
 }
@@ -2276,7 +2295,7 @@ def PtGuardedBy : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Subjects = SubjectList<[Field, SharedVar]>;
   let Documentation = [Undocumented];
 }
@@ -2287,7 +2306,7 @@ def AcquiredAfter : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Subjects = SubjectList<[Field, SharedVar]>;
   let Documentation = [Undocumented];
 }
@@ -2298,7 +2317,7 @@ def AcquiredBefore : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Subjects = SubjectList<[Field, SharedVar]>;
   let Documentation = [Undocumented];
 }
@@ -2309,7 +2328,7 @@ def AssertExclusiveLock : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented];
 }
@@ -2320,7 +2339,7 @@ def AssertSharedLock : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented];
 }
@@ -2333,7 +2352,7 @@ def ExclusiveTrylockFunction : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented];
 }
@@ -2346,7 +2365,7 @@ def SharedTrylockFunction : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented];
 }
@@ -2367,7 +2386,7 @@ def LocksExcluded : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let DuplicatesAllowedWhileMerging = 1;
+  let InheritEvenIfAlreadyPresent = 1;
   let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented];
 }

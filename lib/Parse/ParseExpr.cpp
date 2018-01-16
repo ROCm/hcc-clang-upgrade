@@ -1001,7 +1001,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
             DS.SetTypeSpecType(TST_typename, ILoc, PrevSpec, DiagID, Typ,
                                Actions.getASTContext().getPrintingPolicy());
             
-            Declarator DeclaratorInfo(DS, Declarator::TypeNameContext);
+            Declarator DeclaratorInfo(DS, DeclaratorContext::TypeNameContext);
             TypeResult Ty = Actions.ActOnTypeName(getCurScope(), 
                                                   DeclaratorInfo);
             if (Ty.isInvalid())
@@ -1210,7 +1210,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
                          PrevSpec, DiagID, Type,
                          Actions.getASTContext().getPrintingPolicy());
 
-      Declarator DeclaratorInfo(DS, Declarator::TypeNameContext);
+      Declarator DeclaratorInfo(DS, DeclaratorContext::TypeNameContext);
       TypeResult Ty = Actions.ActOnTypeName(getCurScope(), DeclaratorInfo);
       if (Ty.isInvalid())
         break;
@@ -1826,7 +1826,7 @@ Parser::ParseExprAfterUnaryExprOrTypeTrait(const Token &OpTok,
       if (isTypeIdUnambiguously()) {
         DeclSpec DS(AttrFactory);
         ParseSpecifierQualifierList(DS);
-        Declarator DeclaratorInfo(DS, Declarator::TypeNameContext);
+        Declarator DeclaratorInfo(DS, DeclaratorContext::TypeNameContext);
         ParseDeclarator(DeclaratorInfo);
 
         SourceLocation LParenLoc = PP.getLocForEndOfToken(OpTok.getLocation());
@@ -2383,7 +2383,7 @@ Parser::ParseParenExpression(ParenParseOption &ExprType, bool stopIfCastExpr,
     // Parse the type declarator.
     DeclSpec DS(AttrFactory);
     ParseSpecifierQualifierList(DS);
-    Declarator DeclaratorInfo(DS, Declarator::TypeNameContext);
+    Declarator DeclaratorInfo(DS, DeclaratorContext::TypeNameContext);
     ParseDeclarator(DeclaratorInfo);
     
     // If our type is followed by an identifier and either ':' or ']', then 
@@ -2860,7 +2860,7 @@ void Parser::ParseBlockId(SourceLocation CaretLoc) {
   ParseSpecifierQualifierList(DS);
 
   // Parse the block-declarator.
-  Declarator DeclaratorInfo(DS, Declarator::BlockLiteralContext);
+  Declarator DeclaratorInfo(DS, DeclaratorContext::BlockLiteralContext);
   DeclaratorInfo.setFunctionDefinitionKind(FDK_Definition);
   ParseDeclarator(DeclaratorInfo);
 
@@ -2899,7 +2899,7 @@ ExprResult Parser::ParseBlockLiteralExpression() {
 
   // Parse the return type if present.
   DeclSpec DS(AttrFactory);
-  Declarator ParamInfo(DS, Declarator::BlockLiteralContext);
+  Declarator ParamInfo(DS, DeclaratorContext::BlockLiteralContext);
   ParamInfo.setFunctionDefinitionKind(FDK_Definition);
   // FIXME: Since the return type isn't actually parsed, it can't be used to
   // fill ParamInfo with an initial valid range, so do it manually.
