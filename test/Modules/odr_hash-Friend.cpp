@@ -8,6 +8,9 @@
 // RUN:  -fmodules-cache-path=%t/modules.cache \
 // RUN:  -std=c++11 -x c++ %s -verify
 
+// PR35939: MicrosoftMangle.cpp triggers an assertion failure on this test.
+// UNSUPPORTED: system-windows
+
 // expected-no-diagnostics
 
 #include "Box.h"

@@ -1172,14 +1172,14 @@ QualType Sema::getLambdaConversionFunctionResultType(
   // The function type inside the pointer type is the same as the call
   // operator with some tweaks. The calling convention is the default free
   // function convention, and the type qualifications are lost.
-  const FunctionProtoType::ExtProtoInfo CallOpExtInfo =
-      CallOpProto->getExtProtoInfo();
+  const FunctionProtoType::ExtProtoInfo CallOpExtInfo = 
+      CallOpProto->getExtProtoInfo();   
   FunctionProtoType::ExtProtoInfo InvokerExtInfo = CallOpExtInfo;
   CallingConv CC = Context.getDefaultCallingConvention(
       CallOpProto->isVariadic(), /*IsCXXMethod=*/false);
   InvokerExtInfo.ExtInfo = InvokerExtInfo.ExtInfo.withCallingConv(CC);
   InvokerExtInfo.TypeQuals = 0;
-  assert(InvokerExtInfo.RefQualifier == RQ_None &&
+  assert(InvokerExtInfo.RefQualifier == RQ_None && 
       "Lambda's call operator should not have a reference qualifier");
   return Context.getFunctionType(CallOpProto->getReturnType(),
                                  CallOpProto->getParamTypes(), InvokerExtInfo);
