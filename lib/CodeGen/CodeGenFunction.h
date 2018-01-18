@@ -225,6 +225,10 @@ public:
   };
   CGCoroInfo CurCoro;
 
+  bool isCoroutine() const {
+    return CurCoro.Data != nullptr;
+  }
+
   /// CurGD - The GlobalDecl for the current function being compiled.
   GlobalDecl CurGD;
 
@@ -429,7 +433,7 @@ public:
   };
 
   /// i32s containing the indexes of the cleanup destinations.
-  llvm::Instruction *NormalCleanupDest;
+  llvm::AllocaInst *NormalCleanupDest; 
 
   unsigned NextCleanupDestIndex;
 
@@ -444,8 +448,8 @@ public:
   llvm::Value *ExceptionSlot;
 
   /// The selector slot.  Under the MandatoryCleanup model, all landing pads
-  /// write the current selector value into this instruction.
-  llvm::Instruction *EHSelectorSlot;
+  /// write the current selector value into this alloca.
+  llvm::AllocaInst *EHSelectorSlot;
 
   /// A stack of exception code slots. Entering an __except block pushes a slot
   /// on the stack and leaving pops one. The __exception_code() intrinsic loads
@@ -480,7 +484,7 @@ public:
 
     /// An i1 variable indicating whether or not the @finally is
     /// running for an exception.
-    llvm::Instruction *ForEHVar;
+    llvm::AllocaInst *ForEHVar;
 
     /// An i8* variable into which the exception pointer to rethrow
     /// has been saved.
@@ -1163,19 +1167,6 @@ private:
   };
   OpenMPCancelExitStack OMPCancelStack;
 
-  /// Controls insertion of cancellation exit blocks in worksharing constructs.
-  class OMPCancelStackRAII {
-    CodeGenFunction &CGF;
-
-  public:
-    OMPCancelStackRAII(CodeGenFunction &CGF, OpenMPDirectiveKind Kind,
-                       bool HasCancel)
-        : CGF(CGF) {
-      CGF.OMPCancelStack.enter(CGF, Kind, HasCancel);
-    }
-    ~OMPCancelStackRAII() { CGF.OMPCancelStack.exit(CGF); }
-  };
-
   CodeGenPGO PGO;
 
   /// Calculate branch weights appropriate for PGO data
@@ -1780,13 +1771,9 @@ public:
   /// instrumented with XRay nop sleds.
   bool ShouldXRayInstrumentFunction() const;
 
-  /// EmitFunctionInstrumentation - Emit LLVM code to call the specified
-  /// instrumentation function with the current function and the call site, if
-  /// function instrumentation is enabled.
-  void EmitFunctionInstrumentation(const char *Fn);
-
-  /// EmitMCountInstrumentation - Emit call to .mcount.
-  void EmitMCountInstrumentation();
+  /// AlwaysEmitXRayCustomEvents - Return true if we must unconditionally emit
+  /// XRay custom event handling calls.
+  bool AlwaysEmitXRayCustomEvents() const;
 
   /// Encode an address into a form suitable for use in a function prologue.
   llvm::Constant *EncodeAddrForUseInPrologue(llvm::Function *F,
@@ -1919,8 +1906,7 @@ public:
 
   LValue MakeAddrLValue(Address Addr, QualType T,
                         AlignmentSource Source = AlignmentSource::Type) {
-    return LValue::MakeAddr(Addr, T, getContext(),
-                            LValueBaseInfo(Source, false),
+    return LValue::MakeAddr(Addr, T, getContext(), LValueBaseInfo(Source),
                             CGM.getTBAAAccessInfo(T));
   }
 
@@ -1932,8 +1918,7 @@ public:
   LValue MakeAddrLValue(llvm::Value *V, QualType T, CharUnits Alignment,
                         AlignmentSource Source = AlignmentSource::Type) {
     return LValue::MakeAddr(Address(V, Alignment), T, getContext(),
-                            LValueBaseInfo(Source, false),
-                            CGM.getTBAAAccessInfo(T));
+                            LValueBaseInfo(Source), CGM.getTBAAAccessInfo(T));
   }
 
   LValue MakeAddrLValue(llvm::Value *V, QualType T, CharUnits Alignment,
@@ -1952,10 +1937,17 @@ public:
                                            LValueBaseInfo *BaseInfo = nullptr,
                                            TBAAAccessInfo *TBAAInfo = nullptr);
 
-  Address EmitLoadOfReference(Address Ref, const ReferenceType *RefTy,
-                              LValueBaseInfo *BaseInfo = nullptr,
-                              TBAAAccessInfo *TBAAInfo = nullptr);
-  LValue EmitLoadOfReferenceLValue(Address Ref, const ReferenceType *RefTy);
+  Address EmitLoadOfReference(LValue RefLVal,
+                              LValueBaseInfo *PointeeBaseInfo = nullptr,
+                              TBAAAccessInfo *PointeeTBAAInfo = nullptr);
+  LValue EmitLoadOfReferenceLValue(LValue RefLVal);
+  LValue EmitLoadOfReferenceLValue(Address RefAddr, QualType RefTy,
+                                   AlignmentSource Source =
+                                       AlignmentSource::Type) {
+    LValue RefLVal = MakeAddrLValue(RefAddr, RefTy, LValueBaseInfo(Source),
+                                    CGM.getTBAAAccessInfo(RefTy));
+    return EmitLoadOfReferenceLValue(RefLVal);
+  }
 
   Address EmitLoadOfPointer(Address Ptr, const PointerType *PtrTy,
                             LValueBaseInfo *BaseInfo = nullptr,
@@ -2688,6 +2680,19 @@ public:
   void EmitCXXForRangeStmt(const CXXForRangeStmt &S,
                            ArrayRef<const Attr *> Attrs = None);
 
+  /// Controls insertion of cancellation exit blocks in worksharing constructs.
+  class OMPCancelStackRAII {
+    CodeGenFunction &CGF;
+
+  public:
+    OMPCancelStackRAII(CodeGenFunction &CGF, OpenMPDirectiveKind Kind,
+                       bool HasCancel)
+        : CGF(CGF) {
+      CGF.OMPCancelStack.enter(CGF, Kind, HasCancel);
+    }
+    ~OMPCancelStackRAII() { CGF.OMPCancelStack.exit(CGF); }
+  };
+
   /// Returns calculated size of the specified type.
   llvm::Value *getTypeSize(QualType Ty);
   LValue InitCapturedStruct(const CapturedStmt &S);
@@ -2894,9 +2899,30 @@ public:
   static void
   EmitOMPTargetParallelDeviceFunction(CodeGenModule &CGM, StringRef ParentName,
                                       const OMPTargetParallelDirective &S);
+  /// Emit device code for the target parallel for directive.
+  static void EmitOMPTargetParallelForDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetParallelForDirective &S);
+  /// Emit device code for the target parallel for simd directive.
+  static void EmitOMPTargetParallelForSimdDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetParallelForSimdDirective &S);
+  /// Emit device code for the target teams directive.
   static void
   EmitOMPTargetTeamsDeviceFunction(CodeGenModule &CGM, StringRef ParentName,
                                    const OMPTargetTeamsDirective &S);
+  /// Emit device code for the target teams distribute directive.
+  static void EmitOMPTargetTeamsDistributeDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetTeamsDistributeDirective &S);
+  /// Emit device code for the target teams distribute simd directive.
+  static void EmitOMPTargetTeamsDistributeSimdDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetTeamsDistributeSimdDirective &S);
+  /// Emit device code for the target simd directive.
+  static void EmitOMPTargetSimdDeviceFunction(CodeGenModule &CGM,
+                                              StringRef ParentName,
+                                              const OMPTargetSimdDirective &S);
   /// \brief Emit inner loop of the worksharing/simd construct.
   ///
   /// \param S Directive, for which the inner loop must be emitted.
@@ -2928,6 +2954,16 @@ public:
                               const CodeGenLoopBoundsTy &CodeGenLoopBounds,
                               const CodeGenDispatchBoundsTy &CGDispatchBounds);
 
+  /// Emit code for the distribute loop-based directive.
+  void EmitOMPDistributeLoop(const OMPLoopDirective &S,
+                             const CodeGenLoopTy &CodeGenLoop, Expr *IncExpr);
+
+  /// Helpers for the OpenMP loop directives.
+  void EmitOMPSimdInit(const OMPLoopDirective &D, bool IsMonotonic = false);
+  void EmitOMPSimdFinal(
+      const OMPLoopDirective &D,
+      const llvm::function_ref<llvm::Value *(CodeGenFunction &)> &CondGen);
+
   /// Emits the lvalue for the expression with possibly captured variable.
   LValue EmitOMPSharedLValue(const Expr *E);
 
@@ -2937,15 +2973,6 @@ private:
   /// need invoke function to be returned.
   llvm::Value *EmitBlockLiteral(const CGBlockInfo &Info,
                                 llvm::Function **InvokeF = nullptr);
-
-  /// Helpers for the OpenMP loop directives.
-  void EmitOMPSimdInit(const OMPLoopDirective &D, bool IsMonotonic = false);
-  void EmitOMPSimdFinal(
-      const OMPLoopDirective &D,
-      const llvm::function_ref<llvm::Value *(CodeGenFunction &)> &CondGen);
-
-  void EmitOMPDistributeLoop(const OMPLoopDirective &S,
-                             const CodeGenLoopTy &CodeGenLoop, Expr *IncExpr);
 
   /// struct with the values to be passed to the OpenMP loop-related functions
   struct OMPLoopArguments {
@@ -3095,8 +3122,7 @@ public:
                                 SourceLocation Loc,
                                 AlignmentSource Source = AlignmentSource::Type,
                                 bool isNontemporal = false) {
-    return EmitLoadOfScalar(Addr, Volatile, Ty, Loc,
-                            LValueBaseInfo(Source, false),
+    return EmitLoadOfScalar(Addr, Volatile, Ty, Loc, LValueBaseInfo(Source),
                             CGM.getTBAAAccessInfo(Ty), isNontemporal);
   }
 
@@ -3118,7 +3144,7 @@ public:
                          bool Volatile, QualType Ty,
                          AlignmentSource Source = AlignmentSource::Type,
                          bool isInit = false, bool isNontemporal = false) {
-    EmitStoreOfScalar(Value, Addr, Volatile, Ty, LValueBaseInfo(Source, false),
+    EmitStoreOfScalar(Value, Addr, Volatile, Ty, LValueBaseInfo(Source),
                       CGM.getTBAAAccessInfo(Ty), isInit, isNontemporal);
   }
 
@@ -3272,11 +3298,15 @@ public:
   /// LLVM arguments and the types they were derived from.
   RValue EmitCall(const CGFunctionInfo &CallInfo, const CGCallee &Callee,
                   ReturnValueSlot ReturnValue, const CallArgList &Args,
-                  llvm::Instruction **callOrInvoke = nullptr);
-
+                  llvm::Instruction **callOrInvoke, SourceLocation Loc);
+  RValue EmitCall(const CGFunctionInfo &CallInfo, const CGCallee &Callee,
+                  ReturnValueSlot ReturnValue, const CallArgList &Args,
+                  llvm::Instruction **callOrInvoke = nullptr) {
+    return EmitCall(CallInfo, Callee, ReturnValue, Args, callOrInvoke,
+                    SourceLocation());
+  }
   RValue EmitCall(QualType FnType, const CGCallee &Callee, const CallExpr *E,
-                  ReturnValueSlot ReturnValue,
-                  llvm::Value *Chain = nullptr);
+                  ReturnValueSlot ReturnValue, llvm::Value *Chain = nullptr);
   RValue EmitCallExpr(const CallExpr *E,
                       ReturnValueSlot ReturnValue = ReturnValueSlot());
   RValue EmitSimpleCallExpr(const CallExpr *E, ReturnValueSlot ReturnValue);
@@ -3408,6 +3438,7 @@ public:
   llvm::Value *EmitNVPTXBuiltinExpr(unsigned BuiltinID, const CallExpr *E);
   llvm::Value *EmitWebAssemblyBuiltinExpr(unsigned BuiltinID,
                                           const CallExpr *E);
+  llvm::Value *EmitHexagonBuiltinExpr(unsigned BuiltinID, const CallExpr *E);
 
 private:
   enum class MSVCIntrin;
@@ -3730,6 +3761,10 @@ public:
                             llvm::ConstantInt *TypeId, llvm::Value *Ptr,
                             ArrayRef<llvm::Constant *> StaticArgs);
 
+  /// Emit a reached-unreachable diagnostic if \p Loc is valid and runtime
+  /// checking is enabled. Otherwise, just emit an unreachable instruction.
+  void EmitUnreachable(SourceLocation Loc);
+
   /// \brief Create a basic block that will call the trap intrinsic, and emit a
   /// conditional branch to it, for the -ftrapv checks.
   void EmitTrapCheck(llvm::Value *Checked);
@@ -3920,6 +3955,11 @@ public:
   Address EmitPointerWithAlignment(const Expr *Addr,
                                    LValueBaseInfo *BaseInfo = nullptr,
                                    TBAAAccessInfo *TBAAInfo = nullptr);
+
+  /// If \p E references a parameter with pass_object_size info or a constant
+  /// array size modifier, emit the object size divided by the size of \p EltTy.
+  /// Otherwise return null.
+  llvm::Value *LoadPassedObjectSize(const Expr *E, QualType EltTy);
 
   void EmitSanitizerStatReport(llvm::SanitizerStatKind SSK);
 

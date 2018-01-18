@@ -46,7 +46,6 @@ class MacroBuilder;
 class QualType;
 class SourceLocation;
 class SourceManager;
-class Type;
 
 namespace Builtin { struct Info; }
 
@@ -60,6 +59,7 @@ protected:
   // values are specified by the TargetInfo constructor.
   bool BigEndian;
   bool TLSSupported;
+  bool VLASupported;
   bool NoAsmVariants;  // True if {|} are normal characters.
   bool HasFloat128;
   unsigned char PointerWidth, PointerAlign;
@@ -566,6 +566,14 @@ public:
     return ComplexLongDoubleUsesFP2Ret;
   }
 
+  /// Check whether llvm intrinsics such as llvm.convert.to.fp16 should be used
+  /// to convert to and from __fp16.
+  /// FIXME: This function should be removed once all targets stop using the
+  /// conversion intrinsics.
+  virtual bool useFP16ConversionIntrinsics() const {
+    return true;
+  }
+
   /// \brief Specify if mangling based on address space map should be used or
   /// not for language specific address spaces
   bool useAddressSpaceMapMangling() const {
@@ -868,7 +876,7 @@ public:
 
   /// brief Determine whether this TargetInfo supports the given CPU name.
   virtual bool isValidCPUName(StringRef Name) const {
-    return false;
+    return true;
   }
 
   /// \brief Use the specified ABI.
@@ -895,7 +903,7 @@ public:
 
   /// \brief Determine whether this TargetInfo supports the given feature.
   virtual bool isValidFeatureName(StringRef Feature) const {
-    return false;
+    return true;
   }
 
   /// \brief Perform initialization based on the user configured
@@ -945,6 +953,9 @@ public:
   unsigned short getMaxTLSAlign() const {
     return MaxTLSAlign;
   }
+
+  /// \brief Whether target supports variable-length arrays.
+  bool isVLASupported() const { return VLASupported; }
 
   /// \brief Whether the target supports SEH __try.
   bool isSEHTrySupported() const {
@@ -1060,8 +1071,19 @@ public:
       return getTargetOpts().SupportedOpenCLOptions;
   }
 
+  enum OpenCLTypeKind {
+    OCLTK_Default,
+    OCLTK_ClkEvent,
+    OCLTK_Event,
+    OCLTK_Image,
+    OCLTK_Pipe,
+    OCLTK_Queue,
+    OCLTK_ReserveID,
+    OCLTK_Sampler,
+  };
+
   /// \brief Get address space for OpenCL type.
-  virtual LangAS getOpenCLTypeAddrSpace(const Type *T) const;
+  virtual LangAS getOpenCLTypeAddrSpace(OpenCLTypeKind TK) const;
 
   /// \returns Target specific vtbl ptr address space.
   virtual unsigned getVtblPtrAddressSpace() const {

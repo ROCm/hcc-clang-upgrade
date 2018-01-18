@@ -79,12 +79,16 @@ bool Parser::IsInAMPFunction(Scope *scope) {
 ///         shift-expression '<<' additive-expression
 ///         shift-expression '>>' additive-expression
 ///
-///       relational-expression: [C99 6.5.8]
+///       compare-expression: [C++20 expr.spaceship]
 ///         shift-expression
-///         relational-expression '<' shift-expression
-///         relational-expression '>' shift-expression
-///         relational-expression '<=' shift-expression
-///         relational-expression '>=' shift-expression
+///         compare-expression '<=>' shift-expression
+///
+///       relational-expression: [C99 6.5.8]
+///         compare-expression
+///         relational-expression '<' compare-expression
+///         relational-expression '>' compare-expression
+///         relational-expression '<=' compare-expression
+///         relational-expression '>=' compare-expression
 ///
 ///       equality-expression: [C99 6.5.9]
 ///         relational-expression
@@ -286,11 +290,13 @@ bool Parser::diagnoseUnknownTemplateId(ExprResult LHS, SourceLocation Less) {
   return false;
 }
 
-static bool isFoldOperator(prec::Level Level) {
-  return Level > prec::Unknown && Level != prec::Conditional;
+bool Parser::isFoldOperator(prec::Level Level) const {
+  return Level > prec::Unknown && Level != prec::Conditional &&
+         Level != prec::Spaceship;
 }
-static bool isFoldOperator(tok::TokenKind Kind) {
-  return isFoldOperator(getBinOpPrecedence(Kind, false, true));
+
+bool Parser::isFoldOperator(tok::TokenKind Kind) const {
+  return isFoldOperator(getBinOpPrecedence(Kind, GreaterThanIsOperator, true));
 }
 
 /// \brief Parse a binary expression that starts with \p LHS and has a
@@ -2765,7 +2771,7 @@ ExprResult Parser::ParseFoldExpression(ExprResult LHS,
     }
   }
 
-  Diag(EllipsisLoc, getLangOpts().CPlusPlus1z
+  Diag(EllipsisLoc, getLangOpts().CPlusPlus17
                         ? diag::warn_cxx14_compat_fold_expression
                         : diag::ext_fold_expression);
 

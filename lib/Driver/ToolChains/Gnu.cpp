@@ -43,6 +43,22 @@ static bool forwardToGCC(const Option &O) {
          !O.hasFlag(options::DriverOption) && !O.hasFlag(options::LinkerInput);
 }
 
+// Switch CPU names not recognized by GNU assembler to a close CPU that it does
+// recognize, instead of a lower march from being picked in the absence of a cpu
+// flag.
+static void normalizeCPUNamesForAssembler(const ArgList &Args,
+                                          ArgStringList &CmdArgs) {
+  if (Arg *A = Args.getLastArg(options::OPT_mcpu_EQ)) {
+    StringRef CPUArg(A->getValue());
+    if (CPUArg.equals_lower("krait"))
+      CmdArgs.push_back("-mcpu=cortex-a15");
+    else if(CPUArg.equals_lower("kryo"))
+      CmdArgs.push_back("-mcpu=cortex-a57");
+    else
+      Args.AddLastArg(CmdArgs, options::OPT_mcpu_EQ);
+  }
+}
+
 void tools::gcc::Common::ConstructJob(Compilation &C, const JobAction &JA,
                                       const InputInfo &Output,
                                       const InputInfoList &Inputs,
@@ -229,7 +245,8 @@ static void linkXRayRuntimeDeps(const ToolChain &TC, const ArgList &Args,
   CmdArgs.push_back("-lrt");
   CmdArgs.push_back("-lm");
 
-  if (TC.getTriple().getOS() != llvm::Triple::FreeBSD)
+  if (TC.getTriple().getOS() != llvm::Triple::FreeBSD &&
+      TC.getTriple().getOS() != llvm::Triple::NetBSD)
     CmdArgs.push_back("-ldl");
 }
 
@@ -551,9 +568,16 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C,
   // ToDo: Find a better way to persist CXXAMPLink and construct the link
   // job using it.
   if (Driver::IsCXXAMP(C.getArgs())) {
+    ArgStringList CmdArgs;
+
     if (!HCLinker)
-      HCLinker = std::unique_ptr<Linker>(new HCC::CXXAMPLink(getToolChain()));
-    HCLinker->ConstructJob(C, JA, Output, Inputs, Args, LinkingOutput);
+      HCLinker = std::unique_ptr<HCC::CXXAMPLink>(new HCC::CXXAMPLink(getToolChain()));
+
+    HCLinker->ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);
+    this->ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);
+
+    const char *Exec = Args.MakeArgString(getToolChain().GetProgramPath("clamp-link"));
+    C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
   } else {
     ArgStringList CmdArgs;
 
@@ -680,23 +704,16 @@ void tools::gnutools::Assembler::ConstructJob(Compilation &C,
     }
 
     Args.AddLastArg(CmdArgs, options::OPT_march_EQ);
+    normalizeCPUNamesForAssembler(Args, CmdArgs);
 
-    // FIXME: remove krait check when GNU tools support krait cpu
-    // for now replace it with -mcpu=cortex-a15 to avoid a lower
-    // march from being picked in the absence of a cpu flag.
-    Arg *A;
-    if ((A = Args.getLastArg(options::OPT_mcpu_EQ)) &&
-        StringRef(A->getValue()).equals_lower("krait"))
-      CmdArgs.push_back("-mcpu=cortex-a15");
-    else
-      Args.AddLastArg(CmdArgs, options::OPT_mcpu_EQ);
     Args.AddLastArg(CmdArgs, options::OPT_mfpu_EQ);
     break;
   }
   case llvm::Triple::aarch64:
   case llvm::Triple::aarch64_be: {
     Args.AddLastArg(CmdArgs, options::OPT_march_EQ);
-    Args.AddLastArg(CmdArgs, options::OPT_mcpu_EQ);
+    normalizeCPUNamesForAssembler(Args, CmdArgs);
+
     break;
   }
   case llvm::Triple::mips:
@@ -2182,7 +2199,8 @@ bool Generic_GCC::GCCInstallationDetector::ScanGentooGccConfig(
 Generic_GCC::Generic_GCC(const Driver &D, const llvm::Triple &Triple,
                          const ArgList &Args)
     : ToolChain(D, Triple, Args), GCCInstallation(D),
-      CudaInstallation(D, Triple, Args) {
+      CudaInstallation(D, Triple, Args),
+      HCCInstallation(D, Args) {
   getProgramPaths().push_back(getDriver().getInstalledDir());
   if (getDriver().getInstalledDir() != getDriver().Dir)
     getProgramPaths().push_back(getDriver().Dir);
@@ -2215,6 +2233,7 @@ void Generic_GCC::printVerboseInfo(raw_ostream &OS) const {
   // Print the information about how we detected the GCC installation.
   GCCInstallation.print(OS);
   CudaInstallation.print(OS);
+  HCCInstallation.print(OS);
 }
 
 bool Generic_GCC::IsUnwindTablesDefault(const ArgList &Args) const {

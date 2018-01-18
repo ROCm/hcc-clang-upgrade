@@ -251,7 +251,7 @@ Sema::BuildPossibleImplicitMemberExpr(const CXXScopeSpec &SS,
   case IMA_Field_Uneval_Context:
     Diag(R.getNameLoc(), diag::warn_cxx98_compat_non_static_member_use)
       << R.getLookupNameInfo().getName();
-    // Fall through.
+    LLVM_FALLTHROUGH;
   case IMA_Static:
   case IMA_Abstract:
   case IMA_Mixed_StaticContext:
@@ -1865,7 +1865,9 @@ Sema::BuildFieldReferenceExpr(Expr *BaseExpr, bool IsArrow,
       MemberType = Context.getQualifiedType(MemberType, Combined);
   }
 
-  UnusedPrivateFields.remove(Field);
+  auto *CurMethod = dyn_cast<CXXMethodDecl>(CurContext);
+  if (!(CurMethod && CurMethod->isDefaulted()))
+    UnusedPrivateFields.remove(Field);
 
   ExprResult Base = PerformObjectMemberConversion(BaseExpr, SS.getScopeRep(),
                                                   FoundDecl, Field);

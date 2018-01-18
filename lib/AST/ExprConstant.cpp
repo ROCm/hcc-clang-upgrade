@@ -1351,10 +1351,11 @@ namespace {
         Designator.setInvalid();
         return;
       }
-
-      assert(getType(Base)->isPointerType() || getType(Base)->isArrayType());
-      Designator.FirstEntryIsAnUnsizedArray = true;
-      Designator.addUnsizedArrayUnchecked(ElemTy);
+      if (checkSubobject(Info, E, CSK_ArrayToPointer)) {
+        assert(getType(Base)->isPointerType() || getType(Base)->isArrayType());
+        Designator.FirstEntryIsAnUnsizedArray = true;
+        Designator.addUnsizedArrayUnchecked(ElemTy);
+      }
     }
     void addArray(EvalInfo &Info, const Expr *E, const ConstantArrayType *CAT) {
       if (checkSubobject(Info, E, CSK_ArrayToPointer))
@@ -5912,7 +5913,7 @@ bool PointerExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
         << (std::string("'") + Info.Ctx.BuiltinInfo.getName(BuiltinOp) + "'");
     else
       Info.CCEDiag(E, diag::note_invalid_subexpr_in_const_expr);
-    // Fall through.
+    LLVM_FALLTHROUGH;
   case Builtin::BI__builtin_strchr:
   case Builtin::BI__builtin_wcschr:
   case Builtin::BI__builtin_memchr:
@@ -5951,7 +5952,7 @@ bool PointerExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
                                Desired))
         return ZeroInitialization(E);
       StopAtNull = true;
-      // Fall through.
+      LLVM_FALLTHROUGH;
     case Builtin::BImemchr:
     case Builtin::BI__builtin_memchr:
     case Builtin::BI__builtin_char_memchr:
@@ -5964,7 +5965,7 @@ bool PointerExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
     case Builtin::BIwcschr:
     case Builtin::BI__builtin_wcschr:
       StopAtNull = true;
-      // Fall through.
+      LLVM_FALLTHROUGH;
     case Builtin::BIwmemchr:
     case Builtin::BI__builtin_wmemchr:
       // wcschr and wmemchr are given a wchar_t to look for. Just use it.
@@ -7208,6 +7209,7 @@ static int EvaluateBuiltinClassifyType(const CallExpr *E,
     case BuiltinType::Dependent:
       llvm_unreachable("CallExpr::isBuiltinClassifyType(): unimplemented type");
     };
+    break;
 
   case Type::Enum:
     return LangOpts.CPlusPlus ? enumeral_type_class : integer_type_class;
@@ -7418,7 +7420,10 @@ static bool isDesignatorAtObjectEnd(const ASTContext &Ctx, const LValue &LVal) {
     // If we don't know the array bound, conservatively assume we're looking at
     // the final array element.
     ++I;
-    BaseType = BaseType->castAs<PointerType>()->getPointeeType();
+    if (BaseType->isIncompleteArrayType())
+      BaseType = Ctx.getAsArrayType(BaseType)->getElementType();
+    else
+      BaseType = BaseType->castAs<PointerType>()->getPointeeType();
   }
 
   for (unsigned E = LVal.Designator.Entries.size(); I != E; ++I) {
@@ -7820,7 +7825,7 @@ bool IntExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
         << (std::string("'") + Info.Ctx.BuiltinInfo.getName(BuiltinOp) + "'");
     else
       Info.CCEDiag(E, diag::note_invalid_subexpr_in_const_expr);
-    // Fall through.
+    LLVM_FALLTHROUGH;
   case Builtin::BI__builtin_strlen:
   case Builtin::BI__builtin_wcslen: {
     // As an extension, we support __builtin_strlen() as a constant expression,
@@ -7880,7 +7885,7 @@ bool IntExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
         << (std::string("'") + Info.Ctx.BuiltinInfo.getName(BuiltinOp) + "'");
     else
       Info.CCEDiag(E, diag::note_invalid_subexpr_in_const_expr);
-    // Fall through.
+    LLVM_FALLTHROUGH;
   case Builtin::BI__builtin_strcmp:
   case Builtin::BI__builtin_wcscmp:
   case Builtin::BI__builtin_strncmp:
@@ -10470,6 +10475,7 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
     case BO_AndAssign:
     case BO_XorAssign:
     case BO_OrAssign:
+    case BO_Cmp: // FIXME: Re-enable once we can evaluate this.
       // C99 6.6/3 allows assignments within unevaluated subexpressions of
       // constant expressions, but they can never be ICEs because an ICE cannot
       // contain an lvalue operand.

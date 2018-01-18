@@ -78,9 +78,16 @@ CODEGENOPT(ForbidGuardVariables , 1, 0) ///< Issue errors if C++ guard variables
 CODEGENOPT(FunctionSections  , 1, 0) ///< Set when -ffunction-sections is enabled.
 CODEGENOPT(InstrumentFunctions , 1, 0) ///< Set when -finstrument-functions is
                                        ///< enabled.
+CODEGENOPT(InstrumentFunctionsAfterInlining , 1, 0) ///< Set when
+                          ///< -finstrument-functions-after-inlining is enabled.
+CODEGENOPT(InstrumentFunctionEntryBare , 1, 0) ///< Set when
+                               ///< -finstrument-function-entry-bare is enabled.
 
 CODEGENOPT(XRayInstrumentFunctions , 1, 0) ///< Set when -fxray-instrument is
                                            ///< enabled.
+
+///< Set when -fxray-always-emit-customevents is enabled.
+CODEGENOPT(XRayAlwaysEmitCustomEvents , 1, 0)
 
 ///< Set the minimum number of instructions in a function to determine selective
 ///< XRay instrumentation.
@@ -112,6 +119,7 @@ CODEGENOPT(EnableSegmentedStacks , 1, 0) ///< Set when -fsplit-stack is enabled.
 CODEGENOPT(NoImplicitFloat   , 1, 0) ///< Set when -mno-implicit-float is enabled.
 CODEGENOPT(NoInfsFPMath      , 1, 0) ///< Assume FP arguments, results not +-Inf.
 CODEGENOPT(NoSignedZeros     , 1, 0) ///< Allow ignoring the signedness of FP zero
+CODEGENOPT(Reassociate       , 1, 0) ///< Allow reassociation of FP math ops
 CODEGENOPT(ReciprocalMath    , 1, 0) ///< Allow FP divisions to be reassociated.
 CODEGENOPT(NoTrappingMath    , 1, 0) ///< Set when -fno-trapping-math is enabled.
 CODEGENOPT(NoNaNsFPMath      , 1, 0) ///< Assume FP arguments, results not NaN.
@@ -144,6 +152,7 @@ ENUM_CODEGENOPT(StructReturnConvention, StructReturnConventionKind, 2, SRCK_Defa
 CODEGENOPT(RelaxAll          , 1, 0) ///< Relax all machine code instructions.
 CODEGENOPT(RelaxedAliasing   , 1, 0) ///< Set when -fno-strict-aliasing is enabled.
 CODEGENOPT(StructPathTBAA    , 1, 0) ///< Whether or not to use struct-path TBAA.
+CODEGENOPT(NewStructPathTBAA , 1, 0) ///< Whether or not to use enhanced struct-path TBAA.
 CODEGENOPT(SaveTempLabels    , 1, 0) ///< Save temporary labels.
 CODEGENOPT(SanitizeAddressUseAfterScope , 1, 0) ///< Enable use-after-scope detection
                                                 ///< in AddressSanitizer
@@ -156,6 +165,8 @@ CODEGENOPT(SanitizeMemoryUseAfterDtor, 1, 0) ///< Enable use-after-delete detect
 CODEGENOPT(SanitizeCfiCrossDso, 1, 0) ///< Enable cross-dso support in CFI.
 CODEGENOPT(SanitizeMinimalRuntime, 1, 0) ///< Use "_minimal" sanitizer runtime for
                                          ///< diagnostics.
+CODEGENOPT(SanitizeCfiICallGeneralizePointers, 1, 0) ///< Generalize pointer types in
+                                                     ///< CFI icall function signatures
 CODEGENOPT(SanitizeCoverageType, 2, 0) ///< Type of sanitizer coverage
                                        ///< instrumentation.
 CODEGENOPT(SanitizeCoverageIndirectCalls, 1, 0) ///< Enable sanitizer coverage
@@ -296,6 +307,8 @@ CODEGENOPT(PreserveVec3Type, 1, 0)
 
 /// Whether to emit .debug_gnu_pubnames section instead of .debug_pubnames.
 CODEGENOPT(GnuPubnames, 1, 0)
+
+CODEGENOPT(NoPLT, 1, 0)
 
 #undef CODEGENOPT
 #undef ENUM_CODEGENOPT

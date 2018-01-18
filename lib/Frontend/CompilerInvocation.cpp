@@ -546,6 +546,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
     OPT_fuse_register_sized_bitfield_access);
   Opts.RelaxedAliasing = Args.hasArg(OPT_relaxed_aliasing);
   Opts.StructPathTBAA = !Args.hasArg(OPT_no_struct_path_tbaa);
+  Opts.NewStructPathTBAA = !Args.hasArg(OPT_no_struct_path_tbaa) &&
+                           Args.hasArg(OPT_new_struct_path_tbaa);
   Opts.FineGrainedBitfieldAccesses =
       Args.hasFlag(OPT_ffine_grained_bitfield_accesses,
                    OPT_fno_fine_grained_bitfield_accesses, false);
@@ -639,9 +641,11 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
                         Args.hasArg(OPT_cl_no_signed_zeros) ||
                         Args.hasArg(OPT_cl_unsafe_math_optimizations) ||
                         Args.hasArg(OPT_cl_fast_relaxed_math));
+  Opts.Reassociate = Args.hasArg(OPT_mreassociate);
   Opts.FlushDenorm = Args.hasArg(OPT_cl_denorms_are_zero);
   Opts.CorrectlyRoundedDivSqrt =
       Args.hasArg(OPT_cl_fp32_correctly_rounded_divide_sqrt);
+  Opts.Reciprocals = Args.getAllArgValues(OPT_mrecip_EQ);
   Opts.ReciprocalMath = Args.hasArg(OPT_freciprocal_math);
   Opts.NoTrappingMath = Args.hasArg(OPT_fno_trapping_math);
   Opts.NoZeroInitializedInBSS = Args.hasArg(OPT_mno_zero_initialized_in_bss);
@@ -655,6 +659,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
       Args.hasArg(OPT_mincremental_linker_compatible);
   Opts.PIECopyRelocations =
       Args.hasArg(OPT_mpie_copy_relocations);
+  Opts.NoPLT = Args.hasArg(OPT_fno_plt);
   Opts.OmitLeafFramePointer = Args.hasArg(OPT_momit_leaf_frame_pointer);
   Opts.SaveTempLabels = Args.hasArg(OPT_msave_temp_labels);
   Opts.NoDwarfDirectoryAsm = Args.hasArg(OPT_fno_dwarf_directory_asm);
@@ -710,6 +715,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.VectorizeLoop = Args.hasArg(OPT_vectorize_loops);
   Opts.VectorizeSLP = Args.hasArg(OPT_vectorize_slp);
+
+  Opts.PreferVectorWidth = Args.getLastArgValue(OPT_mprefer_vector_width_EQ);
 
   Opts.MainFileName = Args.getLastArgValue(OPT_main_file_name);
   Opts.VerifyModule = !Args.hasArg(OPT_disable_llvm_verifier);
@@ -778,7 +785,13 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.PreserveVec3Type = Args.hasArg(OPT_fpreserve_vec3_type);
   Opts.InstrumentFunctions = Args.hasArg(OPT_finstrument_functions);
+  Opts.InstrumentFunctionsAfterInlining =
+      Args.hasArg(OPT_finstrument_functions_after_inlining);
+  Opts.InstrumentFunctionEntryBare =
+      Args.hasArg(OPT_finstrument_function_entry_bare);
   Opts.XRayInstrumentFunctions = Args.hasArg(OPT_fxray_instrument);
+  Opts.XRayAlwaysEmitCustomEvents =
+      Args.hasArg(OPT_fxray_always_emit_customevents);
   Opts.XRayInstructionThreshold =
       getLastArgIntValue(Args, OPT_fxray_instruction_threshold_EQ, 200, Diags);
   Opts.InstrumentForProfiling = Args.hasArg(OPT_pg);
@@ -841,6 +854,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
                    false);
   Opts.SanitizeMinimalRuntime = Args.hasArg(OPT_fsanitize_minimal_runtime);
   Opts.SanitizeCfiCrossDso = Args.hasArg(OPT_fsanitize_cfi_cross_dso);
+  Opts.SanitizeCfiICallGeneralizePointers =
+      Args.hasArg(OPT_fsanitize_cfi_icall_generalize_pointers);
   Opts.SanitizeStats = Args.hasArg(OPT_fsanitize_stats);
   if (Arg *A = Args.getLastArg(OPT_fsanitize_address_use_after_scope,
                                OPT_fno_sanitize_address_use_after_scope)) {
@@ -1059,6 +1074,26 @@ static bool parseShowColorsArgs(const ArgList &Args, bool DefaultColor) {
           llvm::sys::Process::StandardErrHasColors());
 }
 
+static bool checkVerifyPrefixes(const std::vector<std::string> &VerifyPrefixes,
+                                DiagnosticsEngine *Diags) {
+  bool Success = true;
+  for (const auto &Prefix : VerifyPrefixes) {
+    // Every prefix must start with a letter and contain only alphanumeric
+    // characters, hyphens, and underscores.
+    auto BadChar = std::find_if(Prefix.begin(), Prefix.end(),
+                                [](char C){return !isAlphanumeric(C)
+                                                  && C != '-' && C != '_';});
+    if (BadChar != Prefix.end() || !isLetter(Prefix[0])) {
+      Success = false;
+      if (Diags) {
+        Diags->Report(diag::err_drv_invalid_value) << "-verify=" << Prefix;
+        Diags->Report(diag::note_drv_verify_prefix_spelling);
+      }
+    }
+  }
+  return Success;
+}
+
 bool clang::ParseDiagnosticArgs(DiagnosticOptions &Opts, ArgList &Args,
                                 DiagnosticsEngine *Diags,
                                 bool DefaultDiagColor, bool DefaultShowOpt) {
@@ -1146,7 +1181,18 @@ bool clang::ParseDiagnosticArgs(DiagnosticOptions &Opts, ArgList &Args,
   Opts.ShowSourceRanges = Args.hasArg(OPT_fdiagnostics_print_source_range_info);
   Opts.ShowParseableFixits = Args.hasArg(OPT_fdiagnostics_parseable_fixits);
   Opts.ShowPresumedLoc = !Args.hasArg(OPT_fno_diagnostics_use_presumed_location);
-  Opts.VerifyDiagnostics = Args.hasArg(OPT_verify);
+  Opts.VerifyDiagnostics = Args.hasArg(OPT_verify) || Args.hasArg(OPT_verify_EQ);
+  Opts.VerifyPrefixes = Args.getAllArgValues(OPT_verify_EQ);
+  if (Args.hasArg(OPT_verify))
+    Opts.VerifyPrefixes.push_back("expected");
+  // Keep VerifyPrefixes in its original order for the sake of diagnostics, and
+  // then sort it to prepare for fast lookup using std::binary_search.
+  if (!checkVerifyPrefixes(Opts.VerifyPrefixes, Diags)) {
+    Opts.VerifyDiagnostics = false;
+    Success = false;
+  }
+  else
+    std::sort(Opts.VerifyPrefixes.begin(), Opts.VerifyPrefixes.end());
   DiagnosticLevelMask DiagMask = DiagnosticLevelMask::None;
   Success &= parseDiagnosticLevelMask("-verify-ignore-unexpected=",
     Args.getAllArgValues(OPT_verify_ignore_unexpected_EQ),
@@ -1368,6 +1414,8 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     = Args.hasArg(OPT_code_completion_patterns);
   Opts.CodeCompleteOpts.IncludeGlobals
     = !Args.hasArg(OPT_no_code_completion_globals);
+  Opts.CodeCompleteOpts.IncludeNamespaceLevelDecls
+    = !Args.hasArg(OPT_no_code_completion_ns_level_decls);
   Opts.CodeCompleteOpts.IncludeBriefComments
     = Args.hasArg(OPT_code_completion_brief_comments);
 
@@ -1724,11 +1772,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
     case InputKind::CXXAMP:
     case InputKind::CXX:
     case InputKind::ObjCXX:
-      // The PS4 uses C++11 as the default C++ standard.
-      if (T.isPS4())
-        LangStd = LangStandard::lang_gnucxx11;
-      else
-        LangStd = LangStandard::lang_gnucxx98;
+      LangStd = LangStandard::lang_gnucxx14;
       break;
     case InputKind::RenderScript:
       LangStd = LangStandard::lang_c99;
@@ -1740,17 +1784,18 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   Opts.LineComment = Std.hasLineComments();
   Opts.C99 = Std.isC99();
   Opts.C11 = Std.isC11();
+  Opts.C17 = Std.isC17();
   Opts.CPlusPlus = Std.isCPlusPlus();
   Opts.CPlusPlus11 = Std.isCPlusPlus11();
   Opts.CPlusPlus14 = Std.isCPlusPlus14();
-  Opts.CPlusPlus1z = Std.isCPlusPlus1z();
+  Opts.CPlusPlus17 = Std.isCPlusPlus17();
   Opts.CPlusPlus2a = Std.isCPlusPlus2a();
   Opts.Digraphs = Std.hasDigraphs();
   Opts.GNUMode = Std.isGNUMode();
   Opts.GNUInline = !Opts.C99 && !Opts.CPlusPlus;
   Opts.HexFloats = Std.hasHexFloats();
   Opts.ImplicitInt = Std.hasImplicitInt();
-  Opts.CPlusPlusAMP = Std.isCPlusPlusAMP();
+  Opts.CPlusPlusAMP |= Std.isCPlusPlusAMP();
 
   // Set OpenCL Version.
   Opts.OpenCL = Std.isOpenCL();
@@ -1788,11 +1833,6 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
     Opts.NativeHalfArgsAndReturns = 1;
   }
 
-  if (Opts.CPlusPlusAMP) {
-    Opts.NativeHalfType = 1;
-    Opts.NativeHalfArgsAndReturns = 1;
-  }
-
   // OpenCL and C++ both have bool, true, false keywords.
   Opts.Bool = Opts.OpenCL || Opts.CPlusPlus;
 
@@ -1805,7 +1845,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   Opts.GNUKeywords = Opts.GNUMode;
   Opts.CXXOperatorNames = Opts.CPlusPlus;
 
-  Opts.AlignedAllocation = Opts.CPlusPlus1z;
+  Opts.AlignedAllocation = Opts.CPlusPlus17;
 
   Opts.DollarIdents = !Opts.AsmPreprocessor;
 }
@@ -1975,6 +2015,15 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   llvm::Triple T(TargetOpts.Triple);
   CompilerInvocation::setLangDefaults(Opts, IK, T, PPOpts, LangStd);
 
+  // Add AMP features if we got -famp.
+  Opts.CPlusPlusAMP |= Args.hasArg(options::OPT_famp);
+
+  // Add AMP features if using AMP.
+  if (Opts.CPlusPlusAMP) {
+    Opts.NativeHalfType = 1;
+    Opts.NativeHalfArgsAndReturns = 1;
+  }
+
   // -cl-strict-aliasing needs to emit diagnostic in the case where CL > 1.0.
   // This option should be deprecated for CL > 1.0 because
   // this option was added for compatibility with OpenCL 1.0.
@@ -2132,7 +2181,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   // Mimicing gcc's behavior, trigraphs are only enabled if -trigraphs
   // is specified, or -std is set to a conforming mode.
   // Trigraphs are disabled by default in c++1z onwards.
-  Opts.Trigraphs = !Opts.GNUMode && !Opts.MSVCCompat && !Opts.CPlusPlus1z;
+  Opts.Trigraphs = !Opts.GNUMode && !Opts.MSVCCompat && !Opts.CPlusPlus17;
   Opts.Trigraphs =
       Args.hasFlag(OPT_ftrigraphs, OPT_fno_trigraphs, Opts.Trigraphs);
 
@@ -2152,7 +2201,18 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.Exceptions = Args.hasArg(OPT_fexceptions);
   Opts.ObjCExceptions = Args.hasArg(OPT_fobjc_exceptions);
   Opts.CXXExceptions = Args.hasArg(OPT_fcxx_exceptions);
-  Opts.SjLjExceptions = Args.hasArg(OPT_fsjlj_exceptions);
+
+  // Handle exception personalities
+  Arg *A = Args.getLastArg(options::OPT_fsjlj_exceptions,
+                           options::OPT_fseh_exceptions,
+                           options::OPT_fdwarf_exceptions);
+  if (A) {
+    const Option &Opt = A->getOption();
+    Opts.SjLjExceptions = Opt.matches(options::OPT_fsjlj_exceptions);
+    Opts.SEHExceptions = Opt.matches(options::OPT_fseh_exceptions);
+    Opts.DWARFExceptions = Opt.matches(options::OPT_fdwarf_exceptions);
+  }
+
   Opts.ExternCNoUnwind = Args.hasArg(OPT_fexternc_nounwind);
   Opts.TraditionalCPP = Args.hasArg(OPT_traditional_cpp);
 
@@ -2162,7 +2222,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
     && Opts.OpenCLVersion >= 200);
   Opts.BlocksRuntimeOptional = Args.hasArg(OPT_fblocks_runtime_optional);
   Opts.CoroutinesTS = Args.hasArg(OPT_fcoroutines_ts);
-  
+
   // Enable [[]] attributes in C++11 by default.
   Opts.DoubleSquareBracketAttributes =
       Args.hasFlag(OPT_fdouble_square_bracket_attributes,
@@ -2329,12 +2389,12 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   // Check for MS default calling conventions being specified.
   if (Arg *A = Args.getLastArg(OPT_fdefault_calling_conv_EQ)) {
     LangOptions::DefaultCallingConvention DefaultCC =
-        llvm::StringSwitch<LangOptions::DefaultCallingConvention>(
-            A->getValue())
+        llvm::StringSwitch<LangOptions::DefaultCallingConvention>(A->getValue())
             .Case("cdecl", LangOptions::DCC_CDecl)
             .Case("fastcall", LangOptions::DCC_FastCall)
             .Case("stdcall", LangOptions::DCC_StdCall)
             .Case("vectorcall", LangOptions::DCC_VectorCall)
+            .Case("regcall", LangOptions::DCC_RegCall)
             .Default(LangOptions::DCC_None);
     if (DefaultCC == LangOptions::DCC_None)
       Diags.Report(diag::err_drv_invalid_value)
@@ -2345,7 +2405,8 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
     bool emitError = (DefaultCC == LangOptions::DCC_FastCall ||
                       DefaultCC == LangOptions::DCC_StdCall) &&
                      Arch != llvm::Triple::x86;
-    emitError |= DefaultCC == LangOptions::DCC_VectorCall &&
+    emitError |= (DefaultCC == LangOptions::DCC_VectorCall ||
+                  DefaultCC == LangOptions::DCC_RegCall) &&
                  !(Arch == llvm::Triple::x86 || Arch == llvm::Triple::x86_64);
     if (emitError)
       Diags.Report(diag::err_drv_argument_not_allowed_with)
@@ -2514,6 +2575,11 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   // -fxray-instrument
   Opts.XRayInstrument =
       Args.hasFlag(OPT_fxray_instrument, OPT_fnoxray_instrument, false);
+
+  // -fxray-always-emit-customevents
+  Opts.XRayAlwaysEmitCustomEvents =
+      Args.hasFlag(OPT_fxray_always_emit_customevents,
+                   OPT_fnoxray_always_emit_customevents, false);
 
   // -fxray-{always,never}-instrument= filenames.
   Opts.XRayAlwaysInstrumentFiles =
@@ -2693,7 +2759,6 @@ static void ParseTargetArgs(TargetOptions &Opts, ArgList &Args,
   Opts.FeaturesAsWritten = Args.getAllArgValues(OPT_target_feature);
   Opts.LinkerVersion = Args.getLastArgValue(OPT_target_linker_version);
   Opts.Triple = llvm::Triple::normalize(Args.getLastArgValue(OPT_triple));
-  Opts.Reciprocals = Args.getAllArgValues(OPT_mrecip_EQ);
   // Use the default target triple if unspecified.
   if (Opts.Triple.empty())
     Opts.Triple = llvm::sys::getDefaultTargetTriple();

@@ -1149,7 +1149,7 @@ StmtResult Parser::ParseIfStatement(SourceLocation *TrailingElseLoc) {
 
   bool IsConstexpr = false;
   if (Tok.is(tok::kw_constexpr)) {
-    Diag(Tok, getLangOpts().CPlusPlus1z ? diag::warn_cxx14_compat_constexpr_if
+    Diag(Tok, getLangOpts().CPlusPlus17 ? diag::warn_cxx14_compat_constexpr_if
                                         : diag::ext_constexpr_if);
     IsConstexpr = true;
     ConsumeToken();
@@ -1500,6 +1500,9 @@ StmtResult Parser::ParseDoStatement() {
   DiagnoseAndSkipCXX11Attributes();
 
   ExprResult Cond = ParseExpression();
+  // Correct the typos in condition before closing the scope.
+  if (Cond.isUsable())
+    Cond = Actions.CorrectDelayedTyposInExpr(Cond);
   T.consumeClose();
   DoScope.Exit();
 
@@ -1631,7 +1634,7 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
       ForRangeInit.RangeExpr = ParseExpression();
 
     Diag(Loc, diag::err_for_range_identifier)
-      << ((getLangOpts().CPlusPlus11 && !getLangOpts().CPlusPlus1z)
+      << ((getLangOpts().CPlusPlus11 && !getLangOpts().CPlusPlus17)
               ? FixItHint::CreateInsertion(Loc, "auto &&")
               : FixItHint());
 

@@ -554,14 +554,13 @@ static bool isCapabilityExpr(Sema &S, const Expr *Ex) {
   // a DeclRefExpr is found, its type should be checked to determine whether it
   // is a capability or not.
 
-  if (const auto *E = dyn_cast<DeclRefExpr>(Ex))
-    return typeHasCapability(S, E->getType());
-  else if (const auto *E = dyn_cast<CastExpr>(Ex))
+  if (const auto *E = dyn_cast<CastExpr>(Ex))
     return isCapabilityExpr(S, E->getSubExpr());
   else if (const auto *E = dyn_cast<ParenExpr>(Ex))
     return isCapabilityExpr(S, E->getSubExpr());
   else if (const auto *E = dyn_cast<UnaryOperator>(Ex)) {
-    if (E->getOpcode() == UO_LNot)
+    if (E->getOpcode() == UO_LNot || E->getOpcode() == UO_AddrOf ||
+        E->getOpcode() == UO_Deref)
       return isCapabilityExpr(S, E->getSubExpr());
     return false;
   } else if (const auto *E = dyn_cast<BinaryOperator>(Ex)) {
@@ -571,7 +570,7 @@ static bool isCapabilityExpr(Sema &S, const Expr *Ex) {
     return false;
   }
 
-  return false;
+  return typeHasCapability(S, Ex->getType());
 }
 
 /// \brief Checks that all attribute arguments, starting from Sidx, resolve to
@@ -1859,12 +1858,6 @@ static void handleIFuncAttr(Sema &S, Decl *D, const AttributeList &Attr) {
     S.Diag(Attr.getLoc(), diag::err_alias_is_definition) << FD << 1;
     return;
   }
-  // FIXME: it should be handled as a target specific attribute.
-  if (S.Context.getTargetInfo().getTriple().getObjectFormat() !=
-          llvm::Triple::ELF) {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
-    return;
-  }
 
   D->addAttr(::new (S.Context) IFuncAttr(Attr.getRange(), S.Context, Str,
                                          Attr.getAttributeSpellingListIndex()));
@@ -2166,10 +2159,10 @@ static void handleUsedAttr(Sema &S, Decl *D, const AttributeList &Attr) {
 }
 
 static void handleUnusedAttr(Sema &S, Decl *D, const AttributeList &Attr) {
-  bool IsCXX1zAttr = Attr.isCXX11Attribute() && !Attr.getScopeName();
+  bool IsCXX17Attr = Attr.isCXX11Attribute() && !Attr.getScopeName();
 
-  if (IsCXX1zAttr && isa<VarDecl>(D)) {
-    // The C++1z spelling of this attribute cannot be applied to a static data
+  if (IsCXX17Attr && isa<VarDecl>(D)) {
+    // The C++17 spelling of this attribute cannot be applied to a static data
     // member per [dcl.attr.unused]p2.
     if (cast<VarDecl>(D)->isStaticDataMember()) {
       S.Diag(Attr.getLoc(), diag::warn_attribute_wrong_decl_type)
@@ -2178,9 +2171,9 @@ static void handleUnusedAttr(Sema &S, Decl *D, const AttributeList &Attr) {
     }
   }
 
-  // If this is spelled as the standard C++1z attribute, but not in C++1z, warn
+  // If this is spelled as the standard C++17 attribute, but not in C++17, warn
   // about using it as an extension.
-  if (!S.getLangOpts().CPlusPlus1z && IsCXX1zAttr)
+  if (!S.getLangOpts().CPlusPlus17 && IsCXX17Attr)
     S.Diag(Attr.getLoc(), diag::ext_cxx17_attr) << Attr.getName();
 
   D->addAttr(::new (S.Context) UnusedAttr(
@@ -2875,9 +2868,9 @@ static void handleWarnUnusedResult(Sema &S, Decl *D, const AttributeList &Attr) 
       return;
     }
   
-  // If this is spelled as the standard C++1z attribute, but not in C++1z, warn
+  // If this is spelled as the standard C++17 attribute, but not in C++17, warn
   // about using it as an extension.
-  if (!S.getLangOpts().CPlusPlus1z && Attr.isCXX11Attribute() &&
+  if (!S.getLangOpts().CPlusPlus17 && Attr.isCXX11Attribute() &&
       !Attr.getScopeName())
     S.Diag(Attr.getLoc(), diag::ext_cxx17_attr) << Attr.getName();
 
@@ -3081,12 +3074,6 @@ static void handleTargetAttr(Sema &S, Decl *D, const AttributeList &Attr) {
 }
 
 static void handleCleanupAttr(Sema &S, Decl *D, const AttributeList &Attr) {
-  VarDecl *VD = cast<VarDecl>(D);
-  if (!VD->hasLocalStorage()) {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
-    return;
-  }
-
   Expr *E = Attr.getArgAsExpr(0);
   SourceLocation Loc = E->getExprLoc();
   FunctionDecl *FD = nullptr;
@@ -3129,7 +3116,7 @@ static void handleCleanupAttr(Sema &S, Decl *D, const AttributeList &Attr) {
 
   // We're currently more strict than GCC about what function types we accept.
   // If this ever proves to be a problem it should be easy to fix.
-  QualType Ty = S.Context.getPointerType(VD->getType());
+  QualType Ty = S.Context.getPointerType(cast<VarDecl>(D)->getType());
   QualType ParamTy = FD->getParamDecl(0)->getType();
   if (S.CheckAssignmentConstraints(FD->getParamDecl(0)->getLocation(),
                                    ParamTy, Ty) != Sema::Compatible) {
@@ -5580,17 +5567,39 @@ private:
   }
 };
 
+namespace
+{
+  inline
+  bool checkAllAreIntegral(const AttributeList &Attr, Sema &S) {
+    for (auto i = 0u; i != Attr.getNumArgs(); ++i) {
+      auto e = Attr.getArgAsExpr(i);
+      if (e && !e->getType()->isIntegralOrEnumerationType()) {
+        S.Diag(getAttrLoc(Attr), diag::err_attribute_argument_n_type)
+          << getAttrName(Attr) << i << AANT_ArgumentIntegerConstant
+          << e->getSourceRange();
+
+        return false;
+      }
+    }
+
+    return true;
+  }
+}
+
 static void handleAMDGPUFlatWorkGroupSizeAttr(Sema &S, Decl *D,
                                               const AttributeList &Attr) {
   uint32_t Min = 0;
   Expr *MinExpr = Attr.getArgAsExpr(0);
-  if (!checkUInt32Argument(S, Attr, MinExpr, Min))
+  if (MinExpr->isEvaluatable(S.Context) &&
+      !checkUInt32Argument(S, Attr, MinExpr, Min))
     return;
 
-  uint32_t Max = 0;
-  if (Attr.getNumArgs() > 1 ) {
-    Expr *MaxExpr = Attr.getArgAsExpr(1);
-    if (!checkUInt32Argument(S, Attr, MaxExpr, Max))
+  uint32_t Max = Min;
+  Expr *MaxExpr = MinExpr;
+  if (Attr.getNumArgs() > 1) {
+    MaxExpr = Attr.getArgAsExpr(1);
+    if (MaxExpr->isEvaluatable(S.Context) &&
+        !checkUInt32Argument(S, Attr, MaxExpr, Max))
       return;
   }
 
@@ -5609,21 +5618,27 @@ static void handleAMDGPUFlatWorkGroupSizeAttr(Sema &S, Decl *D,
   StringRef ISA;
   if (VC.checkAMDGPUISAVersion(Attr, 2, ISA))
     D->addAttr(::new (S.Context)
-               AMDGPUFlatWorkGroupSizeAttr(Attr.getLoc(), S.Context, Min, Max,
-                    ISA, Attr.getAttributeSpellingListIndex()));
+               AMDGPUFlatWorkGroupSizeAttr(Attr.getLoc(), S.Context, MinExpr,
+               MaxExpr, ISA, Attr.getAttributeSpellingListIndex()));
 }
 
 static void handleAMDGPUWavesPerEUAttr(Sema &S, Decl *D,
                                        const AttributeList &Attr) {
-  uint32_t Min = 0;
-  Expr *MinExpr = Attr.getArgAsExpr(0);
-  if (!checkUInt32Argument(S, Attr, MinExpr, Min))
+  if (!checkAllAreIntegral(Attr, S))
     return;
 
-  uint32_t Max = 0;
+  uint32_t Min = 0;
+  Expr *MinExpr = Attr.getArgAsExpr(0);
+  if (MinExpr->isEvaluatable(S.Context) &&
+      !checkUInt32Argument(S, Attr, MinExpr, Min))
+    return;
+
+  uint32_t Max = Min;
+  Expr *MaxExpr = MinExpr;
   if (Attr.getNumArgs() > 1) {
-    Expr *MaxExpr = Attr.getArgAsExpr(1);
-    if (!checkUInt32Argument(S, Attr, MaxExpr, Max))
+    MaxExpr = Attr.getArgAsExpr(1);
+    if (MaxExpr->isEvaluatable(S.Context) &&
+        !checkUInt32Argument(S, Attr, MaxExpr, Max))
       return;
   }
 
@@ -5642,59 +5657,73 @@ static void handleAMDGPUWavesPerEUAttr(Sema &S, Decl *D,
   StringRef ISA;
   if (VC.checkAMDGPUISAVersion(Attr, 2, ISA))
     D->addAttr(::new (S.Context)
-               AMDGPUWavesPerEUAttr(Attr.getLoc(), S.Context, Min, Max, ISA,
-                                  Attr.getAttributeSpellingListIndex()));
+                       AMDGPUWavesPerEUAttr(Attr.getLoc(), S.Context, MinExpr, MaxExpr,
+                                            ISA, Attr.getAttributeSpellingListIndex()));
 }
 
 static void handleAMDGPUNumSGPRAttr(Sema &S, Decl *D,
                                     const AttributeList &Attr) {
+  if (!checkAllAreIntegral(Attr, S))
+    return;
+
   uint32_t NumSGPR = 0;
   Expr *NumSGPRExpr = Attr.getArgAsExpr(0);
-  if (!checkUInt32Argument(S, Attr, NumSGPRExpr, NumSGPR))
+  if (NumSGPRExpr->isEvaluatable(S.Context) &&
+      !checkUInt32Argument(S, Attr, NumSGPRExpr, NumSGPR))
     return;
 
   D->addAttr(::new (S.Context)
-             AMDGPUNumSGPRAttr(Attr.getLoc(), S.Context, NumSGPR,
+             AMDGPUNumSGPRAttr(Attr.getLoc(), S.Context, NumSGPRExpr,
                                Attr.getAttributeSpellingListIndex()));
 }
 
 static void handleAMDGPUNumVGPRAttr(Sema &S, Decl *D,
                                     const AttributeList &Attr) {
+  if (!checkAllAreIntegral(Attr, S))
+    return;
+
   uint32_t NumVGPR = 0;
   Expr *NumVGPRExpr = Attr.getArgAsExpr(0);
-  if (!checkUInt32Argument(S, Attr, NumVGPRExpr, NumVGPR))
+  if (NumVGPRExpr->isEvaluatable(S.Context) &&
+      !checkUInt32Argument(S, Attr, NumVGPRExpr, NumVGPR))
     return;
 
   D->addAttr(::new (S.Context)
-             AMDGPUNumVGPRAttr(Attr.getLoc(), S.Context, NumVGPR,
+             AMDGPUNumVGPRAttr(Attr.getLoc(), S.Context, NumVGPRExpr,
                                Attr.getAttributeSpellingListIndex()));
 }
 
 static void handleAMDGPUMaxWorkGroupDimAttr(Sema &S, Decl *D,
                                             const AttributeList &Attr) {
+  if (!checkAllAreIntegral(Attr, S))
+    return;
   if (!checkAttributeAtLeastNumArgs(S, Attr, 3))
     return;
 
   uint32_t X = 0;
   Expr *XExpr = Attr.getArgAsExpr(0);
-  if (!checkUInt32Argument(S, Attr, XExpr, X))
+  if (XExpr->isEvaluatable(S.Context) &&
+      !checkUInt32Argument(S, Attr, XExpr, X))
     return;
 
   uint32_t Y = 0;
   Expr *YExpr = Attr.getArgAsExpr(1);
-  if (!checkUInt32Argument(S, Attr, YExpr, Y))
+  if (YExpr->isEvaluatable(S.Context) &&
+      !checkUInt32Argument(S, Attr, YExpr, Y))
     return;
 
   uint32_t Z = 0;
   Expr *ZExpr = Attr.getArgAsExpr(2);
-  if (!checkUInt32Argument(S, Attr, ZExpr, Z))
+  if (ZExpr->isEvaluatable(S.Context) &&
+      !checkUInt32Argument(S, Attr, ZExpr, Z))
     return;
 
   AMDGPUISAVersionChecker VC(S);
   StringRef ISA;
   if (VC.checkAMDGPUISAVersion(Attr, 3, ISA))
     D->addAttr(::new (S.Context)
-         AMDGPUMaxWorkGroupDimAttr(Attr.getLoc(), S.Context, X, Y, Z, ISA,
+         AMDGPUMaxWorkGroupDimAttr(Attr.getLoc(), S.Context, XExpr, YExpr,
+                                   ZExpr, ISA,
                                    Attr.getAttributeSpellingListIndex()));
 }
 

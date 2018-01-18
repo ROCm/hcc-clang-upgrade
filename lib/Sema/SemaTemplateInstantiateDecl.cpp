@@ -3768,7 +3768,8 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
                                          bool Recursive,
                                          bool DefinitionRequired,
                                          bool AtEndOfTU) {
-  if (Function->isInvalidDecl() || Function->isDefined())
+  if (Function->isInvalidDecl() || Function->isDefined() ||
+      isa<CXXDeductionGuideDecl>(Function))
     return;
 
   // Never instantiate an explicit specialization except if it is a class scope
@@ -3854,7 +3855,8 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
   }
 
   // Note, we should never try to instantiate a deleted function template.
-  assert((Pattern || PatternDecl->isDefaulted()) &&
+  assert((Pattern || PatternDecl->isDefaulted() ||
+          PatternDecl->hasSkippedBody()) &&
          "unexpected kind of function template definition");
 
   // C++1y [temp.explicit]p10:
@@ -3939,16 +3941,20 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
       }
     }
 
-    // Instantiate the function body.
-    StmtResult Body = SubstStmt(Pattern, TemplateArgs);
+    if (PatternDecl->hasSkippedBody()) {
+      ActOnSkippedFunctionBody(Function);
+    } else {
+      // Instantiate the function body.
+      StmtResult Body = SubstStmt(Pattern, TemplateArgs);
 
-    if (Body.isInvalid())
-      Function->setInvalidDecl();
+      if (Body.isInvalid())
+        Function->setInvalidDecl();
 
-    // FIXME: finishing the function body while in an expression evaluation
-    // context seems wrong. Investigate more.
-    ActOnFinishFunctionBody(Function, Body.get(),
-                            /*IsInstantiation=*/true);
+      // FIXME: finishing the function body while in an expression evaluation
+      // context seems wrong. Investigate more.
+      ActOnFinishFunctionBody(Function, Body.get(),
+                              /*IsInstantiation=*/true);
+    }
 
     PerformDependentDiagnostics(PatternDecl, TemplateArgs);
 
@@ -4020,6 +4026,8 @@ VarTemplateSpecializationDecl *Sema::BuildVarTemplateInstantiation(
 VarTemplateSpecializationDecl *Sema::CompleteVarTemplateSpecializationDecl(
     VarTemplateSpecializationDecl *VarSpec, VarDecl *PatternDecl,
     const MultiLevelTemplateArgumentList &TemplateArgs) {
+  assert(PatternDecl->isThisDeclarationADefinition() &&
+         "don't have a definition to instantiate from");
 
   // Do substitution on the type of the declaration
   TypeSourceInfo *DI =
@@ -4030,6 +4038,9 @@ VarTemplateSpecializationDecl *Sema::CompleteVarTemplateSpecializationDecl(
 
   // Update the type of this variable template specialization.
   VarSpec->setType(DI->getType());
+
+  // Convert the declaration into a definition now.
+  VarSpec->setCompleteDefinition();
 
   // Instantiate the initializer.
   InstantiateVariableInitializer(VarSpec, PatternDecl, TemplateArgs);
@@ -4136,6 +4147,9 @@ void Sema::BuildVariableInstantiation(
 void Sema::InstantiateVariableInitializer(
     VarDecl *Var, VarDecl *OldVar,
     const MultiLevelTemplateArgumentList &TemplateArgs) {
+  if (ASTMutationListener *L = getASTContext().getASTMutationListener())
+    L->VariableDefinitionInstantiated(Var);
+
   // We propagate the 'inline' flag with the initializer, because it
   // would otherwise imply that the variable is a definition for a
   // non-static data member.
@@ -4198,26 +4212,16 @@ void Sema::InstantiateVariableInitializer(
 ///
 /// \param PointOfInstantiation the point at which the instantiation was
 /// required. Note that this is not precisely a "point of instantiation"
-/// for the function, but it's close.
+/// for the variable, but it's close.
 ///
-/// \param Var the already-instantiated declaration of a static member
-/// variable of a class template specialization.
+/// \param Var the already-instantiated declaration of a templated variable.
 ///
 /// \param Recursive if true, recursively instantiates any functions that
 /// are required by this instantiation.
 ///
 /// \param DefinitionRequired if true, then we are performing an explicit
-/// instantiation where an out-of-line definition of the member variable
-/// is required. Complain if there is no such definition.
-void Sema::InstantiateStaticDataMemberDefinition(
-                                          SourceLocation PointOfInstantiation,
-                                                 VarDecl *Var,
-                                                 bool Recursive,
-                                                 bool DefinitionRequired) {
-  InstantiateVariableDefinition(PointOfInstantiation, Var, Recursive,
-                                DefinitionRequired);
-}
-
+/// instantiation where a definition of the variable is required. Complain
+/// if there is no such definition.
 void Sema::InstantiateVariableDefinition(SourceLocation PointOfInstantiation,
                                          VarDecl *Var, bool Recursive,
                                       bool DefinitionRequired, bool AtEndOfTU) {
@@ -4274,6 +4278,11 @@ void Sema::InstantiateVariableDefinition(SourceLocation PointOfInstantiation,
     // If this is a static data member template, there might be an
     // uninstantiated initializer on the declaration. If so, instantiate
     // it now.
+    //
+    // FIXME: This largely duplicates what we would do below. The difference
+    // is that along this path we may instantiate an initializer from an
+    // in-class declaration of the template and instantiate the definition
+    // from a separate out-of-class definition.
     if (PatternDecl->isStaticDataMember() &&
         (PatternDecl = PatternDecl->getFirstDecl())->hasInit() &&
         !Var->hasInit()) {
@@ -5191,7 +5200,9 @@ void Sema::PerformPendingInstantiations(bool LocalOnly) {
     case TSK_ExplicitInstantiationDefinition:
       // We only need an instantiation if the pending instantiation *is* the
       // explicit instantiation.
-      if (Var != Var->getMostRecentDecl()) continue;
+      if (Var != Var->getMostRecentDecl())
+        continue;
+      break;
     case TSK_ImplicitInstantiation:
       break;
     }
