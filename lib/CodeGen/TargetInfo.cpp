@@ -7654,16 +7654,17 @@ public:
 };
 }
 
-namespace
-{
-  inline
-  llvm::APSInt getConstexprInt(const Expr *E, const ASTContext& Ctx)
-  {
-    llvm::APSInt r{32, 0};
-    if (E) E->EvaluateAsInt(r, Ctx);
+static llvm::APSInt getConstexprInt(const Expr *E, const ASTContext &Ctx) {
+  if (!E) return llvm::APSInt{32, 0};
 
-    return r;
-  }
+  APValue R;
+
+  const bool IsConstexpr = E->isCXX11ConstantExpr(Ctx, &R);
+
+  assert(IsConstexpr && "Argument must be a constant expression");
+  assert(R.isInt() && "Argument must be of integral type.");
+
+  return R.getInt();
 }
 
 void AMDGPUTargetCodeGenInfo::setTargetAttributes(
@@ -7686,7 +7687,7 @@ void AMDGPUTargetCodeGenInfo::setTargetAttributes(
     llvm::APSInt max = getConstexprInt(FlatWGS->getMax(), FD->getASTContext());
 
     unsigned Min = min.getZExtValue();
-    unsigned Max = std::max(min, max).getZExtValue();
+    unsigned Max = max.getZExtValue();
     if (ReqdWGS && Min == 0 && Max == 0)
       Min = Max = ReqdWGS->getXDim() * ReqdWGS->getYDim() * ReqdWGS->getZDim();
 

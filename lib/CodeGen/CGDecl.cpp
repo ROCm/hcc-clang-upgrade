@@ -215,15 +215,6 @@ namespace
   }
 
   inline
-  bool isAcceleratorLocal(const VarDecl& D)
-  {
-    static constexpr const char accelerator_local[] = "accelerator";
-
-    return D.hasAttr<AnnotateAttr>() &&
-      D.getAttr<AnnotateAttr>()->getAnnotation() == accelerator_local;
-  }
-
-  inline
   bool isTileStatic(const VarDecl& D)
   {
     return D.hasAttr<HCCTileStaticAttr>();
@@ -261,7 +252,7 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
   else
     Init = llvm::UndefValue::get(LTy);
 
-  if (isAcceleratorPath(*this) && !isTileStatic(D) && !isAcceleratorLocal(D)) {
+  if (isAcceleratorPath(*this) && !isTileStatic(D)) {
     Linkage = llvm::GlobalVariable::LinkageTypes::ExternalLinkage;
     Init = nullptr;
     TargetAS = getContext().getTargetAddressSpace(LangAS::opencl_global);

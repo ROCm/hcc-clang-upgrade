@@ -779,19 +779,12 @@ static bool endsWithReturn(const Decl* F) {
   return false;
 }
 
-namespace
+static bool isHCKernelWrapper(const FunctionDecl *FD)
 {
-  inline
-  bool is_hcc_kernel_wrapper(const FunctionDecl* f)
-  {
-    if (!isa<CXXMethodDecl>(f)) return false;
+  static constexpr const char Kernel[] = "__HC_kernel__";
 
-    auto call_op = cast<CXXMethodDecl>(f);
-
-    return call_op->getOverloadedOperator() == OO_Call &&
-      call_op->hasAttr<AnnotateAttr>() &&
-      call_op->getAttr<AnnotateAttr>()->getAnnotation() == "__HC_kernel__";
-  }
+  return FD->hasAttr<AnnotateAttr>() &&
+    FD->getAttr<AnnotateAttr>()->getAnnotation() == Kernel;
 }
 
 static void markAsIgnoreThreadCheckingAtRuntime(llvm::Function *Fn) {
@@ -863,11 +856,11 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   // void foo() /*restrict(amp)*/ { return 1; }
   // void foo() /*restrict(cpu)*/ { return 2; }
 
-  if (getContext().getLangOpts().CPlusPlusAMP &&
-      (CGM.getCodeGenOpts().AMPIsDevice || CGM.getCodeGenOpts().AMPCPU)) {
-  } else {
+  //if (getContext().getLangOpts().CPlusPlusAMP &&
+  //    (CGM.getCodeGenOpts().AMPIsDevice || CGM.getCodeGenOpts().AMPCPU)) {
+  //} else {
     assert(CurFn->isDeclaration() && "Function already has body?");
-  }
+  //}
 
   // If this function has been blacklisted for any of the enabled sanitizers,
   // disable the sanitizer for the function.
@@ -962,7 +955,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
 
   if (getLangOpts().CPlusPlusAMP) {
     if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D)) {
-      if (is_hcc_kernel_wrapper(FD)) {
+      if (isHCKernelWrapper(FD)) {
         Fn->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
         Fn->setDoesNotRecurse();
         Fn->setDoesNotThrow();
@@ -1382,8 +1375,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // C11 6.9.1p12:
   //   If the '}' that terminates a function is reached, and the value of the
   //   function call is used by the caller, the behavior is undefined.
-  // Relax the rule for C++AMP
-  if (!getLangOpts().CPlusPlusAMP && getLangOpts().CPlusPlus && !FD->hasImplicitReturnZero() && !SawAsmBlock &&
+  if (getLangOpts().CPlusPlus && !FD->hasImplicitReturnZero() && !SawAsmBlock &&
       !FD->getReturnType()->isVoidType() && Builder.GetInsertBlock()) {
     bool ShouldEmitUnreachable =
         CGM.getCodeGenOpts().StrictReturn ||
