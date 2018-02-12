@@ -255,7 +255,7 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
 
   if (MD->isTrivial() || (MD->isDefaulted() && MD->getParent()->isUnion())) {
     if (isa<CXXDestructorDecl>(MD)) return RValue::get(nullptr);
-    if (isa<CXXConstructorDecl>(MD) && 
+    if (isa<CXXConstructorDecl>(MD) &&
         cast<CXXConstructorDecl>(MD)->isDefaultConstructor())
       return RValue::get(nullptr);
 
@@ -334,7 +334,7 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
   // We also don't emit a virtual call if the base expression has a record type
   // because then we know what the type is.
   bool UseVirtualCall = CanUseVirtualCall && !DevirtualizedMethod;
-  
+
   if (const CXXDestructorDecl *Dtor = dyn_cast<CXXDestructorDecl>(MD)) {
     assert(CE->arg_begin() == CE->arg_end() &&
            "Destructor shouldn't have explicit parameters");
@@ -364,7 +364,7 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
     }
     return RValue::get(nullptr);
   }
-  
+
   CGCallee Callee;
   if (const CXXConstructorDecl *Ctor = dyn_cast<CXXConstructorDecl>(MD)) {
     Callee = CGCallee::forDirect(
@@ -413,20 +413,20 @@ CodeGenFunction::EmitCXXMemberPointerCallExpr(const CXXMemberCallExpr *E,
       cast<BinaryOperator>(E->getCallee()->IgnoreParens());
   const Expr *BaseExpr = BO->getLHS();
   const Expr *MemFnExpr = BO->getRHS();
-  
-  const MemberPointerType *MPT = 
+
+  const MemberPointerType *MPT =
     MemFnExpr->getType()->castAs<MemberPointerType>();
 
-  const FunctionProtoType *FPT = 
+  const FunctionProtoType *FPT =
     MPT->getPointeeType()->castAs<FunctionProtoType>();
-  const CXXRecordDecl *RD = 
+  const CXXRecordDecl *RD =
     cast<CXXRecordDecl>(MPT->getClass()->getAs<RecordType>()->getDecl());
 
   // Emit the 'this' pointer.
   Address This = Address::invalid();
   if (BO->getOpcode() == BO_PtrMemI)
     This = EmitPointerWithAlignment(BaseExpr);
-  else 
+  else
     This = EmitLValue(BaseExpr).getAddress();
 
   EmitTypeCheck(TCK_MemberCall, E->getExprLoc(), This.getPointer(),
@@ -440,10 +440,10 @@ CodeGenFunction::EmitCXXMemberPointerCallExpr(const CXXMemberCallExpr *E,
   CGCallee Callee =
     CGM.getCXXABI().EmitLoadOfMemberFunctionPointer(*this, BO, This,
                                              ThisPtrForCall, MemFnPtr, MPT);
-  
+
   CallArgList Args;
 
-  QualType ThisType = 
+  QualType ThisType =
     getContext().getPointerType(getContext().getTagDeclType(RD));
 
   // Push the this ptr.
@@ -567,7 +567,7 @@ CodeGenFunction::EmitCXXConstructExpr(const CXXConstructExpr *E,
                                       AggValueSlot Dest) {
   assert(!Dest.isIgnored() && "Must have a destination!");
   const CXXConstructorDecl *CD = E->getConstructor();
-  
+
   // If we require zero initialization before (or instead of) calling the
   // constructor, as can be the case with a non-user-provided default
   // constructor, emit the zero initialization now, unless destination is
@@ -585,11 +585,11 @@ CodeGenFunction::EmitCXXConstructExpr(const CXXConstructExpr *E,
       break;
     }
   }
-  
+
   // If this is a call to a trivial default constructor, do nothing.
   if (CD->isTrivial() && CD->isDefaultConstructor())
     return;
-  
+
   // Elide the constructor if we're constructing from a temporary.
   // The temporary check is required because Sema sets this on NRVO
   // returns.
@@ -601,7 +601,7 @@ CodeGenFunction::EmitCXXConstructExpr(const CXXConstructExpr *E,
       return;
     }
   }
-  
+
   if (const ArrayType *arrayType
         = getContext().getAsArrayType(E->getType())) {
     EmitCXXAggrConstructorCall(CD, arrayType, Dest.getAddress(), E);
@@ -609,7 +609,7 @@ CodeGenFunction::EmitCXXConstructExpr(const CXXConstructExpr *E,
     CXXCtorType Type = Ctor_Complete;
     bool ForVirtualBase = false;
     bool Delegating = false;
-    
+
     switch (E->getConstructionKind()) {
      case CXXConstructExpr::CK_Delegating:
       // We should be emitting a constructor; GlobalDecl will assert this
@@ -628,7 +628,7 @@ CodeGenFunction::EmitCXXConstructExpr(const CXXConstructExpr *E,
      case CXXConstructExpr::CK_NonVirtualBase:
       Type = Ctor_Base;
     }
-    
+
     // Call the constructor.
     EmitCXXConstructorCall(CD, Type, ForVirtualBase, Delegating,
                            Dest.getAddress(), E);
@@ -639,19 +639,19 @@ void CodeGenFunction::EmitSynthesizedCXXCopyCtor(Address Dest, Address Src,
                                                  const Expr *Exp) {
   if (const ExprWithCleanups *E = dyn_cast<ExprWithCleanups>(Exp))
     Exp = E->getSubExpr();
-  assert(isa<CXXConstructExpr>(Exp) && 
+  assert(isa<CXXConstructExpr>(Exp) &&
          "EmitSynthesizedCXXCopyCtor - unknown copy ctor expr");
   const CXXConstructExpr* E = cast<CXXConstructExpr>(Exp);
   const CXXConstructorDecl *CD = E->getConstructor();
   RunCleanupsScope Scope(*this);
-  
+
   // If we require zero initialization before (or instead of) calling the
   // constructor, as can be the case with a non-user-provided default
   // constructor, emit the zero initialization now.
   // FIXME. Do I still need this for a copy ctor synthesis?
   if (E->requiresZeroInitialization())
     EmitNullInitialization(Dest, E->getType());
-  
+
   assert(!getContext().getAsConstantArrayType(E->getType())
          && "EmitSynthesizedCXXCopyCtor - Copied-in Array");
   EmitSynthesizedCXXCopyCtorCall(CD, Dest, Src, E);
@@ -706,7 +706,7 @@ static llvm::Value *EmitCXXNewAllocSize(CodeGenFunction &CGF,
   // size_t.  That's just a gloss, though, and it's wrong in one
   // important way: if the count is negative, it's an error even if
   // the cookie size would bring the total size >= 0.
-  bool isSigned 
+  bool isSigned
     = e->getArraySize()->getType()->isSignedIntegerOrEnumerationType();
   llvm::IntegerType *numElementsType
     = cast<llvm::IntegerType>(numElements->getType());
@@ -726,7 +726,7 @@ static llvm::Value *EmitCXXNewAllocSize(CodeGenFunction &CGF,
 
   // This will be a size_t.
   llvm::Value *size;
-  
+
   // If someone is doing 'new int[42]' there is no need to do a dynamic check.
   // Don't bloat the -O0 code.
   if (llvm::ConstantInt *numElementsC =
@@ -817,7 +817,7 @@ static llvm::Value *EmitCXXNewAllocSize(CodeGenFunction &CGF,
     } else if (isSigned) {
       if (numElementsWidth < sizeWidth)
         numElements = CGF.Builder.CreateSExt(numElements, CGF.SizeTy);
-      
+
       // If there's a non-1 type size multiplier, then we can do the
       // signedness check at the same time as we do the multiply
       // because a negative number times anything will cause an
@@ -894,7 +894,7 @@ static llvm::Value *EmitCXXNewAllocSize(CodeGenFunction &CGF,
       // numElements doesn't need to be scaled.
       assert(arraySizeMultiplier == 1);
     }
-    
+
     // Add in the cookie size if necessary.
     if (cookieSize != 0) {
       sizeWithoutCookie = size;
@@ -1223,7 +1223,7 @@ void CodeGenFunction::EmitNewArrayInitializer(
   CurPtr = Address(CurPtrPhi, ElementAlign);
 
   // Store the new Cleanup position for irregular Cleanups.
-  if (EndOfInit.isValid()) 
+  if (EndOfInit.isValid())
     Builder.CreateStore(CurPtr.getPointer(), EndOfInit);
 
   // Enter a partial-destruction Cleanup if necessary.
@@ -1728,7 +1728,7 @@ llvm::Value *CodeGenFunction::EmitCXXNewExpr(const CXXNewExpr *E) {
 
     resultPtr = PHI;
   }
-  
+
   return resultPtr;
 }
 
@@ -1892,13 +1892,13 @@ static void EmitObjectDelete(CodeGenFunction &CGF,
     case Qualifiers::OCL_Strong:
       CGF.EmitARCDestroyStrong(Ptr, ARCPreciseLifetime);
       break;
-        
+
     case Qualifiers::OCL_Weak:
       CGF.EmitARCDestroyWeak(Ptr);
       break;
     }
   }
-           
+
   CGF.PopCleanupBlock();
 }
 
@@ -2102,7 +2102,7 @@ static llvm::Value *EmitTypeidFromVTable(CodeGenFunction &CGF, const Expr *E,
 
 llvm::Value *CodeGenFunction::EmitCXXTypeidExpr(const CXXTypeidExpr *E) {
   llvm::Type *StdTypeInfoPtrTy = getTypes().getPointerTypeTo(E->getType());
-  
+
   if (E->isTypeOperand()) {
     llvm::Constant *TypeInfo =
         CGM.GetAddrOfRTTIDescriptor(E->getTypeOperand(getContext()));
@@ -2115,7 +2115,7 @@ llvm::Value *CodeGenFunction::EmitCXXTypeidExpr(const CXXTypeidExpr *E) {
   //   representing the type of the most derived object (that is, the dynamic
   //   type) to which the glvalue refers.
   if (E->isPotentiallyEvaluated())
-    return EmitTypeidFromVTable(*this, E->getExprOperand(), 
+    return EmitTypeidFromVTable(*this, E->getExprOperand(),
                                 StdTypeInfoPtrTy);
 
   QualType OperandTy = E->getExprOperand()->getType();
@@ -2177,7 +2177,7 @@ llvm::Value *CodeGenFunction::EmitDynamicCast(Address ThisAddr,
 
   assert(SrcRecordTy->isRecordType() && "source type must be a record type!");
 
-  // C++ [expr.dynamic.cast]p4: 
+  // C++ [expr.dynamic.cast]p4:
   //   If the value of v is a null pointer value in the pointer case, the result
   //   is the null pointer value of type T.
   bool ShouldNullCheckSrcValue =
@@ -2187,7 +2187,7 @@ llvm::Value *CodeGenFunction::EmitDynamicCast(Address ThisAddr,
   llvm::BasicBlock *CastNull = nullptr;
   llvm::BasicBlock *CastNotNull = nullptr;
   llvm::BasicBlock *CastEnd = createBasicBlock("dynamic_cast.end");
-  
+
   if (ShouldNullCheckSrcValue) {
     CastNull = createBasicBlock("dynamic_cast.null");
     CastNotNull = createBasicBlock("dynamic_cast.notnull");
@@ -2229,6 +2229,122 @@ llvm::Value *CodeGenFunction::EmitDynamicCast(Address ThisAddr,
   return Value;
 }
 
+class ReferenceFieldInitialiser {
+  inline static constexpr const char HCCallable[] = "__HC_CALLABLE__";
+
+  CXXRecordDecl const *Callable_;
+  FieldDecl const *Field_;
+  Expr *Init_;
+
+  static bool IsInHCNamespace_(const DeclContext *DCtx) {
+    static constexpr const char HC2_outer[] = "hc2";
+    static constexpr const char HC2_inner[] = "detail";
+
+    const NamespaceDecl *Ns = dyn_cast<NamespaceDecl>(
+      DCtx->getEnclosingNamespaceContext());
+
+    if (!Ns || Ns->isInStdNamespace()) return false;
+
+    if (Ns->getName().find(HC2_inner) != StringRef::npos) {
+      Ns = dyn_cast<NamespaceDecl>(Ns->getParent());
+    }
+
+    return Ns->getName().find(HC2_outer) != StringRef::npos;
+  }
+
+  bool IsHCCallable_() const {
+    return Callable_->hasAttr<AnnotateAttr>() &&
+      Callable_->getAttr<AnnotateAttr>()
+        ->getAnnotation().find(HCCallable) != StringRef::npos;
+  }
+
+  CXXMethodDecl *GetMakerFn_() const {
+    const auto It = std::find_if(
+      Callable_->getASTContext().getTypes().begin(),
+      Callable_->getASTContext().getTypes().end(),
+      [](const Type* Ty) {
+      static constexpr const char Maker[] = "Ubiquitous_reference_maker";
+
+      if (!Ty || !Ty->getAsCXXRecordDecl()) return false;
+
+      CXXRecordDecl *Class = Ty->getAsCXXRecordDecl();
+
+      if (!IsInHCNamespace_(Class)) return false;
+
+      return Class->getName().find(Maker) != StringRef::npos;
+    });
+
+    if (It == Callable_->getASTContext().getTypes().end()) return nullptr;
+
+    ClassTemplateDecl *Master =
+      (*It)->getAsCXXRecordDecl()->getDescribedClassTemplate();
+
+    void *Tmp = nullptr;
+    ClassTemplateSpecializationDecl *Spec = Master->findSpecialization(
+      llvm::makeArrayRef<TemplateArgument>(
+        Init_->getType().getNonReferenceType()->getCanonicalTypeInternal()),
+      Tmp);
+
+    if (!Spec) return nullptr;
+
+    for (CXXMethodDecl *Fn : Spec->methods()) {
+      if (Fn->getAccess() != AS_public) continue;
+      if (Fn->getReturnType().getCanonicalType() !=
+          Field_->getType().getCanonicalType()) continue;
+
+      return Fn;
+    }
+
+    return nullptr;
+  }
+
+  Expr *InitialiseReferenceField_() const {
+    CXXMethodDecl *Maker = GetMakerFn_();
+
+    assert(
+      Maker && "Ubiquitous_reference_maker specialization must be defined!");
+
+    DeclRefExpr *MakerRef = DeclRefExpr::Create(
+      Maker->getASTContext(),
+      Maker->getQualifierLoc(),
+      SourceLocation{},
+      Maker,
+      false,
+      DeclarationNameInfo{Maker->getDeclName(), Maker->getLocation()},
+      Maker->getType().getNonReferenceType(),
+      VK_LValue);
+
+    ImplicitCastExpr *MakerPFN = ImplicitCastExpr::Create(
+      Maker->getASTContext(),
+      Maker->getASTContext().getPointerType(
+        Maker->getType().getNonReferenceType()).getNonReferenceType(),
+      CK_FunctionToPointerDecay,
+      MakerRef,
+      nullptr,
+      VK_LValue);
+
+    return new (Maker->getASTContext()) CallExpr{
+      Maker->getASTContext(),
+      MakerPFN,
+      llvm::makeArrayRef(Init_),
+      Maker->getCallResultType(),
+      Expr::getValueKindForType(Maker->getReturnType()),
+      SourceLocation{}};
+  }
+public:
+  ReferenceFieldInitialiser(Expr *Init, const CXXRecordDecl *Callable,
+                            const FieldDecl *FD)
+  : Callable_{Callable}, Field_{FD}, Init_{Init}
+  {}
+
+  Expr *operator()() const {
+    if (!IsHCCallable_()) return Init_;
+    if (!Field_->getType()->isReferenceType()) return Init_;
+
+    return InitialiseReferenceField_();
+  }
+};
+
 void CodeGenFunction::EmitLambdaExpr(const LambdaExpr *E, AggValueSlot Slot) {
   RunCleanupsScope Scope(*this);
   LValue SlotLV = MakeAddrLValue(Slot.getAddress(), E->getType());
@@ -2243,7 +2359,13 @@ void CodeGenFunction::EmitLambdaExpr(const LambdaExpr *E, AggValueSlot Slot) {
       auto VAT = CurField->getCapturedVLAType();
       EmitStoreThroughLValue(RValue::get(VLASizeMap[VAT->getSizeExpr()]), LV);
     } else {
-      EmitInitializerForField(*CurField, LV, *i);
+      if (getLangOpts().CPlusPlusAMP && !getLangOpts().DevicePath) {
+        EmitInitializerForField(
+          *CurField,
+          LV,
+          ReferenceFieldInitialiser{*i, E->getLambdaClass(), *CurField}());
+      }
+      else EmitInitializerForField(*CurField, LV, *i);
     }
   }
 }
