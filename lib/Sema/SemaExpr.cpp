@@ -4888,25 +4888,25 @@ void HandleReferenceFieldInHCCallable_() {
     if (Spec) return;
 
     Spec = ClassTemplateSpecializationDecl::Create(
-      Sema_.Context,
+      Master->getASTContext(),
       TTK_Class,
-      FDecl_->getLookupParent(),
-      Sema_.getCurFunctionOrMethodDecl()->getLocStart(),
-      Sema_.getCurFunctionOrMethodDecl()->getLocation(),
+      Master->getDeclContext(),
+      Master->getLocStart(),
+      Master->getLocation(),
       Master,
       llvm::makeArrayRef(Arg),
       nullptr);
 
+    Master->AddSpecialization(Spec, IPos);
+
     Sema_.InstantiateClassTemplateSpecialization(
-      Sema_.getCurFunctionOrMethodDecl()->getLocStart(),
+      Master->getLocStart(),
       Spec,
       TSK_ExplicitInstantiationDefinition);
     Sema_.InstantiateClassTemplateSpecializationMembers(
-      Sema_.getCurFunctionOrMethodDecl()->getLocStart(),
+      Master->getLocStart(),
       Spec,
       TSK_ExplicitInstantiationDefinition);
-
-    Master->AddSpecialization(Spec, IPos);
   });
 }
 
