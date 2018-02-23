@@ -953,7 +953,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
       EmitOpenCLKernelMetadata(FD, Fn);
   }
 
-  if (getLangOpts().CPlusPlusAMP) {
+  if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath) {
     if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D)) {
       if (isHCKernelWrapper(FD)) {
         Fn->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
