@@ -7673,8 +7673,8 @@ void AMDGPUTargetCodeGenInfo::setTargetAttributes(
     FD->getAttr<ReqdWorkGroupSizeAttr>() : nullptr;
   const auto *FlatWGS = FD->getAttr<AMDGPUFlatWorkGroupSizeAttr>();
   if (ReqdWGS || FlatWGS) {
-    llvm::APSInt min = getConstexprInt(FlatWGS->getMin(), FD->getASTContext());
-    llvm::APSInt max = getConstexprInt(FlatWGS->getMax(), FD->getASTContext());
+    llvm::APSInt min = getConstexprInt(FlatWGS->getMin(), M.getContext());
+    llvm::APSInt max = getConstexprInt(FlatWGS->getMax(), M.getContext());
 
     unsigned Min = min.getZExtValue();
     unsigned Max = max.getZExtValue();

@@ -2067,12 +2067,6 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   // Add AMP features if we got -famp.
   Opts.CPlusPlusAMP |= Args.hasArg(options::OPT_famp);
 
-  // Add AMP features if using AMP.
-  if (Opts.CPlusPlusAMP) {
-    Opts.NativeHalfType = 1;
-    Opts.NativeHalfArgsAndReturns = 1;
-  }
-
   // -cl-strict-aliasing needs to emit diagnostic in the case where CL > 1.0.
   // This option should be deprecated for CL > 1.0 because
   // this option was added for compatibility with OpenCL 1.0.

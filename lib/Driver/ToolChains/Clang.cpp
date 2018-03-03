@@ -3160,6 +3160,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   } else if (D.IsCXXAMP(Args)) {
     CmdArgs.push_back("-D__KALMAR_AMP__=1");
     CmdArgs.push_back("-D__HCC_AMP__=1");
+    CmdArgs.push_back("-D__HC_WAVEFRONT_SIZE__=64"); // TODO: temporary.
   }
 
   // C++ AMP-specific
