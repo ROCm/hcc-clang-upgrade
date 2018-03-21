@@ -47,9 +47,9 @@ HCCInstallationDetector::HCCInstallationDetector(const Driver &D, const llvm::op
     HCCPathCandidates.push_back(
       Args.getLastArgValue(options::OPT_hcc_path_EQ));
     
-  HCCPathCandidates.push_back(InstallPath + "/..");
-  HCCPathCandidates.push_back(BinPath + "/..");
   HCCPathCandidates.push_back(BinPath + "/../..");
+  HCCPathCandidates.push_back(InstallPath + "/..");
+  HCCPathCandidates.push_back(RocmInstallation + "/hcc");
 
   for (const auto &HCCPath: HCCPathCandidates) {
     if (HCCPath.empty() ||
@@ -68,7 +68,8 @@ HCCInstallationDetector::HCCInstallationDetector(const Driver &D, const llvm::op
 void HCCInstallationDetector::AddHCCIncludeArgs(const llvm::opt::ArgList &DriverArgs, llvm::opt::ArgStringList &CC1Args) const {
   if (IsValid) {
     CC1Args.push_back(DriverArgs.MakeArgString("-I" + IncPath + "/include"));
-    CC1Args.push_back(DriverArgs.MakeArgString("-I" + IncPath + "/hcc/include"));
+    // fall back to /opt/rocm/include if the user includes <hcc/hc.hpp>
+    CC1Args.push_back(DriverArgs.MakeArgString("-I" + RocmInstallation + "/include"));
   }
 }
 
