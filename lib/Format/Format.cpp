@@ -511,7 +511,7 @@ namespace clang {
 namespace format {
 
 const std::error_category &getParseCategory() {
-  static ParseErrorCategory C;
+  static const ParseErrorCategory C{};
   return C;
 }
 std::error_code make_error_code(ParseError e) {
@@ -766,6 +766,7 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
     GoogleStyle.JavaScriptWrapImports = false;
   } else if (Language == FormatStyle::LK_Proto) {
     GoogleStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_None;
+    GoogleStyle.AlwaysBreakBeforeMultilineStrings = false;
     GoogleStyle.SpacesInContainerLiterals = false;
     GoogleStyle.Cpp11BracedListStyle = false;
     // This affects protocol buffer options specifications and text protos.
@@ -1448,6 +1449,19 @@ private:
     // Keep this array sorted, since we are binary searching over it.
     static constexpr llvm::StringLiteral FoundationIdentifiers[] = {
         "CGFloat",
+        "CGPoint",
+        "CGPointMake",
+        "CGPointZero",
+        "CGRect",
+        "CGRectEdge",
+        "CGRectInfinite",
+        "CGRectMake",
+        "CGRectNull",
+        "CGRectZero",
+        "CGSize",
+        "CGSizeMake",
+        "CGVector",
+        "CGVectorMake",
         "NSAffineTransform",
         "NSArray",
         "NSAttributedString",
@@ -1496,6 +1510,8 @@ private:
         "NSURLQueryItem",
         "NSUUID",
         "NSValue",
+        "UIImage",
+        "UIView",
     };
 
     for (auto &Line : AnnotatedLines) {

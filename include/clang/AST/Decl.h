@@ -3553,6 +3553,12 @@ class RecordDecl : public TagDecl {
   bool NonTrivialToPrimitiveCopy : 1;
   bool NonTrivialToPrimitiveDestroy : 1;
 
+  /// True if this class can be passed in a non-address-preserving fashion
+  /// (such as in registers).
+  /// This does not imply anything about how the ABI in use will actually
+  /// pass an object of this class.
+  bool CanPassInRegisters : 1;
+
 protected:
   RecordDecl(Kind DK, TagKind TK, const ASTContext &C, DeclContext *DC,
              SourceLocation StartLoc, SourceLocation IdLoc,
@@ -3616,24 +3622,36 @@ public:
     return NonTrivialToPrimitiveDefaultInitialize;
   }
 
-  void setNonTrivialToPrimitiveDefaultInitialize() {
-    NonTrivialToPrimitiveDefaultInitialize = true;
+  void setNonTrivialToPrimitiveDefaultInitialize(bool V) {
+    NonTrivialToPrimitiveDefaultInitialize = V;
   }
 
   bool isNonTrivialToPrimitiveCopy() const {
     return NonTrivialToPrimitiveCopy;
   }
 
-  void setNonTrivialToPrimitiveCopy() {
-    NonTrivialToPrimitiveCopy = true;
+  void setNonTrivialToPrimitiveCopy(bool V) {
+    NonTrivialToPrimitiveCopy = V;
   }
 
   bool isNonTrivialToPrimitiveDestroy() const {
     return NonTrivialToPrimitiveDestroy;
   }
 
-  void setNonTrivialToPrimitiveDestroy() {
-    NonTrivialToPrimitiveDestroy = true;
+  void setNonTrivialToPrimitiveDestroy(bool V) {
+    NonTrivialToPrimitiveDestroy = V;
+  }
+
+  /// Determine whether this class can be passed in registers. In C++ mode,
+  /// it must have at least one trivial, non-deleted copy or move constructor.
+  /// FIXME: This should be set as part of completeDefinition.
+  bool canPassInRegisters() const {
+    return CanPassInRegisters;
+  }
+
+  /// Set that we can pass this RecordDecl in registers.
+  void setCanPassInRegisters(bool CanPass) {
+    CanPassInRegisters = CanPass;
   }
 
   /// \brief Determines whether this declaration represents the

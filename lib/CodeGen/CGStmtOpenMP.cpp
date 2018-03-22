@@ -585,6 +585,7 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S) {
                             /*RegisterCastedArgsOnly=*/true,
                             CapturedStmtInfo->getHelperName());
   CodeGenFunction WrapperCGF(CGM, /*suppressNewContext=*/true);
+  WrapperCGF.CapturedStmtInfo = CapturedStmtInfo;
   Args.clear();
   LocalAddrs.clear();
   VLASizes.clear();
@@ -1261,7 +1262,8 @@ static void emitEmptyBoundParameters(CodeGenFunction &,
 
 void CodeGenFunction::EmitOMPParallelDirective(const OMPParallelDirective &S) {
   // Emit parallel region as a standalone region.
-  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &Action) {
+    Action.Enter(CGF);
     OMPPrivateScope PrivateScope(CGF);
     bool Copyins = CGF.EmitOMPCopyinClause(S);
     (void)CGF.EmitOMPFirstprivateClause(S, PrivateScope);
@@ -2099,7 +2101,8 @@ emitInnerParallelForWhenCombined(CodeGenFunction &CGF,
                                  const OMPLoopDirective &S,
                                  CodeGenFunction::JumpDest LoopExit) {
   auto &&CGInlinedWorksharingLoop = [&S](CodeGenFunction &CGF,
-                                         PrePostActionTy &) {
+                                         PrePostActionTy &Action) {
+    Action.Enter(CGF);
     bool HasCancel = false;
     if (!isOpenMPSimdDirective(S.getDirectiveKind())) {
       if (const auto *D = dyn_cast<OMPTeamsDistributeParallelForDirective>(&S))
@@ -2681,7 +2684,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     const OMPParallelForDirective &S) {
   // Emit directive as a combined directive that consists of two implicit
   // directives: 'parallel' with 'for' directive.
-  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &Action) {
+    Action.Enter(CGF);
     OMPCancelStackRAII CancelRegion(CGF, OMPD_parallel_for, S.hasCancel());
     CGF.EmitOMPWorksharingLoop(S, S.getEnsureUpperBound(), emitForLoopBounds,
                                emitDispatchForLoopBounds);
@@ -2694,7 +2698,8 @@ void CodeGenFunction::EmitOMPParallelForSimdDirective(
     const OMPParallelForSimdDirective &S) {
   // Emit directive as a combined directive that consists of two implicit
   // directives: 'parallel' with 'for' directive.
-  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &Action) {
+    Action.Enter(CGF);
     CGF.EmitOMPWorksharingLoop(S, S.getEnsureUpperBound(), emitForLoopBounds,
                                emitDispatchForLoopBounds);
   };
@@ -2706,7 +2711,8 @@ void CodeGenFunction::EmitOMPParallelSectionsDirective(
     const OMPParallelSectionsDirective &S) {
   // Emit directive as a combined directive that consists of two implicit
   // directives: 'parallel' with 'sections' directive.
-  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &Action) {
+    Action.Enter(CGF);
     CGF.EmitSections(S);
   };
   emitCommonOMPParallelDirective(*this, S, OMPD_sections, CodeGen,
@@ -2886,6 +2892,11 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
       for (unsigned Cnt = 0, E = Data.ReductionVars.size(); Cnt < E; ++Cnt) {
         RedCG.emitSharedLValue(CGF, Cnt);
         RedCG.emitAggregateType(CGF, Cnt);
+        // FIXME: This must removed once the runtime library is fixed.
+        // Emit required threadprivate variables for
+        // initilizer/combiner/finalizer.
+        CGF.CGM.getOpenMPRuntime().emitTaskReductionFixups(CGF, S.getLocStart(),
+                                                           RedCG, Cnt);
         Address Replacement = CGF.CGM.getOpenMPRuntime().getTaskReductionItem(
             CGF, S.getLocStart(), ReductionsPtr, RedCG.getSharedLValue(Cnt));
         Replacement =
@@ -2898,11 +2909,6 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
         Replacement = RedCG.adjustPrivateAddress(CGF, Cnt, Replacement);
         Scope.addPrivate(RedCG.getBaseDecl(Cnt),
                          [Replacement]() { return Replacement; });
-        // FIXME: This must removed once the runtime library is fixed.
-        // Emit required threadprivate variables for
-        // initilizer/combiner/finalizer.
-        CGF.CGM.getOpenMPRuntime().emitTaskReductionFixups(CGF, S.getLocStart(),
-                                                           RedCG, Cnt);
       }
     }
     // Privatize all private variables except for in_reduction items.
@@ -2935,6 +2941,11 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
         RedCG.emitAggregateType(CGF, Cnt);
         // The taskgroup descriptor variable is always implicit firstprivate and
         // privatized already during procoessing of the firstprivates.
+        // FIXME: This must removed once the runtime library is fixed.
+        // Emit required threadprivate variables for
+        // initilizer/combiner/finalizer.
+        CGF.CGM.getOpenMPRuntime().emitTaskReductionFixups(CGF, S.getLocStart(),
+                                                           RedCG, Cnt);
         llvm::Value *ReductionsPtr =
             CGF.EmitLoadOfScalar(CGF.EmitLValue(TaskgroupDescriptors[Cnt]),
                                  TaskgroupDescriptors[Cnt]->getExprLoc());
@@ -2949,11 +2960,6 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
         Replacement = RedCG.adjustPrivateAddress(CGF, Cnt, Replacement);
         InRedScope.addPrivate(RedCG.getBaseDecl(Cnt),
                               [Replacement]() { return Replacement; });
-        // FIXME: This must removed once the runtime library is fixed.
-        // Emit required threadprivate variables for
-        // initilizer/combiner/finalizer.
-        CGF.CGM.getOpenMPRuntime().emitTaskReductionFixups(CGF, S.getLocStart(),
-                                                           RedCG, Cnt);
       }
     }
     (void)InRedScope.Privatize();
@@ -3913,6 +3919,16 @@ static void emitCommonOMPTargetDirective(CodeGenFunction &CGF,
   assert(isOpenMPTargetExecutionDirective(S.getDirectiveKind()));
   CodeGenModule &CGM = CGF.CGM;
 
+  // On device emit this construct as inlined code.
+  if (CGM.getLangOpts().OpenMPIsDevice) {
+    OMPLexicalScope Scope(CGF, S, OMPD_target);
+    CGM.getOpenMPRuntime().emitInlinedDirective(
+        CGF, OMPD_target, [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+          CGF.EmitStmt(S.getCapturedStmt(OMPD_target)->getCapturedStmt());
+        });
+    return;
+  }
+
   llvm::Function *Fn = nullptr;
   llvm::Constant *FnID = nullptr;
 
@@ -3965,12 +3981,12 @@ static void emitCommonOMPTargetDirective(CodeGenFunction &CGF,
 
 static void emitTargetRegion(CodeGenFunction &CGF, const OMPTargetDirective &S,
                              PrePostActionTy &Action) {
+  Action.Enter(CGF);
   CodeGenFunction::OMPPrivateScope PrivateScope(CGF);
   (void)CGF.EmitOMPFirstprivateClause(S, PrivateScope);
   CGF.EmitOMPPrivateClause(S, PrivateScope);
   (void)PrivateScope.Privatize();
 
-  Action.Enter(CGF);
   CGF.EmitStmt(S.getCapturedStmt(OMPD_target)->getCapturedStmt());
 }
 
@@ -4022,7 +4038,8 @@ static void emitCommonOMPTeamsDirective(CodeGenFunction &CGF,
 
 void CodeGenFunction::EmitOMPTeamsDirective(const OMPTeamsDirective &S) {
   // Emit teams region as a standalone region.
-  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &Action) {
+    Action.Enter(CGF);
     OMPPrivateScope PrivateScope(CGF);
     (void)CGF.EmitOMPFirstprivateClause(S, PrivateScope);
     CGF.EmitOMPPrivateClause(S, PrivateScope);
@@ -4042,12 +4059,12 @@ static void emitTargetTeamsRegion(CodeGenFunction &CGF, PrePostActionTy &Action,
   Action.Enter(CGF);
   // Emit teams region as a standalone region.
   auto &&CodeGen = [&S, CS](CodeGenFunction &CGF, PrePostActionTy &Action) {
+    Action.Enter(CGF);
     CodeGenFunction::OMPPrivateScope PrivateScope(CGF);
     (void)CGF.EmitOMPFirstprivateClause(S, PrivateScope);
     CGF.EmitOMPPrivateClause(S, PrivateScope);
     CGF.EmitOMPReductionClauseInit(S, PrivateScope);
     (void)PrivateScope.Privatize();
-    Action.Enter(CGF);
     CGF.EmitStmt(CS->getCapturedStmt());
     CGF.EmitOMPReductionClauseFinal(S, /*ReductionKind=*/OMPD_teams);
   };
@@ -4088,7 +4105,8 @@ emitTargetTeamsDistributeRegion(CodeGenFunction &CGF, PrePostActionTy &Action,
 
   // Emit teams region as a standalone region.
   auto &&CodeGen = [&S, &CodeGenDistribute](CodeGenFunction &CGF,
-                                            PrePostActionTy &) {
+                                            PrePostActionTy &Action) {
+    Action.Enter(CGF);
     CodeGenFunction::OMPPrivateScope PrivateScope(CGF);
     CGF.EmitOMPReductionClauseInit(S, PrivateScope);
     (void)PrivateScope.Privatize();
@@ -4133,7 +4151,8 @@ static void emitTargetTeamsDistributeSimdRegion(
 
   // Emit teams region as a standalone region.
   auto &&CodeGen = [&S, &CodeGenDistribute](CodeGenFunction &CGF,
-                                            PrePostActionTy &) {
+                                            PrePostActionTy &Action) {
+    Action.Enter(CGF);
     CodeGenFunction::OMPPrivateScope PrivateScope(CGF);
     CGF.EmitOMPReductionClauseInit(S, PrivateScope);
     (void)PrivateScope.Privatize();
@@ -4177,7 +4196,8 @@ void CodeGenFunction::EmitOMPTeamsDistributeDirective(
 
   // Emit teams region as a standalone region.
   auto &&CodeGen = [&S, &CodeGenDistribute](CodeGenFunction &CGF,
-                                            PrePostActionTy &) {
+                                            PrePostActionTy &Action) {
+    Action.Enter(CGF);
     OMPPrivateScope PrivateScope(CGF);
     CGF.EmitOMPReductionClauseInit(S, PrivateScope);
     (void)PrivateScope.Privatize();
@@ -4198,7 +4218,8 @@ void CodeGenFunction::EmitOMPTeamsDistributeSimdDirective(
 
   // Emit teams region as a standalone region.
   auto &&CodeGen = [&S, &CodeGenDistribute](CodeGenFunction &CGF,
-                                            PrePostActionTy &) {
+                                            PrePostActionTy &Action) {
+    Action.Enter(CGF);
     OMPPrivateScope PrivateScope(CGF);
     CGF.EmitOMPReductionClauseInit(S, PrivateScope);
     (void)PrivateScope.Privatize();
@@ -4220,7 +4241,8 @@ void CodeGenFunction::EmitOMPTeamsDistributeParallelForDirective(
 
   // Emit teams region as a standalone region.
   auto &&CodeGen = [&S, &CodeGenDistribute](CodeGenFunction &CGF,
-                                            PrePostActionTy &) {
+                                            PrePostActionTy &Action) {
+    Action.Enter(CGF);
     OMPPrivateScope PrivateScope(CGF);
     CGF.EmitOMPReductionClauseInit(S, PrivateScope);
     (void)PrivateScope.Privatize();
@@ -4242,7 +4264,8 @@ void CodeGenFunction::EmitOMPTeamsDistributeParallelForSimdDirective(
 
   // Emit teams region as a standalone region.
   auto &&CodeGen = [&S, &CodeGenDistribute](CodeGenFunction &CGF,
-                                            PrePostActionTy &) {
+                                            PrePostActionTy &Action) {
+    Action.Enter(CGF);
     OMPPrivateScope PrivateScope(CGF);
     CGF.EmitOMPReductionClauseInit(S, PrivateScope);
     (void)PrivateScope.Privatize();
@@ -4266,7 +4289,8 @@ static void emitTargetTeamsDistributeParallelForRegion(
 
   // Emit teams region as a standalone region.
   auto &&CodeGenTeams = [&S, &CodeGenDistribute](CodeGenFunction &CGF,
-                                                 PrePostActionTy &) {
+                                                 PrePostActionTy &Action) {
+    Action.Enter(CGF);
     CodeGenFunction::OMPPrivateScope PrivateScope(CGF);
     CGF.EmitOMPReductionClauseInit(S, PrivateScope);
     (void)PrivateScope.Privatize();
@@ -4317,7 +4341,8 @@ static void emitTargetTeamsDistributeParallelForSimdRegion(
 
   // Emit teams region as a standalone region.
   auto &&CodeGenTeams = [&S, &CodeGenDistribute](CodeGenFunction &CGF,
-                                                 PrePostActionTy &) {
+                                                 PrePostActionTy &Action) {
+    Action.Enter(CGF);
     CodeGenFunction::OMPPrivateScope PrivateScope(CGF);
     CGF.EmitOMPReductionClauseInit(S, PrivateScope);
     (void)PrivateScope.Privatize();
@@ -4588,7 +4613,8 @@ static void emitTargetParallelRegion(CodeGenFunction &CGF,
   // Get the captured statement associated with the 'parallel' region.
   auto *CS = S.getCapturedStmt(OMPD_parallel);
   Action.Enter(CGF);
-  auto &&CodeGen = [&S, CS](CodeGenFunction &CGF, PrePostActionTy &) {
+  auto &&CodeGen = [&S, CS](CodeGenFunction &CGF, PrePostActionTy &Action) {
+    Action.Enter(CGF);
     CodeGenFunction::OMPPrivateScope PrivateScope(CGF);
     (void)CGF.EmitOMPFirstprivateClause(S, PrivateScope);
     CGF.EmitOMPPrivateClause(S, PrivateScope);
@@ -4632,7 +4658,8 @@ static void emitTargetParallelForRegion(CodeGenFunction &CGF,
   Action.Enter(CGF);
   // Emit directive as a combined directive that consists of two implicit
   // directives: 'parallel' with 'for' directive.
-  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &Action) {
+    Action.Enter(CGF);
     CodeGenFunction::OMPCancelStackRAII CancelRegion(
         CGF, OMPD_target_parallel_for, S.hasCancel());
     CGF.EmitOMPWorksharingLoop(S, S.getEnsureUpperBound(), emitForLoopBounds,
@@ -4672,7 +4699,8 @@ emitTargetParallelForSimdRegion(CodeGenFunction &CGF,
   Action.Enter(CGF);
   // Emit directive as a combined directive that consists of two implicit
   // directives: 'parallel' with 'for' directive.
-  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+  auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &Action) {
+    Action.Enter(CGF);
     CGF.EmitOMPWorksharingLoop(S, S.getEnsureUpperBound(), emitForLoopBounds,
                                emitDispatchForLoopBounds);
   };

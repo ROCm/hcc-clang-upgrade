@@ -514,6 +514,7 @@ TEST_F(FormatTestObjC, FormatObjCMethodDeclarations) {
                "    evenLongerKeyword:(float)theInterval\n"
                "                error:(NSError **)theError {\n"
                "}");
+  verifyFormat("+ (instancetype)new;\n");
   Style.ColumnLimit = 60;
   verifyFormat("- (instancetype)initXxxxxx:(id<x>)x\n"
                "                         y:(id<yyyyyyyyyyyyyyyyyyyy>)y\n"
@@ -618,6 +619,9 @@ TEST_F(FormatTestObjC, FormatObjCMethodExpr) {
   verifyFormat("for (id foo in [self getStuffFor:bla]) {\n"
                "}");
   verifyFormat("[self aaaaa:MACRO(a, b:, c:)];");
+  verifyFormat("[self aaaaa:MACRO(a, b:c:, d:e:)];");
+  verifyFormat("[self aaaaa:MACRO(a, b:c:d:, e:f:g:)];");
+  verifyFormat("int XYMyFoo(int a, int b) NS_SWIFT_NAME(foo(self:scale:));");
   verifyFormat("[self aaaaa:(1 + 2) bbbbb:3];");
   verifyFormat("[self aaaaa:(Type)a bbbbb:3];");
 
@@ -845,6 +849,15 @@ TEST_F(FormatTestObjC, ObjCAt) {
   verifyFormat("@ /*foo*/ interface");
 }
 
+TEST_F(FormatTestObjC, ObjCBlockTypesAndVariables) {
+  verifyFormat("void DoStuffWithBlockType(int (^)(char));");
+  verifyFormat("int (^foo)(char, float);");
+  verifyFormat("int (^foo[10])(char, float);");
+  verifyFormat("int (^foo[kNumEntries])(char, float);");
+  verifyFormat("int (^foo[kNumEntries + 10])(char, float);");
+  verifyFormat("int (^foo[(kNumEntries + 10)])(char, float);");
+}
+
 TEST_F(FormatTestObjC, ObjCSnippets) {
   verifyFormat("@autoreleasepool {\n"
                "  foo();\n"
@@ -900,6 +913,17 @@ TEST_F(FormatTestObjC, ObjCForIn) {
   verifyFormat("for (Foo *x in [bar baz:^{\n"
                "       [uh oh];\n"
                "     }]) {\n}");
+}
+
+TEST_F(FormatTestObjC, ObjCNew) {
+  verifyFormat("+ (instancetype)new {\n"
+               "  return nil;\n"
+               "}\n");
+  verifyFormat("+ (instancetype)myNew {\n"
+               "  return [self new];\n"
+               "}\n");
+  verifyFormat("SEL NewSelector(void) { return @selector(new); }\n");
+  verifyFormat("SEL MacroSelector(void) { return MACRO(new); }\n");
 }
 
 TEST_F(FormatTestObjC, ObjCLiterals) {

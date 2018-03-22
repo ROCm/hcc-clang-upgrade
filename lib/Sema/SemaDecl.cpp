@@ -5233,10 +5233,13 @@ bool Sema::DiagnoseClassNameShadow(DeclContext *DC,
 ///
 /// \param Loc The location of the name of the entity being declared.
 ///
+/// \param IsTemplateId Whether the name is a (simple-)template-id, and thus
+/// we're declaring an explicit / partial specialization / instantiation.
+///
 /// \returns true if we cannot safely recover from this error, false otherwise.
 bool Sema::diagnoseQualifiedDeclaration(CXXScopeSpec &SS, DeclContext *DC,
                                         DeclarationName Name,
-                                        SourceLocation Loc) {
+                                        SourceLocation Loc, bool IsTemplateId) {
   DeclContext *Cur = CurContext;
   while (isa<LinkageSpecDecl>(Cur) || isa<CapturedDecl>(Cur))
     Cur = Cur->getParent();
@@ -5263,8 +5266,9 @@ bool Sema::diagnoseQualifiedDeclaration(CXXScopeSpec &SS, DeclContext *DC,
   }
 
   // Check whether the qualifying scope encloses the scope of the original
-  // declaration.
-  if (!Cur->Encloses(DC)) {
+  // declaration. For a template-id, we perform the checks in
+  // CheckTemplateSpecializationScope.
+  if (!Cur->Encloses(DC) && !IsTemplateId) {
     if (Cur->isRecord())
       Diag(Loc, diag::err_member_qualification)
         << Name << SS.getRange();
@@ -5376,8 +5380,9 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
       return nullptr;
     }
     if (!D.getDeclSpec().isFriendSpecified()) {
-      if (diagnoseQualifiedDeclaration(D.getCXXScopeSpec(), DC,
-                                      Name, D.getIdentifierLoc())) {
+      if (diagnoseQualifiedDeclaration(
+              D.getCXXScopeSpec(), DC, Name, D.getIdentifierLoc(),
+              D.getName().getKind() == UnqualifiedIdKind::IK_TemplateId)) {
         if (DC->isRecord())
           return nullptr;
 
@@ -5749,7 +5754,7 @@ Sema::CheckTypedefForVariablyModifiedType(Scope *S, TypedefNameDecl *NewTD) {
   TypeSourceInfo *TInfo = NewTD->getTypeSourceInfo();
   QualType T = TInfo->getType();
   if (T->isVariablyModifiedType()) {
-    getCurFunction()->setHasBranchProtectedScope();
+    setFunctionHasBranchProtectedScope();
 
     if (S->getFnParent() == nullptr) {
       bool SizeIsNegative;
@@ -7423,7 +7428,7 @@ void Sema::CheckVariableDeclarationType(VarDecl *NewVD) {
   bool isVM = T->isVariablyModifiedType();
   if (isVM || NewVD->hasAttr<CleanupAttr>() ||
       NewVD->hasAttr<BlocksAttr>())
-    getCurFunction()->setHasBranchProtectedScope();
+    setFunctionHasBranchProtectedScope();
 
   if ((isVM && NewVD->hasLinkage()) ||
       (T->isVariableArrayType() && NewVD->hasGlobalStorage())) {
@@ -8844,10 +8849,6 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
       if (CurContext->isDependentContext() && CurContext->isRecord()
           && !isFriend) {
         isDependentClassScopeExplicitSpecialization = true;
-        Diag(NewFD->getLocation(), getLangOpts().MicrosoftExt ?
-          diag::ext_function_specialization_in_class :
-          diag::err_function_specialization_in_class)
-          << NewFD->getDeclName();
       } else if (!NewFD->isInvalidDecl() &&
                  CheckFunctionTemplateSpecialization(
                      NewFD, (HasExplicitTemplateArgs ? &TemplateArgs : nullptr),
@@ -9133,12 +9134,12 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   }
 
   // Here we have an function template explicit specialization at class scope.
-  // The actually specialization will be postponed to template instatiation
+  // The actual specialization will be postponed to template instatiation
   // time via the ClassScopeFunctionSpecializationDecl node.
   if (isDependentClassScopeExplicitSpecialization) {
     ClassScopeFunctionSpecializationDecl *NewSpec =
                          ClassScopeFunctionSpecializationDecl::Create(
-                                Context, CurContext, SourceLocation(),
+                                Context, CurContext, NewFD->getLocation(),
                                 cast<CXXMethodDecl>(NewFD),
                                 HasExplicitTemplateArgs, TemplateArgs);
     CurContext->addDecl(NewSpec);
@@ -9645,16 +9646,16 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
     Previous.clear();
     Previous.addDecl(OldDecl);
 
-    if (FunctionTemplateDecl *OldTemplateDecl
-                                  = dyn_cast<FunctionTemplateDecl>(OldDecl)) {
+    if (FunctionTemplateDecl *OldTemplateDecl =
+            dyn_cast<FunctionTemplateDecl>(OldDecl)) {
       auto *OldFD = OldTemplateDecl->getTemplatedDecl();
       NewFD->setPreviousDeclaration(OldFD);
       adjustDeclContextForDeclaratorDecl(NewFD, OldFD);
       FunctionTemplateDecl *NewTemplateDecl
         = NewFD->getDescribedFunctionTemplate();
       assert(NewTemplateDecl && "Template/non-template mismatch");
-      if (auto *Method = dyn_cast<CXXMethodDecl>(NewFD)) {
-        Method->setAccess(OldTemplateDecl->getAccess());
+      if (NewFD->isCXXClassMember()) {
+        NewFD->setAccess(OldTemplateDecl->getAccess());
         NewTemplateDecl->setAccess(OldTemplateDecl->getAccess());
       }
 
@@ -9680,7 +9681,7 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
         // This needs to happen first so that 'inline' propagates.
         NewFD->setPreviousDeclaration(OldFD);
         adjustDeclContextForDeclaratorDecl(NewFD, OldFD);
-        if (isa<CXXMethodDecl>(NewFD))
+        if (NewFD->isCXXClassMember())
           NewFD->setAccess(OldFD->getAccess());
       }
     }
@@ -10656,7 +10657,7 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
     }
 
     if (VDecl->hasLocalStorage())
-      getCurFunction()->setHasBranchProtectedScope();
+      setFunctionHasBranchProtectedScope();
 
     if (DiagnoseUnexpandedParameterPack(Init, UPPC_Initializer)) {
       VDecl->setInvalidDecl();
@@ -11190,11 +11191,11 @@ void Sema::ActOnUninitializedDecl(Decl *RealDecl) {
       if (const RecordType *Record
             = Context.getBaseElementType(Type)->getAs<RecordType>()) {
         CXXRecordDecl *CXXRecord = cast<CXXRecordDecl>(Record->getDecl());
-        // Mark the function for further checking even if the looser rules of
-        // C++11 do not require such checks, so that we can diagnose
-        // incompatibilities with C++98.
+        // Mark the function (if we're in one) for further checking even if the
+        // looser rules of C++11 do not require such checks, so that we can
+        // diagnose incompatibilities with C++98.
         if (!CXXRecord->isPOD())
-          getCurFunction()->setHasBranchProtectedScope();
+          setFunctionHasBranchProtectedScope();
       }
     }
 
@@ -11330,13 +11331,14 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
 
     case Qualifiers::OCL_Weak:
     case Qualifiers::OCL_Strong:
-      getCurFunction()->setHasBranchProtectedScope();
+      setFunctionHasBranchProtectedScope();
       break;
     }
   }
 
-  if (var->getType().isDestructedType() == QualType::DK_nontrivial_c_struct)
-    getCurFunction()->setHasBranchProtectedScope();
+  if (var->hasLocalStorage() &&
+      var->getType().isDestructedType() == QualType::DK_nontrivial_c_struct)
+    setFunctionHasBranchProtectedScope();
 
   // Warn about externally-visible variables being defined without a
   // prior declaration.  We only want to do this for global
@@ -13198,7 +13200,7 @@ void Sema::AddKnownFunctionAttributes(FunctionDecl *FD) {
     // We already have a __builtin___CFStringMakeConstantString,
     // but builds that use -fno-constant-cfstrings don't go through that.
     if (!FD->hasAttr<FormatArgAttr>())
-      FD->addAttr(FormatArgAttr::CreateImplicit(Context, 1,
+      FD->addAttr(FormatArgAttr::CreateImplicit(Context, ParamIdx(1, FD),
                                                 FD->getLocation()));
   }
 }
@@ -14323,13 +14325,10 @@ CreateNewDecl:
   if (SS.isNotEmpty()) {
     if (SS.isSet()) {
       // If this is either a declaration or a definition, check the
-      // nested-name-specifier against the current context. We don't do this
-      // for explicit specializations, because they have similar checking
-      // (with more specific diagnostics) in the call to
-      // CheckMemberSpecialization, below.
-      if (!isMemberSpecialization &&
-          (TUK == TUK_Definition || TUK == TUK_Declaration) &&
-          diagnoseQualifiedDeclaration(SS, DC, OrigName, Loc))
+      // nested-name-specifier against the current context.
+      if ((TUK == TUK_Definition || TUK == TUK_Declaration) &&
+          diagnoseQualifiedDeclaration(SS, DC, OrigName, Loc,
+                                       isMemberSpecialization))
         Invalid = true;
 
       New->setQualifierInfo(SS.getWithLocInContext(Context));
@@ -14871,6 +14870,13 @@ FieldDecl *Sema::CheckFieldDecl(DeclarationName Name, QualType T,
     InvalidDecl = true;
   }
 
+  // Anonymous bit-fields cannot be cv-qualified (CWG 2229).
+  if (!InvalidDecl && getLangOpts().CPlusPlus && !II && BitWidth &&
+      T.hasQualifiers()) {
+    InvalidDecl = true;
+    Diag(Loc, diag::err_anon_bitfield_qualifiers);
+  }
+
   // C99 6.7.2.1p8: A member of a structure or union may have any type other
   // than a variably modified type.
   if (!InvalidDecl && T->isVariablyModifiedType()) {
@@ -15274,7 +15280,6 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
 
     // Get the type for the field.
     const Type *FDTy = FD->getType().getTypePtr();
-    Qualifiers QS = FD->getType().getQualifiers();
 
     if (!FD->isAnonymousStructOrUnion()) {
       // Remember all fields written by the user.
@@ -15415,10 +15420,7 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
       QualType T = Context.getObjCObjectPointerType(FD->getType());
       FD->setType(T);
     } else if (getLangOpts().allowsNonTrivialObjCLifetimeQualifiers() &&
-               Record && !ObjCFieldLifetimeErrReported &&
-               ((!getLangOpts().CPlusPlus &&
-                 QS.getObjCLifetime() == Qualifiers::OCL_Weak) ||
-                Record->isUnion())) {
+               Record && !ObjCFieldLifetimeErrReported && Record->isUnion()) {
       // It's an error in ARC or Weak if a field has lifetime.
       // We don't want to report this in a system header, though,
       // so we just make the field unavailable.
@@ -15455,15 +15457,17 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
       }
     }
 
-    if (Record && !getLangOpts().CPlusPlus) {
+    if (Record && !getLangOpts().CPlusPlus && !FD->hasAttr<UnavailableAttr>()) {
       QualType FT = FD->getType();
       if (FT.isNonTrivialToPrimitiveDefaultInitialize())
-        Record->setNonTrivialToPrimitiveDefaultInitialize();
+        Record->setNonTrivialToPrimitiveDefaultInitialize(true);
       QualType::PrimitiveCopyKind PCK = FT.isNonTrivialToPrimitiveCopy();
       if (PCK != QualType::PCK_Trivial && PCK != QualType::PCK_VolatileTrivial)
-        Record->setNonTrivialToPrimitiveCopy();
+        Record->setNonTrivialToPrimitiveCopy(true);
       if (FT.isDestructedType())
-        Record->setNonTrivialToPrimitiveDestroy();
+        Record->setNonTrivialToPrimitiveDestroy(true);
+      if (!FT.canPassInRegisters())
+        Record->setCanPassInRegisters(false);
     }
 
     if (Record && FD->getType().isVolatileQualified())
