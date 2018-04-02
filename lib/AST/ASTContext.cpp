@@ -2189,7 +2189,7 @@ structHasUniqueObjectRepresentations(const ASTContext &Context,
       }
     }
 
-    std::sort(
+    llvm::sort(
         Bases.begin(), Bases.end(), [&](const std::pair<QualType, int64_t> &L,
                                         const std::pair<QualType, int64_t> &R) {
           return Layout.getBaseClassOffset(L.first->getAsCXXRecordDecl()) <
@@ -2646,9 +2646,11 @@ void ASTContext::adjustExceptionSpec(
 }
 
 bool ASTContext::isParamDestroyedInCallee(QualType T) const {
-  return getTargetInfo().getCXXABI().areArgsDestroyedLeftToRightInCallee() ||
-         T.hasTrivialABIOverride() ||
-         T.isDestructedType() == QualType::DK_nontrivial_c_struct;
+  if (getTargetInfo().getCXXABI().areArgsDestroyedLeftToRightInCallee())
+    return true;
+  if (const auto *RT = T->getBaseElementTypeUnsafe()->getAs<RecordType>())
+    return RT->getDecl()->isParamDestroyedInCallee();
+  return false;
 }
 
 /// getComplexType - Return the uniqued reference to the type for a complex
