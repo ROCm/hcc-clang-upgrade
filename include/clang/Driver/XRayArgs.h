@@ -21,16 +21,20 @@ class ToolChain;
 class XRayArgs {
   std::vector<std::string> AlwaysInstrumentFiles;
   std::vector<std::string> NeverInstrumentFiles;
+  std::vector<std::string> AttrListFiles;
   std::vector<std::string> ExtraDeps;
   bool XRayInstrument = false;
   int InstructionThreshold = 200;
   bool XRayAlwaysEmitCustomEvents = false;
+  bool XRayRT = true;
 
 public:
   /// Parses the XRay arguments from an argument list.
   XRayArgs(const ToolChain &TC, const llvm::opt::ArgList &Args);
   void addArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
                llvm::opt::ArgStringList &CmdArgs, types::ID InputType) const;
+
+  bool needsXRayRt() const { return XRayInstrument && XRayRT; }
 };
 
 } // namespace driver

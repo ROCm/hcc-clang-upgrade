@@ -49,7 +49,8 @@ XRayArgs::XRayArgs(const ToolChain &TC, const ArgList &Args) {
         D.Diag(diag::err_drv_clang_unsupported)
             << (std::string(XRayInstrumentOption) + " on " + Triple.str());
       }
-    } else if (Triple.getOS() == llvm::Triple::FreeBSD) {
+    } else if (Triple.getOS() == llvm::Triple::FreeBSD ||
+               Triple.getOS() == llvm::Triple::OpenBSD) {
         if (Triple.getArch() != llvm::Triple::x86_64) {
           D.Diag(diag::err_drv_clang_unsupported)
               << (std::string(XRayInstrumentOption) + " on " + Triple.str());
@@ -75,6 +76,10 @@ XRayArgs::XRayArgs(const ToolChain &TC, const ArgList &Args) {
                      options::OPT_fnoxray_always_emit_customevents, false))
       XRayAlwaysEmitCustomEvents = true;
 
+    if (!Args.hasFlag(options::OPT_fxray_link_deps,
+                      options::OPT_fnoxray_link_deps, true))
+      XRayRT = false;
+
     // Validate the always/never attribute files. We also make sure that they
     // are treated as actual dependencies.
     for (const auto &Filename :
@@ -90,6 +95,15 @@ XRayArgs::XRayArgs(const ToolChain &TC, const ArgList &Args) {
          Args.getAllArgValues(options::OPT_fxray_never_instrument)) {
       if (llvm::sys::fs::exists(Filename)) {
         NeverInstrumentFiles.push_back(Filename);
+        ExtraDeps.push_back(Filename);
+      } else
+        D.Diag(clang::diag::err_drv_no_such_file) << Filename;
+    }
+
+    for (const auto &Filename :
+         Args.getAllArgValues(options::OPT_fxray_attr_list)) {
+      if (llvm::sys::fs::exists(Filename)) {
+        AttrListFiles.push_back(Filename);
         ExtraDeps.push_back(Filename);
       } else
         D.Diag(clang::diag::err_drv_no_such_file) << Filename;
@@ -120,6 +134,12 @@ void XRayArgs::addArgs(const ToolChain &TC, const ArgList &Args,
     SmallString<64> NeverInstrumentOpt("-fxray-never-instrument=");
     NeverInstrumentOpt += Never;
     CmdArgs.push_back(Args.MakeArgString(NeverInstrumentOpt));
+  }
+
+  for (const auto&AttrFile : AttrListFiles) {
+    SmallString<64> AttrListFileOpt("-fxray-attr-list=");
+    AttrListFileOpt += AttrFile;
+    CmdArgs.push_back(Args.MakeArgString(AttrListFileOpt));
   }
 
   for (const auto &Dep : ExtraDeps) {

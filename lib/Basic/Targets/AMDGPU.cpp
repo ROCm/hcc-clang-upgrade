@@ -289,8 +289,7 @@ AMDGPUTargetInfo::AMDGPUTargetInfo(const llvm::Triple &Triple,
   llvm::Triple HostTriple(Opts.HostTriple);
   if (AMDGPUTargetInfo::isAMDGCN(HostTriple))
     return;
-  std::unique_ptr<TargetInfo> HostTarget(
-      AllocateTarget(llvm::Triple(Opts.HostTriple), Opts));
+  std::unique_ptr<TargetInfo> HostTarget(AllocateTarget(llvm::Triple(Opts.HostTriple), Opts));
   if (!HostTarget) {
     return;
   }
