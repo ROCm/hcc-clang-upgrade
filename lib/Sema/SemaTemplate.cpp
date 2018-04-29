@@ -158,7 +158,7 @@ bool Sema::hasAnyAcceptableTemplateNames(LookupResult &R,
 TemplateNameKind Sema::isTemplateName(Scope *S,
                                       CXXScopeSpec &SS,
                                       bool hasTemplateKeyword,
-                                      UnqualifiedId &Name,
+                                      const UnqualifiedId &Name,
                                       ParsedType ObjectTypePtr,
                                       bool EnteringContext,
                                       TemplateTy &TemplateResult,
@@ -3988,6 +3988,16 @@ Sema::CheckVarTemplateId(const CXXScopeSpec &SS,
                                   /*FoundD=*/nullptr, TemplateArgs);
 }
 
+void Sema::diagnoseMissingTemplateArguments(TemplateName Name,
+                                            SourceLocation Loc) {
+  Diag(Loc, diag::err_template_missing_args)
+    << (int)getTemplateNameKindForDiagnostics(Name) << Name;
+  if (TemplateDecl *TD = Name.getAsTemplateDecl()) {
+    Diag(TD->getLocation(), diag::note_template_decl_here)
+      << TD->getTemplateParameters()->getSourceRange();
+  }
+}
+
 ExprResult Sema::BuildTemplateIdExpr(const CXXScopeSpec &SS,
                                      SourceLocation TemplateKWLoc,
                                      LookupResult &R,
@@ -4007,11 +4017,23 @@ ExprResult Sema::BuildTemplateIdExpr(const CXXScopeSpec &SS,
   assert(!R.empty() && "empty lookup results when building templateid");
   assert(!R.isAmbiguous() && "ambiguous lookup when building templateid");
 
+  // Non-function templates require a template argument list.
+  if (auto *TD = R.getAsSingle<TemplateDecl>()) {
+    if (!TemplateArgs && !isa<FunctionTemplateDecl>(TD)) {
+      diagnoseMissingTemplateArguments(TemplateName(TD), R.getNameLoc());
+      return ExprError();
+    }
+  }
+
+  auto AnyDependentArguments = [&]() -> bool {
+    bool InstantiationDependent;
+    return TemplateArgs &&
+           TemplateSpecializationType::anyDependentTemplateArguments(
+               *TemplateArgs, InstantiationDependent);
+  };
+
   // In C++1y, check variable template ids.
-  bool InstantiationDependent;
-  if (R.getAsSingle<VarTemplateDecl>() &&
-      !TemplateSpecializationType::anyDependentTemplateArguments(
-           *TemplateArgs, InstantiationDependent)) {
+  if (R.getAsSingle<VarTemplateDecl>() && !AnyDependentArguments()) {
     return CheckVarTemplateId(SS, R.getLookupNameInfo(),
                               R.getAsSingle<VarTemplateDecl>(),
                               TemplateKWLoc, TemplateArgs);
@@ -4080,7 +4102,7 @@ Sema::BuildQualifiedTemplateIdExpr(CXXScopeSpec &SS,
 TemplateNameKind Sema::ActOnDependentTemplateName(Scope *S,
                                                   CXXScopeSpec &SS,
                                                   SourceLocation TemplateKWLoc,
-                                                  UnqualifiedId &Name,
+                                                  const UnqualifiedId &Name,
                                                   ParsedType ObjectType,
                                                   bool EnteringContext,
                                                   TemplateTy &Result,
@@ -4204,11 +4226,7 @@ bool Sema::CheckTemplateTypeArgument(TemplateTypeParmDecl *Param,
     // is a template without any arguments.
     SourceRange SR = AL.getSourceRange();
     TemplateName Name = Arg.getAsTemplateOrTemplatePattern();
-    Diag(SR.getBegin(), diag::err_template_missing_args)
-      << (int)getTemplateNameKindForDiagnostics(Name) << Name << SR;
-    if (TemplateDecl *Decl = Name.getAsTemplateDecl())
-      Diag(Decl->getLocation(), diag::note_template_decl_here);
-
+    diagnoseMissingTemplateArguments(Name, SR.getEnd());
     return true;
   }
   case TemplateArgument::Expression: {
@@ -7561,10 +7579,6 @@ Sema::ActOnClassTemplateSpecialization(Scope *S, unsigned TagSpec,
       ClassTemplate->AddSpecialization(Specialization, InsertPos);
 
     if (CurContext->isDependentContext()) {
-      // -fms-extensions permits specialization of nested classes without
-      // fully specializing the outer class(es).
-      assert(getLangOpts().MicrosoftExt &&
-             "Only possible with -fms-extensions!");
       TemplateName CanonTemplate = Context.getCanonicalTemplateName(Name);
       CanonType = Context.getTemplateSpecializationType(
           CanonTemplate, Converted);

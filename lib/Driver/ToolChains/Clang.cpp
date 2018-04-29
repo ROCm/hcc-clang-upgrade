@@ -3169,9 +3169,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       IsHCAcceleratorPreprocessJobActionWithInputType(&JA, types::TY_HC_KERNEL) ||
       IsHCAcceleratorPreprocessJobActionWithInputType(&JA, types::TY_CXX_AMP)) {
     // path to compile kernel codes on GPU
-    CmdArgs.push_back("-D__GPU__=1");
-    CmdArgs.push_back("-D__KALMAR_ACCELERATOR__=1");
-    CmdArgs.push_back("-D__HCC_ACCELERATOR__=1");
     CmdArgs.push_back("-famp-is-device");
     CmdArgs.push_back("-fno-builtin");
     CmdArgs.push_back("-fno-common");
@@ -3182,18 +3179,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     // path to compile kernel codes on CPU
     CmdArgs.push_back("-famp-is-device");
     CmdArgs.push_back("-famp-cpu");
-    CmdArgs.push_back("-D__AMP_CPU__=1");
-    CmdArgs.push_back("-D__KALMAR_ACCELERATOR__=2");
-    CmdArgs.push_back("-D__HCC_ACCELERATOR__=2");
-  } else if (Args.hasArg(options::OPT_cxxamp_cpu_mode)) {
-    // path to compile host codes, while kernel codes are to be compiled on CPU
-    CmdArgs.push_back("-D__AMP_CPU__=1");
-    CmdArgs.push_back("-D__KALMAR_CPU__=2");
-    CmdArgs.push_back("-D__HCC_CPU__=2");
-  } else {
-    // path to compile host codes, while kernel codes are to be compiled on GPU
-    CmdArgs.push_back("-D__KALMAR_CPU__=1");
-    CmdArgs.push_back("-D__HCC_CPU__=1");
   }
 
   // Add the "effective" target triple.
@@ -4293,7 +4278,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (Args.hasFlag(options::OPT_fregister_global_dtors_with_atexit,
                    options::OPT_fno_register_global_dtors_with_atexit,
-                   RawTriple.isOSDarwin()))
+                   RawTriple.isOSDarwin() && !KernelOrKext))
     CmdArgs.push_back("-fregister-global-dtors-with-atexit");
 
   // -fms-extensions=0 is default.
@@ -4506,6 +4491,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back(Args.MakeArgString(MaxTypeAlignStr));
     }
   }
+
+  if (!Args.hasFlag(options::OPT_Qy, options::OPT_Qn, true))
+    CmdArgs.push_back("-Qn");
 
   // -fcommon is the default unless compiling kernel code or the target says so
   bool NoCommonDefault = KernelOrKext || isNoCommonDefault(RawTriple);
