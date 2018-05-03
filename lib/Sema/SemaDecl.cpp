@@ -149,6 +149,9 @@ bool Sema::isSimpleTypeSpecifier(tok::TokenKind Kind) const {
   case tok::kw_decltype:
     return getLangOpts().CPlusPlus;
 
+  case tok::kw_char8_t:
+    return getLangOpts().Char8;
+
   default:
     break;
   }
@@ -6994,7 +6997,7 @@ NamedDecl *Sema::getShadowedDeclaration(const TypedefNameDecl *D,
   // Don't warn if typedef declaration is part of a class
   if (D->getDeclContext()->isRecord())
     return nullptr;
-  
+
   if (!shouldWarnIfShadowedDecl(Diags, R))
     return nullptr;
 
