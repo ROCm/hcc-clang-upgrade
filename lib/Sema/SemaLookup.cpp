@@ -820,17 +820,6 @@ static void DeclareImplicitMemberFunctionsWithName(Sema &S,
     }
     break;
 
-  case DeclarationName::Identifier:                                           
-    if (S.getLangOpts().CPlusPlusAMP) {                                       
-      if (const CXXRecordDecl *Record = dyn_cast<CXXRecordDecl>(DC)) {        
-        CXXRecordDecl *Class = const_cast<CXXRecordDecl *>(Record);                 
-        if (!Class->getDefinition() || !CanDeclareSpecialMemberFunction(Record)) {                   
-          break;                                                                    
-        }                                                                           
-      }
-    }                                                                         
-    break;
-
   case DeclarationName::CXXDeductionGuideName:
     S.DeclareImplicitDeductionGuides(Name.getCXXDeductionGuideTemplate(), Loc);
     break;

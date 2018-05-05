@@ -44,7 +44,6 @@ enum class LangAS : unsigned {
   cuda_shared,
 
   // HCC specific address spaces.
-  hcc_tilestatic,
   hcc_generic,
   hcc_global,
 

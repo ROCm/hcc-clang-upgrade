@@ -791,7 +791,7 @@ static bool endsWithReturn(const Decl* F) {
 
 static bool isHCKernelWrapper(const FunctionDecl *FD)
 {
-  static constexpr const char Kernel[] = "__HC_kernel__";
+  static constexpr const char Kernel[]{"__ROCCC_KERNEL__"};
 
   return FD->hasAttr<AnnotateAttr>() &&
     FD->getAttr<AnnotateAttr>()->getAnnotation() == Kernel;
@@ -853,24 +853,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   CurFn = Fn;
   CurFnInfo = &FnInfo;
 
-  // Relax duplicated function definition for C++AMP
-  //
-  // The reason is because in the modified GPU build path, both CPU and GPU
-  // codes would be emitted in order to make sure C++ name mangling for
-  // GPU kernels work correctly.  CPU codes would be removed in a later
-  // optimization pass.
-  //
-  // Therefore, in the following case StartFunction() might be called twice
-  // for function foo(), and thus we need to relax the assert check for C++AMP.
-  //
-  // void foo() /*restrict(amp)*/ { return 1; }
-  // void foo() /*restrict(cpu)*/ { return 2; }
-
-  //if (getContext().getLangOpts().CPlusPlusAMP &&
-  //    (CGM.getCodeGenOpts().AMPIsDevice || CGM.getCodeGenOpts().AMPCPU)) {
-  //} else {
-    assert(CurFn->isDeclaration() && "Function already has body?");
-  //}
+  assert(CurFn->isDeclaration() && "Function already has body?");
 
   // If this function has been blacklisted for any of the enabled sanitizers,
   // disable the sanitizer for the function.
@@ -982,7 +965,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   }
 
   if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath) {
-    if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D)) {
+    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D)) {
       if (isHCKernelWrapper(FD)) {
         Fn->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
         Fn->setDoesNotRecurse();

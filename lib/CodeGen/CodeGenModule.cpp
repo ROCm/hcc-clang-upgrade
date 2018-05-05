@@ -435,11 +435,7 @@ void CodeGenModule::Release() {
   }
   EmitCtorList(GlobalCtors, "llvm.global_ctors");
   EmitCtorList(GlobalDtors, "llvm.global_dtors");
-  // skip global annotation for HCC kernel path
-  if (Context.getLangOpts().CPlusPlusAMP && getCodeGenOpts().AMPIsDevice) {
-  } else {
-    EmitGlobalAnnotations();
-  }
+  EmitGlobalAnnotations();
   EmitStaticExternCAliases();
   EmitDeferredUnusedCoverageMappings();
   if (CoverageMapping)
@@ -2310,16 +2306,6 @@ namespace
     std::unordered_map<const Decl*, bool> d_;
 
     static
-    bool isAcceleratorLocal_(const VarDecl* x)
-    { // This is the HCC expression of the HSA concept of an agent allocated
-      // global variable.
-      static constexpr const char accelerator_local[] = "accelerator";
-
-      return x->hasAttr<AnnotateAttr>() &&
-        x->getAttr<AnnotateAttr>()->getAnnotation() == accelerator_local;
-    }
-
-    static
     bool isGlobal_(const VarDecl* x)
     {
       return x->isFileVarDecl() || x->hasGlobalStorage();
@@ -2330,8 +2316,8 @@ namespace
       if (!x) return true;
       if (d_.count(x)) return d_[x];
 
-      bool r = true;
-      if (isGlobal_(x) && !isAcceleratorLocal_(x)) r = false;
+      bool r{true};
+      if (isGlobal_(x) && !x->isConstexpr()) r = false;
       if (x->isExceptionVariable()) r = false;
 
       d_[x] = r;
@@ -2567,26 +2553,21 @@ llvm::Constant *CodeGenModule::GetOrCreateLLVMFunction(
     }
 
 
-    // Relax the rule for C++AMP
-    if (!LangOpts.CPlusPlusAMP) {
-
-      // If there are two attempts to define the same mangled name, issue an
-      // error.
-      if (IsForDefinition && !Entry->isDeclaration()) {
-        GlobalDecl OtherGD;
-        // Check that GD is not yet in DiagnosedConflictingDefinitions is required
-        // to make sure that we issue an error only once.
-        if (lookupRepresentativeDecl(MangledName, OtherGD) &&
-            (GD.getCanonicalDecl().getDecl() !=
-             OtherGD.getCanonicalDecl().getDecl()) &&
-            DiagnosedConflictingDefinitions.insert(GD).second) {
-          getDiags().Report(D->getLocation(),
-                            diag::err_duplicate_mangled_name);
-          getDiags().Report(OtherGD.getDecl()->getLocation(),
-                            diag::note_previous_definition);
-        }
+    // If there are two attempts to define the same mangled name, issue an
+    // error.
+    if (IsForDefinition && !Entry->isDeclaration()) {
+      GlobalDecl OtherGD;
+      // Check that GD is not yet in DiagnosedConflictingDefinitions is required
+      // to make sure that we issue an error only once.
+      if (lookupRepresentativeDecl(MangledName, OtherGD) &&
+          (GD.getCanonicalDecl().getDecl() !=
+           OtherGD.getCanonicalDecl().getDecl()) &&
+          DiagnosedConflictingDefinitions.insert(GD).second) {
+        getDiags().Report(D->getLocation(),
+                          diag::err_duplicate_mangled_name);
+        getDiags().Report(OtherGD.getDecl()->getLocation(),
+                          diag::note_previous_definition);
       }
-
     }
 
     if ((isa<llvm::Function>(Entry) || isa<llvm::GlobalAlias>(Entry)) &&
@@ -3173,10 +3154,6 @@ LangAS CodeGenModule::GetGlobalVarAddressSpace(const VarDecl *D) {
       return LangAS::cuda_device;
   }
 
-  if (LangOpts.CPlusPlusAMP && LangOpts.DevicePath &&
-      D && D->hasAttr<HCCTileStaticAttr>())
-    return LangAS::hcc_tilestatic;
-
   return getTargetCodeGenInfo().getGlobalVarAddressSpace(*this, D);
 }
 
@@ -3275,9 +3252,6 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
   // error cases, so we just need to set Init to UndefValue.
   if (getLangOpts().CUDA && getLangOpts().CUDAIsDevice &&
       D->hasAttr<CUDASharedAttr>())
-    Init = llvm::UndefValue::get(getTypes().ConvertType(ASTTy));
-  else if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath &&
-           D->hasAttr<HCCTileStaticAttr>())
     Init = llvm::UndefValue::get(getTypes().ConvertType(ASTTy));
   else if (!InitExpr) {
     // This is a tentative definition; tentative definitions are

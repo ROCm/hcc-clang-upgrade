@@ -760,9 +760,8 @@ static const LangASMap *getAddressSpaceMap(const TargetInfo &T,
       5, // cuda_device
       6, // cuda_constant
       7, // cuda_shared
-      8, // hcc_tilestatic
-      9, // hcc_generic
-      10, // hcc_global
+      8, // hcc_generic
+      9, // hcc_global
     };
     return &FakeAddrSpaceMap;
   } else {

@@ -2905,10 +2905,3 @@ def InternalLinkage : InheritableAttr {
   let Subjects = SubjectList<[Var, Function, CXXRecord]>;
   let Documentation = [InternalLinkageDocs];
 }
-
-def HCCTileStatic : InheritableAttr {
-  let Spellings = [GNU<"tile_static">];
-  let Subjects = SubjectList<[Var]>;
-  let LangOpts = [CPlusPlusAMP];
-  let Documentation = [Undocumented];
-}

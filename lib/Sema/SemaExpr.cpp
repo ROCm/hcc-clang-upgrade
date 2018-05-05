@@ -4815,26 +4815,26 @@ Sema::ConvertArgumentsForCall(CallExpr *Call, Expr *Fn,
 }
 
 class CallableWithReferenceFieldsHandler {
-  inline static constexpr const char HCCallable_[] = "__HC_CALLABLE__";
+  inline static constexpr const char HCCallable_[]{"__HC_CALLABLE__"};
 
-  CXXRecordDecl *Callable_ = nullptr;
-  FunctionDecl *FDecl_ = nullptr;
+  CXXRecordDecl *Callable_{};
+  FunctionDecl *FDecl_{};
   Sema &Sema_;
 
-  static bool IsInHCNamespace_(const DeclContext *DCtx) {
-    static constexpr const char HC2_outer[] = "hc2";
-    static constexpr const char HC2_inner[] = "detail";
+  static bool IsInROCccNamespace_(const DeclContext *DCtx) {
+    static constexpr const char ROCcc_outer[]{"roccc"};
+    static constexpr const char ROCcc_inner[]{"detail"};
 
     const NamespaceDecl *Ns =
       dyn_cast_or_null<NamespaceDecl>(DCtx->getEnclosingNamespaceContext());
 
     if (!Ns || Ns->isInStdNamespace()) return false;
 
-    if (Ns->getName().find(HC2_inner) != StringRef::npos) {
+    if (Ns->getName().find(ROCcc_inner) != StringRef::npos) {
       Ns = dyn_cast_or_null<NamespaceDecl>(Ns->getParent());
     }
 
-    return Ns->getName().find(HC2_outer) != StringRef::npos;
+    return Ns->getName().find(ROCcc_outer) != StringRef::npos;
   }
 
   ClassTemplateDecl *GetUbiquitousReferenceMakerHC_() {
@@ -4842,13 +4842,13 @@ class CallableWithReferenceFieldsHandler {
       Sema_.Context.getTypes().begin(),
       Sema_.Context.getTypes().end(),
       [](const Type* Ty) {
-      static constexpr const char Maker[] = "Ubiquitous_reference_maker";
+      static constexpr const char Maker[]{"Ubiquitous_reference_maker"};
 
       if (!Ty || !Ty->getAsCXXRecordDecl()) return false;
 
       CXXRecordDecl *Class = Ty->getAsCXXRecordDecl();
 
-      if (!IsInHCNamespace_(Class)) return false;
+      if (!IsInROCccNamespace_(Class)) return false;
 
       return Class->getName().find(Maker) != StringRef::npos;
     });
@@ -4859,10 +4859,10 @@ class CallableWithReferenceFieldsHandler {
   }
 
   bool IsPFECall_() {
-    static constexpr const char PFE[] = "parallel_for_each";
+    static constexpr const char PFE[]{"parallel_for_each"};
 
     if (!FDecl_) return false;
-    if (!IsInHCNamespace_(FDecl_)) return false;
+    if (!IsInROCccNamespace_(FDecl_)) return false;
 
     return FDecl_->getNameAsString().find(PFE) != StringRef::npos;
   }
@@ -4896,7 +4896,8 @@ void HandleReferenceFieldInHCCallable_() {
 
   ClassTemplateDecl *Master = GetUbiquitousReferenceMakerHC_();
 
-  assert(Master && "hc2::detail::Ubiquitous_reference_maker must be in scope!");
+  assert(
+    Master && "roccc::detail::Ubiquitous_reference_maker must be in scope!");
 
   std::for_each(Tmp.begin(), Tmp.end(), [=](const TemplateArgument& Arg) {
     void *IPos = nullptr;

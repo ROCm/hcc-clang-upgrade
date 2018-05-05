@@ -673,9 +673,10 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
 
     const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
 
-    auto &HccTC = ToolChains[llvm::Triple("amdgcn--amdhsa-hcc").str()];
+    auto &HccTC = ToolChains[llvm::Triple("amdgcn-amd-amdhsa").str()];
     if (!HccTC)
-      HccTC = llvm::make_unique<toolchains::HCCToolChain>(*this, llvm::Triple("amdgcn--amdhsa-hcc"), *HostTC, C.getInputArgs());
+      HccTC = llvm::make_unique<toolchains::HCCToolChain>(
+        *this, llvm::Triple("amdgcn-amd-amdhsa"), *HostTC, C.getInputArgs());
       
     const ToolChain *TC = HccTC.get();
 

@@ -411,6 +411,12 @@ static void InitializeStandardPredefinedMacros(const TargetInfo &TI,
     Builder.defineMacro("__STDCPP_DEFAULT_NEW_ALIGNMENT__",
                         Twine(TI.getNewAlign() / TI.getCharWidth()) +
                             TI.getTypeConstantSuffix(TI.getSizeType()));
+
+    if (LangOpts.CPlusPlusAMP) {
+      Builder.defineMacro("__ROCCC_WAVEFRONT_SIZE__", "64"); // TODO: temporary.
+      Builder.defineMacro(
+        "__ROCCC_ACCELERATOR__", LangOpts.DevicePath ? "1" : "0");
+    }
   }
 
   // In C11 these are environment macros. In C++11 they are only defined

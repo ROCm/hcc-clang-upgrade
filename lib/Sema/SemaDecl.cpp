@@ -6690,7 +6690,7 @@ NamedDecl *Sema::ActOnVariableDeclarator(
   }
 
   if (SC == SC_Static &&
-      !NewVD->hasExternalFormalLinkage() &&
+      (!NewVD->hasExternalFormalLinkage() || NewVD->isInline()) &&
       getLangOpts().CPlusPlusAMP &&
       !getLangOpts().DevicePath) {
       NewVD->addAttr(::new (Context) UsedAttr{NewVD->getSourceRange(), Context, 0});
@@ -6710,13 +6710,6 @@ NamedDecl *Sema::ActOnVariableDeclarator(
     if (SC == SC_None && S->getFnParent() != nullptr &&
         (NewVD->hasAttr<CUDASharedAttr>() ||
          NewVD->hasAttr<CUDAConstantAttr>())) {
-      NewVD->setStorageClass(SC_Static);
-    }
-  }
-
-  if (getLangOpts().CPlusPlusAMP) {
-    if (SC == SC_None && S->getFnParent() != nullptr &&
-        (NewVD->hasAttr<HCCTileStaticAttr>())) {
       NewVD->setStorageClass(SC_Static);
     }
   }

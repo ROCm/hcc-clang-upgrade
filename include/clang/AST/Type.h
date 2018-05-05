@@ -488,11 +488,7 @@ public:
         // Otherwise in OpenCLC v2.0 s6.5.5: every address space except
         // for __constant can be used as __generic.
         (getAddressSpace() == LangAS::opencl_generic &&
-         other.getAddressSpace() != LangAS::opencl_constant) ||
-        // HCC
-        // default address space is superset of tile_static address space
-        ((getAddressSpace() == LangAS::Default) &&
-         (other.getAddressSpace() == LangAS::hcc_tilestatic));
+         other.getAddressSpace() != LangAS::opencl_constant);
   }
 
   /// Determines if these qualifiers compatibly include another set.

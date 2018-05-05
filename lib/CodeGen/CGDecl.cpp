@@ -213,12 +213,6 @@ namespace
   {
     return CGM.getLangOpts().CPlusPlusAMP && CGM.getLangOpts().DevicePath;
   }
-
-  inline
-  bool isTileStatic(const VarDecl& D)
-  {
-    return D.hasAttr<HCCTileStaticAttr>();
-  }
 }
 
 llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
@@ -246,7 +240,6 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
 
   // OpenCL variables in local address space and CUDA shared
   // variables cannot have an initializer.
-  // HCC tile_static variables cannot have an initializer.
   llvm::Constant *Init = nullptr;
   if (Ty.getAddressSpace() == LangAS::opencl_local ||
       D.hasAttr<CUDASharedAttr>())
@@ -254,7 +247,7 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
   else
     Init = EmitNullConstant(Ty);
 
-  if (isAcceleratorPath(*this) && !isTileStatic(D)) {
+  if (isAcceleratorPath(*this) && !D.isConstexpr()) {
     Linkage = llvm::GlobalVariable::LinkageTypes::ExternalLinkage;
     Init = nullptr;
     TargetAS = getContext().getTargetAddressSpace(LangAS::opencl_global);
@@ -275,11 +268,6 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
 
   // Make sure the result is of the correct type.
   LangAS ExpectedAS = Ty.getAddressSpace();
-
-  // HCC tile_static pointer would be in generic address space
-  if (isTileStatic(D)) {
-    ExpectedAS = LangAS::hcc_generic;
-  }
 
   llvm::Constant *Addr = GV;
   if (AS != ExpectedAS) {
@@ -406,10 +394,6 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   // Check to see if we already have a global variable for this
   // declaration.  This can happen when double-emitting function
   // bodies, e.g. with complete and base constructors.
-  // TODO: the HCC specific bits are too verbose and temporary.
-  const bool isHCCAcceleratorPath =
-    getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath;
-
   llvm::Constant *addr = CGM.getOrCreateStaticVarDecl(D, Linkage);
   CharUnits alignment = getContext().getDeclAlign(&D);
 
@@ -436,7 +420,9 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   bool isCudaSharedVar = getLangOpts().CUDA && getLangOpts().CUDAIsDevice &&
                          D.hasAttr<CUDASharedAttr>();
   // If this value has an initializer, emit it.
-  if (D.getInit() && !isCudaSharedVar && !isHCCAcceleratorPath)
+  if (D.getInit() && 
+      !isCudaSharedVar && 
+      (!isAcceleratorPath(CGM) || D.isConstexpr()))
     var = AddInitializerToStaticVarDecl(D, var);
 
   var->setAlignment(alignment.getQuantity());
@@ -998,7 +984,7 @@ llvm::Value *CodeGenFunction::EmitLifetimeStart(uint64_t Size,
     return nullptr;
 
   llvm::Value *SizeV = llvm::ConstantInt::get(Int64Ty, Size);
-  Addr = Builder.CreateBitCast(Addr, AllocaInt8PtrTy);
+  Addr = Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, AllocaInt8PtrTy);
   llvm::CallInst *C =
       Builder.CreateCall(CGM.getLLVMLifetimeStartFn(), {SizeV, Addr});
   C->setDoesNotThrow();
@@ -1006,7 +992,7 @@ llvm::Value *CodeGenFunction::EmitLifetimeStart(uint64_t Size,
 }
 
 void CodeGenFunction::EmitLifetimeEnd(llvm::Value *Size, llvm::Value *Addr) {
-  Addr = Builder.CreateBitCast(Addr, AllocaInt8PtrTy);
+  Addr = Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, AllocaInt8PtrTy);
   llvm::CallInst *C =
       Builder.CreateCall(CGM.getLLVMLifetimeEndFn(), {Size, Addr});
   C->setDoesNotThrow();

@@ -882,10 +882,8 @@ bool Parser::isDeclarationAfterDeclarator() {
 bool Parser::isStartOfFunctionDefinition(const ParsingDeclarator &Declarator) {
   // Relax the rule for C++AMP because there may not necessarily be a
   // declarator when used in C++AMP to parse 'auto'
-  if(Actions.getLangOpts().CPlusPlusAMP) {
-  } else {
-    assert(Declarator.isFunctionDeclarator() && "Isn't a function declarator");
-  }
+  assert(Declarator.isFunctionDeclarator() && "Isn't a function declarator");
+
   if (Tok.is(tok::l_brace))   // int X() {}
     return true;
   

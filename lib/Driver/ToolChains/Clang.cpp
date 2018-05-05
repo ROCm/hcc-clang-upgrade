@@ -3167,17 +3167,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // FIXME: Implement custom jobs for internal actions.
   CmdArgs.push_back("-cc1");
 
-  // add HCC macros, based on compiler modes
-  if (Args.hasArg(options::OPT_hc_mode)) {
-    CmdArgs.push_back("-D__KALMAR_HC__=1");
-    CmdArgs.push_back("-D__HCC_HC__=1");
-  } else if (D.IsCXXAMP(Args)) {
-    CmdArgs.push_back("-D__KALMAR_AMP__=1");
-    CmdArgs.push_back("-D__HCC_AMP__=1");
-    CmdArgs.push_back("-D__HC_WAVEFRONT_SIZE__=64"); // TODO: temporary.
-  }
-
-  // C++ AMP-specific
+  // ROCcc-specific
   if (IsCXXAMPBackendJobAction(&JA) ||
       IsHCAcceleratorPreprocessJobActionWithInputType(&JA, types::TY_HC_KERNEL) ||
       IsHCAcceleratorPreprocessJobActionWithInputType(&JA, types::TY_CXX_AMP)) {
@@ -3185,13 +3175,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-famp-is-device");
     CmdArgs.push_back("-fno-builtin");
     CmdArgs.push_back("-fno-common");
-    //CmdArgs.push_back("-m32"); // added below using -triple
     CmdArgs.push_back("-O2");
-  } else if(IsCXXAMPCPUBackendJobAction(&JA) ||
-    IsHCAcceleratorPreprocessJobActionWithInputType(&JA, types::TY_CXX_AMP_CPU)){
-    // path to compile kernel codes on CPU
-    CmdArgs.push_back("-famp-is-device");
-    CmdArgs.push_back("-famp-cpu");
   }
 
   // Add the "effective" target triple.
@@ -3221,7 +3205,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   // Make sure host triple is specified for HCC kernel compilation path
-  bool IsHCCKernelPath = IsCXXAMPBackendJobAction(&JA) || IsCXXAMPCPUBackendJobAction(&JA);
+  bool IsHCCKernelPath = IsCXXAMPBackendJobAction(&JA);
   if (IsHCCKernelPath) {
     // We have to pass the triple of the host if compiling for a HCC device
     std::string NormalizedTriple;

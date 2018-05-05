@@ -2239,26 +2239,26 @@ llvm::Value *CodeGenFunction::EmitDynamicCast(Address ThisAddr,
 }
 
 class ReferenceFieldInitialiser {
-  inline static constexpr const char HCCallable[] = "__HC_CALLABLE__";
+  inline static constexpr const char HCCallable[]{"__HC_CALLABLE__"};
 
   CXXRecordDecl const *Callable_;
   FieldDecl const *Field_;
   Expr *Init_;
 
-  static bool IsInHCNamespace_(const DeclContext *DCtx) {
-    static constexpr const char HC2_outer[] = "hc2";
-    static constexpr const char HC2_inner[] = "detail";
+  static bool IsInROCccNamespace_(const DeclContext *DCtx) {
+    static constexpr const char ROCcc_outer[]{"roccc"};
+    static constexpr const char ROCcc_inner[]{"detail"};
 
     const NamespaceDecl *Ns = dyn_cast<NamespaceDecl>(
       DCtx->getEnclosingNamespaceContext());
 
     if (!Ns || Ns->isInStdNamespace()) return false;
 
-    if (Ns->getName().find(HC2_inner) != StringRef::npos) {
+    if (Ns->getName().find(ROCcc_inner) != StringRef::npos) {
       Ns = dyn_cast<NamespaceDecl>(Ns->getParent());
     }
 
-    return Ns->getName().find(HC2_outer) != StringRef::npos;
+    return Ns->getName().find(ROCcc_outer) != StringRef::npos;
   }
 
   bool IsHCCallable_() const {
@@ -2272,13 +2272,13 @@ class ReferenceFieldInitialiser {
       Callable_->getASTContext().getTypes().begin(),
       Callable_->getASTContext().getTypes().end(),
       [](const Type* Ty) {
-      static constexpr const char Maker[] = "Ubiquitous_reference_maker";
+      static constexpr const char Maker[]{"Ubiquitous_reference_maker"};
 
       if (!Ty || !Ty->getAsCXXRecordDecl()) return false;
 
       CXXRecordDecl *Class = Ty->getAsCXXRecordDecl();
 
-      if (!IsInHCNamespace_(Class)) return false;
+      if (!IsInROCccNamespace_(Class)) return false;
 
       return Class->getName().find(Maker) != StringRef::npos;
     });

@@ -32,7 +32,6 @@ static const unsigned SPIRAddrSpaceMap[] = {
     0, // cuda_device
     0, // cuda_constant
     0, // cuda_shared
-    3, // hcc_tilestatic
     4, // hcc_generic
     1, // hcc_global
 };

@@ -175,9 +175,16 @@ arrangeLLVMFunctionInfo(CodeGenTypes &CGT, bool instanceMethod,
   appendParameterTypes(CGT, prefix, paramInfos, FTP);
   CanQualType resultType = FTP->getReturnType().getUnqualifiedType();
 
+  auto Tmp{FTP->getExtInfo()};
+
+  if (FD &&
+      FD->hasAttr<AnnotateAttr>() &&
+      FD->getAttr<AnnotateAttr>()->getAnnotation().find("__ROCCC_KERNEL__") != StringRef::npos) {
+        Tmp = Tmp.withCallingConv(CallingConv::CC_OpenCLKernel);
+      }
   return CGT.arrangeLLVMFunctionInfo(resultType, instanceMethod,
                                      /*chainCall=*/false, prefix,
-                                     FTP->getExtInfo(), paramInfos,
+                                     Tmp/*FTP->getExtInfo()*/, paramInfos,
                                      Required);
 }
 

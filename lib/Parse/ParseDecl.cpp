@@ -2159,19 +2159,6 @@ Decl *Parser::ParseDeclarationAfterDeclarator(
   return ParseDeclarationAfterDeclaratorAndAttributes(D, TemplateInfo);
 }
 
-// Check if a given Declarator is a tile_static variable
-static bool IsTileStatic(Declarator &D) {
-  if (D.getDeclSpec().hasAttributes()) {
-    AttributeList *attr = D.getDeclSpec().getAttributes().getList();
-    while (attr) {
-      if (attr->getKind() == AttributeList::AT_HCCTileStatic)
-        return true;
-      attr = attr->getNext();
-    }
-  }
-  return false;
-}
-
 Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     Declarator &D, const ParsedTemplateInfo &TemplateInfo, ForRangeInit *FRI) {
   // RAII type used to track whether we're inside an initializer.
@@ -2269,14 +2256,6 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
   if (isTokenEqualOrEqualTypo()) {
     SourceLocation EqualLoc = ConsumeToken();
 
-    // C++ AMP-specific
-    // tile_static variables can't be initialized.
-    if (getLangOpts().CPlusPlusAMP) {
-      if (IsTileStatic(D)) {
-        Diag(ConsumeToken(), diag::err_tile_static_no_init);
-      }
-    }
-
     if (Tok.is(tok::kw_delete)) {
       if (D.isFunctionDeclarator())
         Diag(ConsumeToken(), diag::err_default_delete_in_multiple_declaration)
@@ -2329,14 +2308,6 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     }
   } else if (Tok.is(tok::l_paren)) {
 
-    // C++ AMP-specific
-    // tile_static variables can't be initialized.
-    if (getLangOpts().CPlusPlusAMP) {
-      if (IsTileStatic(D)) {
-        Diag(Tok, diag::err_tile_static_no_init);
-      }
-    }
-
     // Parse C++ direct initializer: '(' expression-list ')'
     BalancedDelimiterTracker T(*this, tok::l_paren);
     T.consumeOpen();
@@ -2382,14 +2353,6 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     }
   } else if (getLangOpts().CPlusPlus11 && Tok.is(tok::l_brace) &&
              (!CurParsedObjCImpl || !D.isFunctionDeclarator())) {
-
-    // C++ AMP-specific
-    // tile_static variables can't be initialized.
-    if (getLangOpts().CPlusPlusAMP) {
-      if (IsTileStatic(D)) {
-        Diag(Tok, diag::err_tile_static_no_init);
-      }
-    }
 
     // Parse C++0x braced-init-list.
     Diag(Tok, diag::warn_cxx98_compat_generalized_initializer_lists);
@@ -3731,17 +3694,6 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       break;
     case tok::kw_volatile:
       isInvalid = DS.SetTypeQual(DeclSpec::TQ_volatile, Loc, PrevSpec, DiagID,
-                                 getLangOpts());
-      break;
-    case tok::kw_restrict:
-      // Must distinguish between '__restrict' and '/*restrict(cpu, amp)*/':
-      // '__restrict' is a type qualifier
-      // '/*restrict(cpu, amp)*/' is C++AMP restriction specifier
-      if (getLangOpts().CPlusPlusAMP) {
-        if (NextToken().is(tok::l_paren))
-          return;
-      }
-      isInvalid = DS.SetTypeQual(DeclSpec::TQ_restrict, Loc, PrevSpec, DiagID,
                                  getLangOpts());
       break;
 
@@ -5696,8 +5648,7 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
     D.SetRangeEnd(Tok.getLocation());
     ConsumeToken();
     goto PastIdentifier;
-  } else if (Tok.is(tok::identifier) && !D.mayHaveIdentifier() &&
-             !getLangOpts().CPlusPlusAMP) { // Relax the rule for C++AMP
+  } else if (Tok.is(tok::identifier) && !D.mayHaveIdentifier()) {
     // We're not allowed an identifier here, but we got one. Try to figure out
     // if the user was trying to attach a name to the type, or whether the name
     // is some unrelated trailing syntax.
