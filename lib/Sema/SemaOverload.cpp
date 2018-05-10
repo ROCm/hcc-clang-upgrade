@@ -289,11 +289,11 @@ static const Expr *IgnoreNarrowingConversion(const Expr *Converted) {
 ///        value of the expression prior to the narrowing conversion.
 /// \param ConstantType  If this is an NK_Constant_Narrowing conversion, the
 ///        type of the expression prior to the narrowing conversion.
-NarrowingKind
-StandardConversionSequence::getNarrowingKind(ASTContext &Ctx,
-                                             const Expr *Converted,
-                                             APValue &ConstantValue,
-                                             QualType &ConstantType) const {
+/// \param IgnoreFloatToIntegralConversion If true type-narrowing conversions
+///        from floating point types to integral types should be ignored.
+NarrowingKind StandardConversionSequence::getNarrowingKind(
+    ASTContext &Ctx, const Expr *Converted, APValue &ConstantValue,
+    QualType &ConstantType, bool IgnoreFloatToIntegralConversion) const {
   assert(Ctx.getLangOpts().CPlusPlus && "narrowing check outside C++");
 
   // C++11 [dcl.init.list]p7:
@@ -330,6 +330,8 @@ StandardConversionSequence::getNarrowingKind(ASTContext &Ctx,
       return NK_Type_Narrowing;
     } else if (FromType->isIntegralOrUnscopedEnumerationType() &&
                ToType->isRealFloatingType()) {
+      if (IgnoreFloatToIntegralConversion)
+        return NK_Not_Narrowing;
       llvm::APSInt IntConstantValue;
       const Expr *Initializer = IgnoreNarrowingConversion(Converted);
       assert(Initializer && "Unknown conversion expression");
@@ -582,7 +584,7 @@ namespace {
   };
 }
 
-/// \brief Convert from Sema's representation of template deduction information
+/// Convert from Sema's representation of template deduction information
 /// to the form used in overload-candidate information.
 DeductionFailureInfo
 clang::MakeDeductionFailureInfo(ASTContext &Context,
@@ -1191,7 +1193,7 @@ bool Sema::IsOverload(FunctionDecl *New, FunctionDecl *Old,
   return false;
 }
 
-/// \brief Checks availability of the function depending on the current
+/// Checks availability of the function depending on the current
 /// function context. Inside an unavailable function, unavailability is ignored.
 ///
 /// \returns true if \arg FD is unavailable and current context is inside
@@ -1209,7 +1211,7 @@ bool Sema::isFunctionConsideredUnavailable(FunctionDecl *FD) {
   return true;
 }
 
-/// \brief Tries a user-defined conversion from From to ToType.
+/// Tries a user-defined conversion from From to ToType.
 ///
 /// Produces an implicit conversion sequence for when a standard conversion
 /// is not an option. See TryImplicitConversion for more information.
@@ -1421,7 +1423,7 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
   return PerformImplicitConversion(From, ToType, ICS, Action);
 }
 
-/// \brief Determine whether the conversion from FromType to ToType is a valid
+/// Determine whether the conversion from FromType to ToType is a valid
 /// conversion that strips "noexcept" or "noreturn" off the nested function
 /// type.
 bool Sema::IsFunctionConversion(QualType FromType, QualType ToType,
@@ -1518,7 +1520,7 @@ bool Sema::IsFunctionConversion(QualType FromType, QualType ToType,
   return true;
 }
 
-/// \brief Determine whether the conversion from FromType to ToType is a valid
+/// Determine whether the conversion from FromType to ToType is a valid
 /// vector conversion.
 ///
 /// \param ICK Will be set to the vector conversion kind, if this is a vector
@@ -2118,7 +2120,7 @@ bool Sema::IsFloatingPointPromotion(QualType FromType, QualType ToType) {
   return false;
 }
 
-/// \brief Determine if a conversion is a complex promotion.
+/// Determine if a conversion is a complex promotion.
 ///
 /// A complex promotion is defined as a complex -> complex conversion
 /// where the conversion between the underlying real types is a
@@ -2352,7 +2354,7 @@ bool Sema::IsPointerConversion(Expr *From, QualType FromType, QualType ToType,
   return false;
 }
 
-/// \brief Adopt the given qualifiers for the given type.
+/// Adopt the given qualifiers for the given type.
 static QualType AdoptQualifiers(ASTContext &Context, QualType T, Qualifiers Qs){
   Qualifiers TQs = T.getQualifiers();
 
@@ -2540,7 +2542,7 @@ bool Sema::isObjCPointerConversion(QualType FromType, QualType ToType,
   return false;
 }
 
-/// \brief Determine whether this is an Objective-C writeback conversion,
+/// Determine whether this is an Objective-C writeback conversion,
 /// used for parameter passing when performing automatic reference counting.
 ///
 /// \param FromType The type we're converting form.
@@ -2600,7 +2602,7 @@ bool Sema::isObjCWritebackConversion(QualType FromType, QualType ToType,
                                     IncompatibleObjC))
     return false;
 
-  /// \brief Construct the type we're converting to, which is a pointer to
+  /// Construct the type we're converting to, which is a pointer to
   /// __autoreleasing pointee.
   FromPointee = Context.getQualifiedType(FromPointee, FromQuals);
   ConvertedType = Context.getPointerType(FromPointee);
@@ -3136,7 +3138,7 @@ Sema::IsQualificationConversion(QualType FromType, QualType ToType,
   return UnwrappedAnyPointer && Context.hasSameUnqualifiedType(FromType,ToType);
 }
 
-/// \brief - Determine whether this is a conversion from a scalar type to an
+/// - Determine whether this is a conversion from a scalar type to an
 /// atomic type.
 ///
 /// If successful, updates \c SCS's second and third steps in the conversion
@@ -3479,7 +3481,7 @@ Sema::DiagnoseMultipleUserDefinedConversion(Expr *From, QualType ToType) {
   return true;
 }
 
-/// \brief Compare the user-defined conversion functions or constructors
+/// Compare the user-defined conversion functions or constructors
 /// of two user-defined conversion sequences to determine whether any ordering
 /// is possible.
 static ImplicitConversionSequence::CompareKind
@@ -3681,7 +3683,7 @@ compareStandardConversionSubsets(ASTContext &Context,
   return ImplicitConversionSequence::Indistinguishable;
 }
 
-/// \brief Determine whether one of the given reference bindings is better
+/// Determine whether one of the given reference bindings is better
 /// than the other based on what kind of bindings they are.
 static bool
 isBetterReferenceBindingKind(const StandardConversionSequence &SCS1,
@@ -4206,7 +4208,7 @@ CompareDerivedToBaseConversions(Sema &S, SourceLocation Loc,
   return ImplicitConversionSequence::Indistinguishable;
 }
 
-/// \brief Determine whether the given type is valid, e.g., it is not an invalid
+/// Determine whether the given type is valid, e.g., it is not an invalid
 /// C++ class.
 static bool isTypeValid(QualType T) {
   if (CXXRecordDecl *Record = T->getAsCXXRecordDecl())
@@ -4309,7 +4311,7 @@ Sema::CompareReferenceRelationship(SourceLocation Loc,
     return Ref_Related;
 }
 
-/// \brief Look for a user-defined conversion to a value reference-compatible
+/// Look for a user-defined conversion to a value reference-compatible
 ///        with DeclType. Return true if something definite is found.
 static bool
 FindConversionForRefInit(Sema &S, ImplicitConversionSequence &ICS,
@@ -4436,7 +4438,7 @@ FindConversionForRefInit(Sema &S, ImplicitConversionSequence &ICS,
   llvm_unreachable("Invalid OverloadResult!");
 }
 
-/// \brief Compute an implicit conversion sequence for reference
+/// Compute an implicit conversion sequence for reference
 /// initialization.
 static ImplicitConversionSequence
 TryReferenceInit(Sema &S, Expr *Init, QualType DeclType,
@@ -5648,7 +5650,7 @@ collectViableConversionCandidates(Sema &SemaRef, Expr *From, QualType ToType,
   }
 }
 
-/// \brief Attempt to convert the given expression to a type which is accepted
+/// Attempt to convert the given expression to a type which is accepted
 /// by the given converter.
 ///
 /// This routine will attempt to convert an expression of class type to a
@@ -6374,7 +6376,7 @@ bool Sema::diagnoseArgIndependentDiagnoseIfAttrs(const NamedDecl *ND,
       });
 }
 
-/// \brief Add all of the function declarations in the given function set to
+/// Add all of the function declarations in the given function set to
 /// the overload candidate set.
 void Sema::AddFunctionCandidates(const UnresolvedSetImpl &Fns,
                                  ArrayRef<Expr *> Args,
@@ -6610,7 +6612,7 @@ Sema::AddMethodCandidate(CXXMethodDecl *Method, DeclAccessPair FoundDecl,
   }
 }
 
-/// \brief Add a C++ member function template as a candidate to the candidate
+/// Add a C++ member function template as a candidate to the candidate
 /// set, using template argument deduction to produce an appropriate member
 /// function template specialization.
 void
@@ -6678,7 +6680,7 @@ Sema::AddMethodTemplateCandidate(FunctionTemplateDecl *MethodTmpl,
                      Conversions);
 }
 
-/// \brief Add a C++ function template specialization as a candidate
+/// Add a C++ function template specialization as a candidate
 /// in the candidate set, using template argument deduction to produce
 /// an appropriate function template specialization.
 void
@@ -7019,7 +7021,7 @@ Sema::AddConversionCandidate(CXXConversionDecl *Conversion,
   }
 }
 
-/// \brief Adds a conversion function template specialization
+/// Adds a conversion function template specialization
 /// candidate to the overload set, using template argument deduction
 /// to deduce the template arguments of the conversion function
 /// template from the type that we are converting to (C++
@@ -7174,7 +7176,7 @@ void Sema::AddSurrogateCandidate(CXXConversionDecl *Conversion,
   }
 }
 
-/// \brief Add overload candidates for overloaded operators that are
+/// Add overload candidates for overloaded operators that are
 /// member functions.
 ///
 /// Add the overloaded operator candidates that are member functions
@@ -7310,18 +7312,18 @@ class BuiltinCandidateTypeSet  {
   /// used in the built-in candidates.
   TypeSet EnumerationTypes;
 
-  /// \brief The set of vector types that will be used in the built-in
+  /// The set of vector types that will be used in the built-in
   /// candidates.
   TypeSet VectorTypes;
 
-  /// \brief A flag indicating non-record types are viable candidates
+  /// A flag indicating non-record types are viable candidates
   bool HasNonRecordTypes;
 
-  /// \brief A flag indicating whether either arithmetic or enumeration types
+  /// A flag indicating whether either arithmetic or enumeration types
   /// were present in the candidate set.
   bool HasArithmeticOrEnumeralTypes;
 
-  /// \brief A flag indicating whether the nullptr type was present in the
+  /// A flag indicating whether the nullptr type was present in the
   /// candidate set.
   bool HasNullPtrType;
 
@@ -7574,7 +7576,7 @@ BuiltinCandidateTypeSet::AddTypesConvertedFrom(QualType Ty,
   }
 }
 
-/// \brief Helper function for AddBuiltinOperatorCandidates() that adds
+/// Helper function for AddBuiltinOperatorCandidates() that adds
 /// the volatile- and non-volatile-qualified assignment operators for the
 /// given type to the candidate set.
 static void AddBuiltinAssignmentOperatorCandidates(Sema &S,
@@ -7652,7 +7654,7 @@ static  Qualifiers CollectVRQualifiers(ASTContext &Context, Expr* ArgExpr) {
 
 namespace {
 
-/// \brief Helper class to manage the addition of builtin operator overload
+/// Helper class to manage the addition of builtin operator overload
 /// candidates. It provides shared state and utility methods used throughout
 /// the process, as well as a helper method to add each group of builtin
 /// operator overloads from the standard to a candidate set.
@@ -7725,7 +7727,7 @@ class BuiltinOperatorOverloadBuilder {
            "Enough inline storage for all arithmetic types.");
   }
 
-  /// \brief Helper method to factor out the common pattern of adding overloads
+  /// Helper method to factor out the common pattern of adding overloads
   /// for '++' and '--' builtin operators.
   void addPlusPlusMinusMinusStyleOverloads(QualType CandidateTy,
                                            bool HasVolatile,
@@ -7989,7 +7991,8 @@ public:
   //        bool       operator>=(T, T);
   //        bool       operator==(T, T);
   //        bool       operator!=(T, T);
-  void addRelationalPointerOrEnumeralOverloads() {
+  //           R       operator<=>(T, T)
+  void addGenericBinaryPointerOrEnumeralOverloads() {
     // C++ [over.match.oper]p3:
     //   [...]the built-in candidates include all of the candidate operator
     //   functions defined in 13.6 that, compared to the given operator, [...]
@@ -8062,7 +8065,6 @@ public:
             UserDefinedBinaryOperators.count(std::make_pair(CanonType,
                                                             CanonType)))
           continue;
-
         QualType ParamTypes[2] = { *Enum, *Enum };
         S.AddBuiltinCandidate(ParamTypes, Args, CandidateSet);
       }
@@ -8178,6 +8180,41 @@ public:
         S.AddBuiltinCandidate(LandR, Args, CandidateSet);
       }
     }
+  }
+
+  // C++2a [over.built]p14:
+  //
+  //   For every integral type T there exists a candidate operator function
+  //   of the form
+  //
+  //        std::strong_ordering operator<=>(T, T)
+  //
+  // C++2a [over.built]p15:
+  //
+  //   For every pair of floating-point types L and R, there exists a candidate
+  //   operator function of the form
+  //
+  //       std::partial_ordering operator<=>(L, R);
+  //
+  // FIXME: The current specification for integral types doesn't play nice with
+  // the direction of p0946r0, which allows mixed integral and unscoped-enum
+  // comparisons. Under the current spec this can lead to ambiguity during
+  // overload resolution. For example:
+  //
+  //   enum A : int {a};
+  //   auto x = (a <=> (long)42);
+  //
+  //   error: call is ambiguous for arguments 'A' and 'long'.
+  //   note: candidate operator<=>(int, int)
+  //   note: candidate operator<=>(long, long)
+  //
+  // To avoid this error, this function deviates from the specification and adds
+  // the mixed overloads `operator<=>(L, R)` where L and R are promoted
+  // arithmetic types (the same as the generic relational overloads).
+  //
+  // For now this function acts as a placeholder.
+  void addThreeWayArithmeticOverloads() {
+    addGenericBinaryArithmeticOverloads();
   }
 
   // C++ [over.built]p17:
@@ -8748,12 +8785,14 @@ void Sema::AddBuiltinOperatorCandidates(OverloadedOperatorKind Op,
   case OO_Greater:
   case OO_LessEqual:
   case OO_GreaterEqual:
-    OpBuilder.addRelationalPointerOrEnumeralOverloads();
+    OpBuilder.addGenericBinaryPointerOrEnumeralOverloads();
     OpBuilder.addGenericBinaryArithmeticOverloads();
     break;
 
   case OO_Spaceship:
-    llvm_unreachable("<=> expressions not supported yet");
+    OpBuilder.addGenericBinaryPointerOrEnumeralOverloads();
+    OpBuilder.addThreeWayArithmeticOverloads();
+    break;
 
   case OO_Percent:
   case OO_Caret:
@@ -8824,7 +8863,7 @@ void Sema::AddBuiltinOperatorCandidates(OverloadedOperatorKind Op,
   }
 }
 
-/// \brief Add function candidates found via argument-dependent lookup
+/// Add function candidates found via argument-dependent lookup
 /// to the set of overloading candidates.
 ///
 /// This routine performs argument-dependent name lookup based on the
@@ -9199,7 +9238,7 @@ void Sema::diagnoseEquivalentInternalLinkageDeclarations(
   }
 }
 
-/// \brief Computes the best viable function (C++ 13.3.3)
+/// Computes the best viable function (C++ 13.3.3)
 /// within an overload candidate set.
 ///
 /// \param Loc The location of the function name (or operator symbol) for
@@ -9379,7 +9418,7 @@ static bool isFunctionAlwaysEnabled(const ASTContext &Ctx,
   return true;
 }
 
-/// \brief Returns true if we can take the address of the function.
+/// Returns true if we can take the address of the function.
 ///
 /// \param Complain - If true, we'll emit a diagnostic
 /// \param InOverloadResolution - For the purposes of emitting a diagnostic, are
@@ -11233,7 +11272,7 @@ Sema::ResolveAddressOfOverloadedFunction(Expr *AddressOfExpr,
   return Fn;
 }
 
-/// \brief Given an expression that refers to an overloaded function, try to
+/// Given an expression that refers to an overloaded function, try to
 /// resolve that function to a single function that can have its address taken.
 /// This will modify `Pair` iff it returns non-null.
 ///
@@ -11269,7 +11308,7 @@ Sema::resolveAddressOfOnlyViableOverloadCandidate(Expr *E,
   return Result;
 }
 
-/// \brief Given an overloaded function, tries to turn it into a non-overloaded
+/// Given an overloaded function, tries to turn it into a non-overloaded
 /// function reference using resolveAddressOfOnlyViableOverloadCandidate. This
 /// will perform access checks, diagnose the use of the resultant decl, and, if
 /// requested, potentially perform a function-to-pointer decay.
@@ -11299,7 +11338,7 @@ bool Sema::resolveAndFixAddressOfOnlyViableOverloadCandidate(
   return true;
 }
 
-/// \brief Given an expression that refers to an overloaded function, try to
+/// Given an expression that refers to an overloaded function, try to
 /// resolve that overloaded function expression down to a single function.
 ///
 /// This routine can only resolve template-ids that refer to a single function
@@ -11468,7 +11507,7 @@ bool Sema::ResolveAndFixSingleFunctionTemplateSpecialization(
   return true;
 }
 
-/// \brief Add a single candidate to the overload set.
+/// Add a single candidate to the overload set.
 static void AddOverloadedCallCandidate(Sema &S,
                                        DeclAccessPair FoundDecl,
                                  TemplateArgumentListInfo *ExplicitTemplateArgs,
@@ -11507,7 +11546,7 @@ static void AddOverloadedCallCandidate(Sema &S,
   assert(!KnownValid && "unhandled case in overloaded call candidate");
 }
 
-/// \brief Add the overload candidates named by callee and/or found by argument
+/// Add the overload candidates named by callee and/or found by argument
 /// dependent lookup to the given overload set.
 void Sema::AddOverloadedCallCandidates(UnresolvedLookupExpr *ULE,
                                        ArrayRef<Expr *> Args,
@@ -11799,7 +11838,7 @@ BuildRecoveryCallExpr(Sema &SemaRef, Scope *S, Expr *Fn,
                                RParenLoc);
 }
 
-/// \brief Constructs and populates an OverloadedCandidateSet from
+/// Constructs and populates an OverloadedCandidateSet from
 /// the given function.
 /// \returns true when an the ExprResult output parameter has been set.
 bool Sema::buildOverloadedCallSet(Scope *S, Expr *Fn,
@@ -12005,7 +12044,7 @@ static bool IsOverloaded(const UnresolvedSetImpl &Functions) {
     (Functions.size() == 1 && isa<FunctionTemplateDecl>(*Functions.begin()));
 }
 
-/// \brief Create a unary operation that may resolve to an overloaded
+/// Create a unary operation that may resolve to an overloaded
 /// operator.
 ///
 /// \param OpLoc The location of the operator itself (e.g., '*').
@@ -12196,7 +12235,7 @@ Sema::CreateOverloadedUnaryOp(SourceLocation OpLoc, UnaryOperatorKind Opc,
   return CreateBuiltinUnaryOp(OpLoc, Opc, Input);
 }
 
-/// \brief Create a binary operation that may resolve to an overloaded
+/// Create a binary operation that may resolve to an overloaded
 /// operator.
 ///
 /// \param OpLoc The location of the operator itself (e.g., '+').

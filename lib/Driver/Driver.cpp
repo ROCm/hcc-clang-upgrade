@@ -286,11 +286,12 @@ phases::ID Driver::getFinalPhase(const DerivedArgList &DAL,
 }
 
 static Arg *MakeInputArg(DerivedArgList &Args, OptTable &Opts,
-                         StringRef Value) {
+                         StringRef Value, bool Claim = true) {
   Arg *A = new Arg(Opts.getOption(options::OPT_INPUT), Value,
                    Args.getBaseArgs().MakeIndex(Value), Value.data());
   Args.AddSynthesizedArg(A);
-  A->claim();
+  if (Claim)
+    A->claim();
   return A;
 }
 
@@ -358,7 +359,7 @@ DerivedArgList *Driver::TranslateInputArgs(const InputArgList &Args) const {
     if (A->getOption().matches(options::OPT__DASH_DASH)) {
       A->claim();
       for (StringRef Val : A->getValues())
-        DAL->append(MakeInputArg(*DAL, *Opts, Val));
+        DAL->append(MakeInputArg(*DAL, *Opts, Val, false));
       continue;
     }
 
@@ -418,7 +419,7 @@ bool Driver::IsCXXAMP(const ArgList& Args) {
   return false;
 }
 
-/// \brief Compute target triple from args.
+/// Compute target triple from args.
 ///
 /// This routine provides the logic to compute a target triple from various
 /// args passed to the driver and the default triple string.
@@ -517,7 +518,7 @@ static llvm::Triple computeTargetTriple(const Driver &D,
   return Target;
 }
 
-// \brief Parse the LTO options and record the type of LTO compilation
+// Parse the LTO options and record the type of LTO compilation
 // based on which -f(no-)?lto(=.*)? option occurs last.
 void Driver::setLTOMode(const llvm::opt::ArgList &Args) {
   LTOMode = LTOK_None;
@@ -1791,7 +1792,7 @@ void Driver::PrintActions(const Compilation &C) const {
     PrintActions1(C, A, Ids);
 }
 
-/// \brief Check whether the given input tree contains any compilation or
+/// Check whether the given input tree contains any compilation or
 /// assembly actions.
 static bool ContainsCompileOrAssembleAction(const Action *A) {
   if (isa<CompileJobAction>(A) || isa<BackendJobAction>(A) ||
@@ -1892,7 +1893,7 @@ void Driver::BuildUniversalActions(Compilation &C, const ToolChain &TC,
   }
 }
 
-/// \brief Check that the file referenced by Value exists. If it doesn't,
+/// Check that the file referenced by Value exists. If it doesn't,
 /// issue a diagnostic and return false.
 static bool DiagnoseInputExistence(const Driver &D, const DerivedArgList &Args,
                                    StringRef Value, types::ID Ty) {
@@ -2254,7 +2255,7 @@ class OffloadingActionBuilder final {
     }
   };
 
-  /// \brief CUDA action builder. It injects device code in the host backend
+  /// CUDA action builder. It injects device code in the host backend
   /// action.
   class CudaActionBuilder final : public DeviceActionBuilder {
     /// Flags to signal if the user requested host-only or device-only
@@ -3032,6 +3033,9 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
     // this compilation, warn the user about it.
     phases::ID InitialPhase = PL[0];
     if (InitialPhase > FinalPhase) {
+      if (InputArg->isClaimed())
+        continue;
+
       // Claim here to avoid the more general unused warning.
       InputArg->claim();
 
@@ -4068,7 +4072,7 @@ const char *Driver::getDefaultImageName() const {
   return Target.isOSWindows() ? "a.exe" : "a.out";
 }
 
-/// \brief Create output filename based on ArgValue, which could either be a
+/// Create output filename based on ArgValue, which could either be a
 /// full filename, filename without extension, or a directory. If ArgValue
 /// does not provide a filename, then use BaseName, and use the extension
 /// suitable for FileType.

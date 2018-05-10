@@ -1120,12 +1120,6 @@ void CodeGenModule::SetLLVMFunctionAttributes(const Decl *D,
   ConstructAttributeList(F->getName(), Info, D, PAL, CallingConv, false);
   F->setAttributes(PAL);
   F->setCallingConv(static_cast<llvm::CallingConv::ID>(CallingConv));
-
-  // HCC-specific
-  if (D) {
-    llvm::AttrBuilder B;
-    F->addAttributes(llvm::AttributeList::FunctionIndex, B);
-  }
 }
 
 /// Determines whether the language options require us to model
@@ -1158,12 +1152,14 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
   if (!hasUnwindExceptions(LangOpts))
     B.addAttribute(llvm::Attribute::NoUnwind);
 
-  if (LangOpts.getStackProtector() == LangOptions::SSPOn)
-    B.addAttribute(llvm::Attribute::StackProtect);
-  else if (LangOpts.getStackProtector() == LangOptions::SSPStrong)
-    B.addAttribute(llvm::Attribute::StackProtectStrong);
-  else if (LangOpts.getStackProtector() == LangOptions::SSPReq)
-    B.addAttribute(llvm::Attribute::StackProtectReq);
+  if (!D || !D->hasAttr<NoStackProtectorAttr>()) {
+    if (LangOpts.getStackProtector() == LangOptions::SSPOn)
+      B.addAttribute(llvm::Attribute::StackProtect);
+    else if (LangOpts.getStackProtector() == LangOptions::SSPStrong)
+      B.addAttribute(llvm::Attribute::StackProtectStrong);
+    else if (LangOpts.getStackProtector() == LangOptions::SSPReq)
+      B.addAttribute(llvm::Attribute::StackProtectReq);
+  }
 
   if (!D) {
     // If we don't have a declaration to control inlining, the function isn't
@@ -1576,7 +1572,7 @@ void CodeGenModule::AddDependentLib(StringRef Lib) {
   LinkerOptionsMetadata.push_back(llvm::MDNode::get(getLLVMContext(), MDOpts));
 }
 
-/// \brief Add link options implied by the given module, including modules
+/// Add link options implied by the given module, including modules
 /// it depends on, using a postorder walk.
 static void addLinkOptionsPostorder(CodeGenModule &CGM, Module *Mod,
                                     SmallVectorImpl<llvm::MDNode *> &Metadata,
@@ -2527,8 +2523,17 @@ llvm::Constant *CodeGenModule::GetOrCreateLLVMFunction(
     // For the device mark the function as one that should be emitted.
     if (getLangOpts().OpenMPIsDevice && OpenMPRuntime &&
         !OpenMPRuntime->markAsGlobalTarget(GD) && FD->isDefined() &&
-        !DontDefer && !IsForDefinition)
-      addDeferredDeclToEmit(GD);
+        !DontDefer && !IsForDefinition) {
+      const FunctionDecl *FDDef = FD->getDefinition();
+      GlobalDecl GDDef;
+      if (const auto *CD = dyn_cast<CXXConstructorDecl>(FDDef))
+        GDDef = GlobalDecl(CD, GD.getCtorType());
+      else if (const auto *DD = dyn_cast<CXXDestructorDecl>(FDDef))
+        GDDef = GlobalDecl(DD, GD.getDtorType());
+      else
+        GDDef = GlobalDecl(FDDef);
+      addDeferredDeclToEmit(GDDef);
+    }
 
     if (FD->isMultiVersion() && FD->getAttr<TargetAttr>()->isDefaultVersion()) {
       UpdateMultiVersionNames(GD, FD);
