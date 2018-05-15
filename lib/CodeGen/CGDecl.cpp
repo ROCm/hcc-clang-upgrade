@@ -1395,7 +1395,7 @@ void CodeGenFunction::EmitAutoVarInit(const AutoVarEmission &emission) {
     llvm::ConstantInt::get(IntPtrTy,
                            getContext().getTypeSizeInChars(type).getQuantity());
 
-  llvm::Type *BP = AllocaInt8PtrTy;
+  llvm::Type *BP = CGM.Int8Ty->getPointerTo(Loc.getAddressSpace());
   if (Loc.getType() != BP)
     Loc = Builder.CreatePointerBitCastOrAddrSpaceCast(Loc, BP);
 
@@ -1416,11 +1416,10 @@ void CodeGenFunction::EmitAutoVarInit(const AutoVarEmission &emission) {
     // Otherwise, create a temporary global with the initializer then
     // memcpy from the global to the alloca.
     std::string Name = getStaticDeclName(CGM, D);
-    unsigned AS = 0;
-    if (getLangOpts().OpenCL || getLangOpts().CPlusPlusAMP) {
-      AS = CGM.getContext().getTargetAddressSpace(LangAS::opencl_constant);
-      BP = llvm::PointerType::getInt8PtrTy(getLLVMContext(), AS);
-    }
+    unsigned AS = CGM.getContext().getTargetAddressSpace(
+        CGM.getStringLiteralAddressSpace());
+    BP = llvm::PointerType::getInt8PtrTy(getLLVMContext(), AS);
+
     llvm::GlobalVariable *GV =
       new llvm::GlobalVariable(CGM.getModule(), constant->getType(), true,
                                llvm::GlobalValue::PrivateLinkage,
