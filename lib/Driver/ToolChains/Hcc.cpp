@@ -90,8 +90,10 @@ void HCCInstallationDetector::AddHCCLibArgs(const llvm::opt::ArgList &Args, llvm
     for (auto &lib: SystemLibs)
       CmdArgs.push_back(lib);
     
-    for (auto &lib: RuntimeLibs)
-      CmdArgs.push_back(lib);
+    if (!Args.hasArg(options::OPT_fno_hcc_lib_link)) {
+      for (auto &lib: RuntimeLibs)
+        CmdArgs.push_back(lib);
+    }
 
     if (Args.hasArg(options::OPT_hcc_extra_libs_EQ)) {
       auto HccExtraLibs = Args.getAllArgValues(options::OPT_hcc_extra_libs_EQ);
