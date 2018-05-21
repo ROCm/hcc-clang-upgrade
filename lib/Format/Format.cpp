@@ -169,6 +169,19 @@ struct ScalarEnumerationTraits<FormatStyle::ReturnTypeBreakingStyle> {
 };
 
 template <>
+struct ScalarEnumerationTraits<FormatStyle::BreakTemplateDeclarationsStyle> {
+  static void enumeration(IO &IO, FormatStyle::BreakTemplateDeclarationsStyle &Value) {
+    IO.enumCase(Value, "No", FormatStyle::BTDS_No);
+    IO.enumCase(Value, "MultiLine", FormatStyle::BTDS_MultiLine);
+    IO.enumCase(Value, "Yes", FormatStyle::BTDS_Yes);
+
+    // For backward compatibility.
+    IO.enumCase(Value, "false", FormatStyle::BTDS_MultiLine);
+    IO.enumCase(Value, "true", FormatStyle::BTDS_Yes);
+  }
+};
+
+template <>
 struct ScalarEnumerationTraits<FormatStyle::DefinitionReturnTypeBreakingStyle> {
   static void
   enumeration(IO &IO, FormatStyle::DefinitionReturnTypeBreakingStyle &Value) {
@@ -400,6 +413,8 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("PenaltyBreakFirstLessLess",
                    Style.PenaltyBreakFirstLessLess);
     IO.mapOptional("PenaltyBreakString", Style.PenaltyBreakString);
+    IO.mapOptional("PenaltyBreakTemplateDeclaration",
+                   Style.PenaltyBreakTemplateDeclaration);
     IO.mapOptional("PenaltyExcessCharacter", Style.PenaltyExcessCharacter);
     IO.mapOptional("PenaltyReturnTypeOnItsOwnLine",
                    Style.PenaltyReturnTypeOnItsOwnLine);
@@ -598,7 +613,7 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.AlwaysBreakAfterReturnType = FormatStyle::RTBS_None;
   LLVMStyle.AlwaysBreakAfterDefinitionReturnType = FormatStyle::DRTBS_None;
   LLVMStyle.AlwaysBreakBeforeMultilineStrings = false;
-  LLVMStyle.AlwaysBreakTemplateDeclarations = false;
+  LLVMStyle.AlwaysBreakTemplateDeclarations = FormatStyle::BTDS_MultiLine;
   LLVMStyle.BinPackArguments = true;
   LLVMStyle.BinPackParameters = true;
   LLVMStyle.BreakBeforeBinaryOperators = FormatStyle::BOS_None;
@@ -670,6 +685,7 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.PenaltyExcessCharacter = 1000000;
   LLVMStyle.PenaltyReturnTypeOnItsOwnLine = 60;
   LLVMStyle.PenaltyBreakBeforeFirstCallParameter = 19;
+  LLVMStyle.PenaltyBreakTemplateDeclaration = prec::Relational;
 
   LLVMStyle.DisableFormat = false;
   LLVMStyle.SortIncludes = true;
@@ -694,7 +710,7 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
   GoogleStyle.AllowShortIfStatementsOnASingleLine = true;
   GoogleStyle.AllowShortLoopsOnASingleLine = true;
   GoogleStyle.AlwaysBreakBeforeMultilineStrings = true;
-  GoogleStyle.AlwaysBreakTemplateDeclarations = true;
+  GoogleStyle.AlwaysBreakTemplateDeclarations = FormatStyle::BTDS_Yes;
   GoogleStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = true;
   GoogleStyle.DerivePointerAlignment = true;
   GoogleStyle.IncludeStyle.IncludeCategories = {
@@ -819,7 +835,7 @@ FormatStyle getMozillaStyle() {
   MozillaStyle.AlwaysBreakAfterReturnType = FormatStyle::RTBS_TopLevel;
   MozillaStyle.AlwaysBreakAfterDefinitionReturnType =
       FormatStyle::DRTBS_TopLevel;
-  MozillaStyle.AlwaysBreakTemplateDeclarations = true;
+  MozillaStyle.AlwaysBreakTemplateDeclarations = FormatStyle::BTDS_Yes;
   MozillaStyle.BinPackParameters = false;
   MozillaStyle.BinPackArguments = false;
   MozillaStyle.BreakBeforeBraces = FormatStyle::BS_Mozilla;
@@ -930,9 +946,9 @@ std::error_code parseConfiguration(StringRef Text, FormatStyle *Style) {
     // Ensure that each language is configured at most once.
     for (unsigned j = 0; j < i; ++j) {
       if (Styles[i].Language == Styles[j].Language) {
-        DEBUG(llvm::dbgs()
-              << "Duplicate languages in the config file on positions " << j
-              << " and " << i << "\n");
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Duplicate languages in the config file on positions "
+                   << j << " and " << i << "\n");
         return make_error_code(ParseError::Error);
       }
     }
@@ -2146,7 +2162,7 @@ llvm::Expected<FormatStyle> getStyle(StringRef StyleName, StringRef FileName,
     SmallString<128> ConfigFile(Directory);
 
     llvm::sys::path::append(ConfigFile, ".clang-format");
-    DEBUG(llvm::dbgs() << "Trying " << ConfigFile << "...\n");
+    LLVM_DEBUG(llvm::dbgs() << "Trying " << ConfigFile << "...\n");
 
     Status = FS->status(ConfigFile.str());
     bool FoundConfigFile =
@@ -2155,7 +2171,7 @@ llvm::Expected<FormatStyle> getStyle(StringRef StyleName, StringRef FileName,
       // Try _clang-format too, since dotfiles are not commonly used on Windows.
       ConfigFile = Directory;
       llvm::sys::path::append(ConfigFile, "_clang-format");
-      DEBUG(llvm::dbgs() << "Trying " << ConfigFile << "...\n");
+      LLVM_DEBUG(llvm::dbgs() << "Trying " << ConfigFile << "...\n");
       Status = FS->status(ConfigFile.str());
       FoundConfigFile = Status && (Status->getType() ==
                                    llvm::sys::fs::file_type::regular_file);
@@ -2177,7 +2193,8 @@ llvm::Expected<FormatStyle> getStyle(StringRef StyleName, StringRef FileName,
         return make_string_error("Error reading " + ConfigFile + ": " +
                                  ec.message());
       }
-      DEBUG(llvm::dbgs() << "Using configuration file " << ConfigFile << "\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Using configuration file " << ConfigFile << "\n");
       return Style;
     }
   }
