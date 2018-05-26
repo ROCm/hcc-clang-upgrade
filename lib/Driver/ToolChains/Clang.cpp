@@ -1076,7 +1076,8 @@ void Clang::AddPreprocessingOptions(Compilation &C, const JobAction &JA,
   if (JA.isOffloading(Action::OFK_Cuda))
     getToolChain().AddCudaIncludeArgs(Args, CmdArgs);
 
-  if (D.IsCXXAMP(Args))
+  if (Args.hasArg(options::OPT_famp) ||
+    Args.getLastArgValue(options::OPT_std_EQ).equals("c++amp"))
     getToolChain().AddHCCIncludeArgs(Args, CmdArgs);
 
   // Add -i* options, and automatically translate to

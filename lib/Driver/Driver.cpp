@@ -392,31 +392,11 @@ DerivedArgList *Driver::TranslateInputArgs(const InputArgList &Args) const {
     if (!Args.hasArg(options::OPT_std_EQ)) {
       DAL->AddPositionalArg(0, Opts->getOption(options::OPT_std_EQ), "c++amp");
     }
-  }
-
-  if (Args.hasArg(options::OPT_famp)) {
+  } else if (Args.hasArg(options::OPT_famp)) {
     DAL->AddPositionalArg(0, Opts->getOption(options::OPT_Xclang), "-famp");
   }
 
   return DAL;
-}
-
-// test if we are in C++AMP mode
-bool Driver::IsCXXAMP(const ArgList& Args) {
-  if (Args.hasArg(options::OPT_famp)) {
-    return true;
-  }
-
-  for (ArgList::const_iterator it = Args.begin(), ie = Args.end();
-       it != ie; ++it) {
-    Arg* A = *it;
-    if (A->getOption().getName().compare("std=") == 0 &&
-        A->getNumValues() == 1 &&
-        std::string("c++amp").compare(A->getValue(0)) == 0) {
-      return true;
-    }
-  }
-  return false;
 }
 
 /// Compute target triple from args.
@@ -2065,7 +2045,8 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
         // C++ AMP-specific
         // For C++ source files, duplicate the input so we launch the compiler twice
         // 1 for GPU compilation (TY_CXX_AMP), 1 for CPU compilation (TY_CXX)
-        if (IsCXXAMP(Args) && (Ty == types::TY_CXX)) {
+        if (Ty == types::TY_CXX && (Args.hasArg(options::OPT_famp) ||
+          Args.getLastArgValue(options::OPT_std_EQ).equals("c++amp"))) {
           Arg *FinalPhaseArg;
           phases::ID FinalPhase = getFinalPhase(Args, &FinalPhaseArg);
           switch (FinalPhase) {
@@ -3241,9 +3222,6 @@ Action *Driver::ConstructPhaseAction(
   llvm_unreachable("invalid phase in ConstructPhaseAction");
 }
 
-// UPGRADE_TBD: see if it's possible to get rid of this check
-extern bool IsCXXAMPBackendJobAction(const JobAction* A);
-
 void Driver::BuildJobs(Compilation &C) const {
   llvm::PrettyStackTraceString CrashInfo("Building compilation jobs");
 
@@ -3259,7 +3237,8 @@ void Driver::BuildJobs(Compilation &C) const {
 
     if (NumOutputs > 1) {
       // relax rule for C++AMP because we may have multiple outputs
-      if (!IsCXXAMP(C.getArgs())) {
+      if (!C.getArgs().hasArg(options::OPT_famp) &&
+        !C.getArgs().getLastArgValue(options::OPT_std_EQ).equals("c++amp")) {
         Diag(clang::diag::err_drv_output_argument_with_multiple_files);
         FinalOutput = nullptr;
       }
