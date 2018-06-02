@@ -2867,8 +2867,8 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
           (OtherD = dyn_cast<VarDecl>(OtherGD.getDecl())) &&
           OtherD->hasInit() &&
           DiagnosedConflictingDefinitions.insert(D).second) {
-        getDiags().Report(D->getLocation(),
-                          diag::err_duplicate_mangled_name);
+        getDiags().Report(D->getLocation(), diag::err_duplicate_mangled_name)
+            << MangledName;
         getDiags().Report(OtherGD.getDecl()->getLocation(),
                           diag::note_previous_definition);
       }
@@ -3905,7 +3905,8 @@ void CodeGenModule::emitIFuncDefinition(GlobalDecl GD) {
     GlobalDecl OtherGD;
     if (lookupRepresentativeDecl(MangledName, OtherGD) &&
         DiagnosedConflictingDefinitions.insert(GD).second) {
-      Diags.Report(D->getLocation(), diag::err_duplicate_mangled_name);
+      Diags.Report(D->getLocation(), diag::err_duplicate_mangled_name)
+          << MangledName;
       Diags.Report(OtherGD.getDecl()->getLocation(),
                    diag::note_previous_definition);
     }
