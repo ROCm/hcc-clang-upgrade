@@ -13194,7 +13194,7 @@ Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Declarator &D,
     const bool IsCPU = DP->hasAttr<CXXAMPRestrictCPUAttr>();
 
     SkipBody->ShouldSkip =
-      !IsAuto && LangOpts.DevicePath ? (!IsHC && IsCPU) : (IsHC && !IsCPU);
+      !IsAuto && (LangOpts.DevicePath ? (!IsHC && IsCPU) : (IsHC && !IsCPU));
 
     if (SkipBody->ShouldSkip) {
       auto Empty = new (getASTContext()) NullStmt{DP->getLocation()};
