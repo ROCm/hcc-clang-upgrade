@@ -1069,77 +1069,28 @@ void Clang::AddPreprocessingOptions(Compilation &C, const JobAction &JA,
   // wonky, but we include looking for .gch so we can support seamless
   // replacement into a build system already set up to be generating
   // .gch files.
-  int YcIndex = -1, YuIndex = -1;
-  {
-    int AI = -1;
+
+  if (getToolChain().getDriver().IsCLMode()) {
     const Arg *YcArg = Args.getLastArg(options::OPT__SLASH_Yc);
     const Arg *YuArg = Args.getLastArg(options::OPT__SLASH_Yu);
-    for (const Arg *A : Args.filtered(options::OPT_clang_i_Group)) {
-      // Walk the whole i_Group and skip non "-include" flags so that the index
-      // here matches the index in the next loop below.
-      ++AI;
-      if (!A->getOption().matches(options::OPT_include))
-        continue;
-      if (YcArg && strcmp(A->getValue(), YcArg->getValue()) == 0)
-        YcIndex = AI;
-      if (YuArg && strcmp(A->getValue(), YuArg->getValue()) == 0)
-        YuIndex = AI;
+    if (YcArg && JA.getKind() >= Action::PrecompileJobClass &&
+        JA.getKind() <= Action::AssembleJobClass) {
+      CmdArgs.push_back(Args.MakeArgString("-building-pch-with-obj"));
     }
-  }
-  if (isa<PrecompileJobAction>(JA) && YcIndex != -1) {
-    Driver::InputList Inputs;
-    D.BuildInputs(getToolChain(), C.getArgs(), Inputs);
-    assert(Inputs.size() == 1 && "Need one input when building pch");
-    CmdArgs.push_back(Args.MakeArgString(Twine("-find-pch-source=") +
-                                         Inputs[0].second->getValue()));
-  }
-  if (YcIndex != -1 && JA.getKind() >= Action::PrecompileJobClass &&
-      JA.getKind() <= Action::AssembleJobClass) {
-    CmdArgs.push_back(Args.MakeArgString("-building-pch-with-obj"));
+    if (YcArg || YuArg) {
+      StringRef ThroughHeader = YcArg ? YcArg->getValue() : YuArg->getValue();
+      if (!isa<PrecompileJobAction>(JA)) {
+        CmdArgs.push_back("-include-pch");
+        CmdArgs.push_back(Args.MakeArgString(D.GetClPchPath(C, ThroughHeader)));
+      }
+      CmdArgs.push_back(
+          Args.MakeArgString(Twine("-pch-through-header=") + ThroughHeader));
+    }
   }
 
   bool RenderedImplicitInclude = false;
-  int AI = -1;
   for (const Arg *A : Args.filtered(options::OPT_clang_i_Group)) {
-    ++AI;
-
-    if (getToolChain().getDriver().IsCLMode() &&
-        A->getOption().matches(options::OPT_include)) {
-      // In clang-cl mode, /Ycfoo.h means that all code up to a foo.h
-      // include is compiled into foo.h, and everything after goes into
-      // the .obj file. /Yufoo.h means that all includes prior to and including
-      // foo.h are completely skipped and replaced with a use of the pch file
-      // for foo.h.  (Each flag can have at most one value, multiple /Yc flags
-      // just mean that the last one wins.)  If /Yc and /Yu are both present
-      // and refer to the same file, /Yc wins.
-      // Note that OPT__SLASH_FI gets mapped to OPT_include.
-      // FIXME: The code here assumes that /Yc and /Yu refer to the same file.
-      // cl.exe seems to support both flags with different values, but that
-      // seems strange (which flag does /Fp now refer to?), so don't implement
-      // that until someone needs it.
-      int PchIndex = YcIndex != -1 ? YcIndex : YuIndex;
-      if (PchIndex != -1) {
-        if (isa<PrecompileJobAction>(JA)) {
-          // When building the pch, skip all includes after the pch.
-          assert(YcIndex != -1 && PchIndex == YcIndex);
-          if (AI >= YcIndex)
-            continue;
-        } else {
-          // When using the pch, skip all includes prior to the pch.
-          if (AI < PchIndex) {
-            A->claim();
-            continue;
-          }
-          if (AI == PchIndex) {
-            A->claim();
-            CmdArgs.push_back("-include-pch");
-            CmdArgs.push_back(
-                Args.MakeArgString(D.GetClPchPath(C, A->getValue())));
-            continue;
-          }
-        }
-      }
-    } else if (A->getOption().matches(options::OPT_include)) {
+    if (A->getOption().matches(options::OPT_include)) {
       // Handling of gcc-style gch precompiled headers.
       bool IsFirstImplicitInclude = !RenderedImplicitInclude;
       RenderedImplicitInclude = true;
@@ -3072,7 +3023,8 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
     CmdArgs.push_back("-debug-info-macro");
 
   // -ggnu-pubnames turns on gnu style pubnames in the backend.
-  if (Args.hasArg(options::OPT_ggnu_pubnames))
+  if (Args.hasFlag(options::OPT_ggnu_pubnames, options::OPT_gno_gnu_pubnames,
+                   false))
     CmdArgs.push_back("-ggnu-pubnames");
 
   // -gdwarf-aranges turns on the emission of the aranges section in the
@@ -3832,11 +3784,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasFlag(options::OPT_ffixed_point, options::OPT_fno_fixed_point,
                    /*Default=*/false))
     Args.AddLastArg(CmdArgs, options::OPT_ffixed_point);
-
-  if (Args.hasFlag(options::OPT_fsame_fbits,
-                   options::OPT_fno_same_fbits,
-                   /*Default=*/false))
-    Args.AddLastArg(CmdArgs, options::OPT_fsame_fbits);
 
   // Handle -{std, ansi, trigraphs} -- take the last of -{std, ansi}
   // (-ansi is equivalent to -std=c89 or -std=c++98).
@@ -4892,23 +4839,22 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    options::OPT_fno_complete_member_pointers, false))
     CmdArgs.push_back("-fcomplete-member-pointers");
 
-  if (Args.hasFlag(options::OPT_moutline, options::OPT_mno_outline, false)) {
-    // We only support -moutline in AArch64 right now. If we're not compiling
-    // for AArch64, emit a warning and ignore the flag. Otherwise, add the
-    // proper mllvm flags.
-    if (Triple.getArch() != llvm::Triple::aarch64) {
-      D.Diag(diag::warn_drv_moutline_unsupported_opt) << Triple.getArchName();
-    } else {
-      CmdArgs.push_back("-mllvm");
-      CmdArgs.push_back("-enable-machine-outliner");
-
-      // The outliner shouldn't compete with linkers that dedupe linkonceodr
-      // functions in LTO. Enable that behaviour by default when compiling with
-      // LTO.
-      if (getToolChain().getDriver().isUsingLTO()) {
-        CmdArgs.push_back("-mllvm");
-        CmdArgs.push_back("-enable-linkonceodr-outlining");
+  if (Arg *A = Args.getLastArg(options::OPT_moutline,
+                               options::OPT_mno_outline)) {
+    if (A->getOption().matches(options::OPT_moutline)) {
+      // We only support -moutline in AArch64 right now. If we're not compiling
+      // for AArch64, emit a warning and ignore the flag. Otherwise, add the
+      // proper mllvm flags.
+      if (Triple.getArch() != llvm::Triple::aarch64) {
+        D.Diag(diag::warn_drv_moutline_unsupported_opt) << Triple.getArchName();
+      } else {
+          CmdArgs.push_back("-mllvm");
+          CmdArgs.push_back("-enable-machine-outliner");
       }
+    } else {
+      // Disable all outlining behaviour.
+      CmdArgs.push_back("-mllvm");
+      CmdArgs.push_back("-enable-machine-outliner=never");
     }
   }
 

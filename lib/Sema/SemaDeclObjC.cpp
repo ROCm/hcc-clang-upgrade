@@ -1210,6 +1210,11 @@ Sema::ActOnStartProtocolInterface(SourceLocation AtProtoInterfaceLoc,
     PDecl = ObjCProtocolDecl::Create(Context, CurContext, ProtocolName,
                                      ProtocolLoc, AtProtoInterfaceLoc,
                                      /*PrevDecl=*/nullptr);
+
+    // If we are using modules, add the decl to the context in order to
+    // serialize something meaningful.
+    if (getLangOpts().Modules)
+      PushOnScopeChains(PDecl, TUScope);
     PDecl->startDefinition();
   } else {
     if (PrevDecl) {
@@ -2183,17 +2188,9 @@ static void WarnUndefinedMethod(Sema &S, SourceLocation ImpLoc,
                                 unsigned DiagID,
                                 NamedDecl *NeededFor = nullptr) {
   // No point warning no definition of method which is 'unavailable'.
-  switch (method->getAvailability()) {
-  case AR_Available:
-  case AR_Deprecated:
-    break;
-
-      // Don't warn about unavailable or not-yet-introduced methods.
-  case AR_NotYetIntroduced:
-  case AR_Unavailable:
+  if (method->getAvailability() == AR_Unavailable)
     return;
-  }
-  
+
   // FIXME: For now ignore 'IncompleteImpl'.
   // Previously we grouped all unimplemented methods under a single
   // warning, but some users strongly voiced that they would prefer

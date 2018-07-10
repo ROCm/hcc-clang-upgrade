@@ -2373,6 +2373,8 @@ bool Sema::CheckX86BuiltinRoundingOrSAE(unsigned BuiltinID, CallExpr *TheCall) {
   case X86::BI__builtin_ia32_vcvtss2si64:
   case X86::BI__builtin_ia32_vcvtss2usi32:
   case X86::BI__builtin_ia32_vcvtss2usi64:
+  case X86::BI__builtin_ia32_sqrtpd512:
+  case X86::BI__builtin_ia32_sqrtps512:
     ArgNum = 1;
     HasRC = true;
     break;
@@ -2404,8 +2406,6 @@ bool Sema::CheckX86BuiltinRoundingOrSAE(unsigned BuiltinID, CallExpr *TheCall) {
   case X86::BI__builtin_ia32_cvtqq2ps512_mask:
   case X86::BI__builtin_ia32_cvtuqq2pd512_mask:
   case X86::BI__builtin_ia32_cvtuqq2ps512_mask:
-  case X86::BI__builtin_ia32_sqrtpd512_mask:
-  case X86::BI__builtin_ia32_sqrtps512_mask:
     ArgNum = 3;
     HasRC = true;
     break;
@@ -2814,18 +2814,18 @@ bool Sema::CheckX86BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   case X86::BI__builtin_ia32_reduceps128_mask:
   case X86::BI__builtin_ia32_reduceps256_mask:
   case X86::BI__builtin_ia32_reduceps512_mask:
-  case X86::BI__builtin_ia32_prold512_mask:
-  case X86::BI__builtin_ia32_prolq512_mask:
-  case X86::BI__builtin_ia32_prold128_mask:
-  case X86::BI__builtin_ia32_prold256_mask:
-  case X86::BI__builtin_ia32_prolq128_mask:
-  case X86::BI__builtin_ia32_prolq256_mask:
-  case X86::BI__builtin_ia32_prord512_mask:
-  case X86::BI__builtin_ia32_prorq512_mask:
-  case X86::BI__builtin_ia32_prord128_mask:
-  case X86::BI__builtin_ia32_prord256_mask:
-  case X86::BI__builtin_ia32_prorq128_mask:
-  case X86::BI__builtin_ia32_prorq256_mask:
+  case X86::BI__builtin_ia32_prold512:
+  case X86::BI__builtin_ia32_prolq512:
+  case X86::BI__builtin_ia32_prold128:
+  case X86::BI__builtin_ia32_prold256:
+  case X86::BI__builtin_ia32_prolq128:
+  case X86::BI__builtin_ia32_prolq256:
+  case X86::BI__builtin_ia32_prord512:
+  case X86::BI__builtin_ia32_prorq512:
+  case X86::BI__builtin_ia32_prord128:
+  case X86::BI__builtin_ia32_prord256:
+  case X86::BI__builtin_ia32_prorq128:
+  case X86::BI__builtin_ia32_prorq256:
   case X86::BI__builtin_ia32_fpclasspd128_mask:
   case X86::BI__builtin_ia32_fpclasspd256_mask:
   case X86::BI__builtin_ia32_fpclassps128_mask:
@@ -5518,13 +5518,22 @@ checkFormatStringExpr(Sema &S, const Expr *E, ArrayRef<const Expr *> Args,
   case Stmt::CXXMemberCallExprClass: {
     const CallExpr *CE = cast<CallExpr>(E);
     if (const NamedDecl *ND = dyn_cast_or_null<NamedDecl>(CE->getCalleeDecl())) {
-      if (const FormatArgAttr *FA = ND->getAttr<FormatArgAttr>()) {
+      bool IsFirst = true;
+      StringLiteralCheckType CommonResult;
+      for (const auto *FA : ND->specific_attrs<FormatArgAttr>()) {
         const Expr *Arg = CE->getArg(FA->getFormatIdx().getASTIndex());
-        return checkFormatStringExpr(S, Arg, Args,
-                                     HasVAListArg, format_idx, firstDataArg,
-                                     Type, CallType, InFunctionCall,
-                                     CheckedVarArgs, UncoveredArg, Offset);
-      } else if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(ND)) {
+        StringLiteralCheckType Result = checkFormatStringExpr(
+            S, Arg, Args, HasVAListArg, format_idx, firstDataArg, Type,
+            CallType, InFunctionCall, CheckedVarArgs, UncoveredArg, Offset);
+        if (IsFirst) {
+          CommonResult = Result;
+          IsFirst = false;
+        }
+      }
+      if (!IsFirst)
+        return CommonResult;
+
+      if (const auto *FD = dyn_cast<FunctionDecl>(ND)) {
         unsigned BuiltinID = FD->getBuiltinID();
         if (BuiltinID == Builtin::BI__builtin___CFStringMakeConstantString ||
             BuiltinID == Builtin::BI__builtin___NSStringMakeConstantString) {
@@ -6885,10 +6894,11 @@ CheckPrintfHandler::checkFormatExpr(const analyze_printf::PrintfSpecifier &FS,
     QualType CastTy;
     std::tie(CastTy, CastTyName) = shouldNotPrintDirectly(S.Context, IntendedTy, E);
     if (!CastTy.isNull()) {
-      // %zi/%zu are OK to use for NSInteger/NSUInteger of type int
+      // %zi/%zu and %td/%tu are OK to use for NSInteger/NSUInteger of type int
       // (long in ASTContext). Only complain to pedants.
       if ((CastTyName == "NSInteger" || CastTyName == "NSUInteger") &&
-          AT.isSizeT() && AT.matchesType(S.Context, CastTy))
+          (AT.isSizeT() || AT.isPtrdiffT()) &&
+          AT.matchesType(S.Context, CastTy))
         Pedantic = true;
       IntendedTy = CastTy;
       ShouldNotPrintDirectly = true;

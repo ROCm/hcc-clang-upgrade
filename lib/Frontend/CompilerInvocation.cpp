@@ -1549,7 +1549,6 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     = Args.getLastArgValue(OPT_foverride_record_layout_EQ);
   Opts.AuxTriple =
       llvm::Triple::normalize(Args.getLastArgValue(OPT_aux_triple));
-  Opts.FindPchSource = Args.getLastArgValue(OPT_find_pch_source_EQ);
   Opts.StatsFile = Args.getLastArgValue(OPT_stats_file);
 
   if (const Arg *A = Args.getLastArg(OPT_arcmt_check,
@@ -2358,8 +2357,9 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.FixedPoint =
       Args.hasFlag(OPT_ffixed_point, OPT_fno_fixed_point, /*Default=*/false) &&
       !Opts.CPlusPlus;
-  Opts.SameFBits =
-      Args.hasFlag(OPT_fsame_fbits, OPT_fno_same_fbits,
+  Opts.PaddingOnUnsignedFixedPoint =
+      Args.hasFlag(OPT_fpadding_on_unsigned_fixed_point,
+                   OPT_fno_padding_on_unsigned_fixed_point,
                    /*Default=*/false) &&
       Opts.FixedPoint;
 
@@ -2852,6 +2852,7 @@ static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
                                   frontend::ActionKind Action) {
   Opts.ImplicitPCHInclude = Args.getLastArgValue(OPT_include_pch);
   Opts.ImplicitPTHInclude = Args.getLastArgValue(OPT_include_pth);
+  Opts.PCHThroughHeader = Args.getLastArgValue(OPT_pch_through_header_EQ);
   if (const Arg *A = Args.getLastArg(OPT_token_cache))
       Opts.TokenCache = A->getValue();
   else

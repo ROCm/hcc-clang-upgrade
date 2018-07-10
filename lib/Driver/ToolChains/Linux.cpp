@@ -239,6 +239,15 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
     ExtraOpts.push_back("relro");
   }
 
+  if (GCCInstallation.getParentLibPath().find("opt/rh/devtoolset") !=
+      StringRef::npos)
+    // With devtoolset on RHEL, we want to add a bin directory that is relative
+    // to the detected gcc install, because if we are using devtoolset gcc then
+    // we want to use other tools from devtoolset (e.g. ld) instead of the
+    // standard system tools.
+    PPaths.push_back(Twine(GCCInstallation.getParentLibPath() +
+                     "/../bin").str());
+
   if (Arch == llvm::Triple::arm || Arch == llvm::Triple::thumb)
     ExtraOpts.push_back("-X");
 
@@ -928,7 +937,8 @@ SanitizerMask Linux::getSupportedSanitizers() const {
     Res |= SanitizerKind::Efficiency;
   if (IsX86 || IsX86_64)
     Res |= SanitizerKind::Function;
-  if (IsX86_64 || IsMIPS64 || IsAArch64 || IsX86 || IsMIPS || IsArmArch)
+  if (IsX86_64 || IsMIPS64 || IsAArch64 || IsX86 || IsMIPS || IsArmArch ||
+      IsPowerPC64)
     Res |= SanitizerKind::Scudo;
   if (IsX86_64 || IsAArch64) {
     Res |= SanitizerKind::HWAddress;

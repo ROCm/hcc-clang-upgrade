@@ -3358,7 +3358,7 @@ ExprResult Sema::ActOnNumericConstant(const Token &Tok, Scope *UDLScope) {
     bool Overflowed = Literal.GetFixedPointValue(Val, scale);
 
     // Do not use bit_width since some types may have padding like _Fract or
-    // unsigned _Accums if SameFBits is set.
+    // unsigned _Accums if PaddingOnUnsignedFixedPoint is set.
     auto MaxVal = llvm::APInt::getMaxValue(ibits + scale).zextOrSelf(bit_width);
     if (Literal.isFract && Val == MaxVal + 1)
       // Clause 6.4.4 - The value of a constant shall be in the range of
@@ -14378,13 +14378,13 @@ static bool isEvaluatableContext(Sema &SemaRef) {
   switch (SemaRef.ExprEvalContexts.back().Context) {
     case Sema::ExpressionEvaluationContext::Unevaluated:
     case Sema::ExpressionEvaluationContext::UnevaluatedAbstract:
-    case Sema::ExpressionEvaluationContext::DiscardedStatement:
       // Expressions in this context are never evaluated.
       return false;
 
     case Sema::ExpressionEvaluationContext::UnevaluatedList:
     case Sema::ExpressionEvaluationContext::ConstantEvaluated:
     case Sema::ExpressionEvaluationContext::PotentiallyEvaluated:
+    case Sema::ExpressionEvaluationContext::DiscardedStatement:
       // Expressions in this context could be evaluated.
       return true;
 

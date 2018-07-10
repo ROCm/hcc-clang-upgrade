@@ -36,6 +36,10 @@ def triple_EQ : Joined<["-"], "triple=">, Alias<triple>;
 def mfpmath : Separate<["-"], "mfpmath">,
   HelpText<"Which unit to use for fp math">;
 
+def fpadding_on_unsigned_fixed_point : Flag<["-"], "fpadding-on-unsigned-fixed-point">,
+		  HelpText<"Force each unsigned fixed point type to have an extra bit of padding to align their scales with those of signed fixed point types">;
+def fno_padding_on_unsigned_fixed_point : Flag<["-"], "fno-padding-on-unsigned-fixed-point">;
+
 //===----------------------------------------------------------------------===//
 // Analyzer Options
 //===----------------------------------------------------------------------===//
@@ -603,10 +607,9 @@ def fixit_to_temp : Flag<["-"], "fixit-to-temporary">,
 
 def foverride_record_layout_EQ : Joined<["-"], "foverride-record-layout=">,
   HelpText<"Override record layouts with those in the given file">;
-def find_pch_source_EQ : Joined<["-"], "find-pch-source=">,
-  HelpText<"When building a pch, try to find the input file in include "
-           "directories, as if it had been included by the argument passed "
-           "to this flag.">;
+def pch_through_header_EQ : Joined<["-"], "pch-through-header=">,
+  HelpText<"Stop PCH generation after including this file.  When using a PCH, "
+           "skip tokens until after this file is included.">;
 def fno_pch_timestamp : Flag<["-"], "fno-pch-timestamp">,
   HelpText<"Disable inclusion of timestamp in precompiled headers">;
 def building_pch_with_obj : Flag<["-"], "building-pch-with-obj">,
