@@ -605,6 +605,18 @@ static void addDebugCompDirArg(const ArgList &Args, ArgStringList &CmdArgs) {
   }
 }
 
+/// Add a CC1 and CC1AS option to specify the debug file path prefix map.
+static void addDebugPrefixMapArg(const Driver &D, const ArgList &Args, ArgStringList &CmdArgs) {
+  for (const Arg *A : Args.filtered(options::OPT_fdebug_prefix_map_EQ)) {
+    StringRef Map = A->getValue();
+    if (Map.find('=') == StringRef::npos)
+      D.Diag(diag::err_drv_invalid_argument_to_fdebug_prefix_map) << Map;
+    else
+      CmdArgs.push_back(Args.MakeArgString("-fdebug-prefix-map=" + Map));
+    A->claim();
+  }
+}
+
 /// Vectorize at all optimization levels greater than 1 except for -Oz.
 /// For -Oz the loop vectorizer is disable, while the slp vectorizer is enabled.
 static bool shouldEnableVectorizerAtOLevel(const ArgList &Args, bool isSlpVec) {
@@ -2028,21 +2040,6 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
   }
 }
 
-extern bool IsCXXAMPBackendJobAction(const JobAction* A);
-extern bool IsHCHostBackendJobAction(const JobAction* A);
-extern bool IsCXXAMPCPUBackendJobAction(const JobAction* A);
-
-static bool IsHCAcceleratorPreprocessJobActionWithInputType(const JobAction* A, types::ID typesID) {
-  bool ret = false;
-  if (isa<PreprocessJobAction>(A)) {
-    const ActionList& al = dyn_cast<PreprocessJobAction>(A)->getInputs();
-    if ((al.size() == 1) && (al[0]->getType() == typesID)) {
-      ret = true;
-    }
-  }
-  return ret;
-}
-
 static void RenderFloatingPointOptions(const ToolChain &TC, const Driver &D,
                                        bool OFastEnabled, const ArgList &Args,
                                        ArgStringList &CmdArgs) {
@@ -3109,9 +3106,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   CmdArgs.push_back("-cc1");
 
   // ROCcc-specific
-  if (IsCXXAMPBackendJobAction(&JA) ||
-      IsHCAcceleratorPreprocessJobActionWithInputType(&JA, types::TY_HC_KERNEL) ||
-      IsHCAcceleratorPreprocessJobActionWithInputType(&JA, types::TY_CXX_AMP)) {
+  if (JA.ContainsActions(Action::BackendJobClass, types::TY_PP_CXX_AMP) ||
+      JA.ContainsActions(Action::PreprocessJobClass, types::TY_HC_KERNEL) ||
+      JA.ContainsActions(Action::PreprocessJobClass, types::TY_CXX_AMP)) {
     // path to compile kernel codes on GPU
     CmdArgs.push_back("-famp-is-device");
     CmdArgs.push_back("-fno-builtin");
@@ -3149,7 +3146,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   // Make sure host triple is specified for HCC kernel compilation path
-  bool IsHCCKernelPath = IsCXXAMPBackendJobAction(&JA);
+  bool IsHCCKernelPath =
+    JA.ContainsActions(Action::BackendJobClass, types::TY_PP_CXX_AMP);
   if (IsHCCKernelPath) {
     // We have to pass the triple of the host if compiling for a HCC device
     std::string NormalizedTriple;
@@ -3739,7 +3737,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       D.Diag(diag::warn_O4_is_O3);
     } else {
       // C++ AMP-specific
-      if (IsCXXAMPBackendJobAction(&JA)) {
+      if (JA.ContainsActions(Action::BackendJobClass, types::TY_PP_CXX_AMP)) {
         // ignore -O0 and -O1 for GPU compilation paths
         // because inliner would not be enabled and will cause compilation fail
         if (A->getOption().matches(options::OPT_O0)) {
@@ -3869,14 +3867,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // Add in -fdebug-compilation-dir if necessary.
   addDebugCompDirArg(Args, CmdArgs);
 
-  for (const Arg *A : Args.filtered(options::OPT_fdebug_prefix_map_EQ)) {
-    StringRef Map = A->getValue();
-    if (Map.find('=') == StringRef::npos)
-      D.Diag(diag::err_drv_invalid_argument_to_fdebug_prefix_map) << Map;
-    else
-      CmdArgs.push_back(Args.MakeArgString("-fdebug-prefix-map=" + Map));
-    A->claim();
-  }
+  addDebugPrefixMapArg(D, Args, CmdArgs);
 
   if (Arg *A = Args.getLastArg(options::OPT_ftemplate_depth_,
                                options::OPT_ftemplate_depth_EQ)) {
@@ -4681,12 +4672,12 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Output.getType() == types::TY_Dependencies) {
     // Handled with other dependency code.
   } else if (Output.isFilename() &&
-             (IsHCAcceleratorPreprocessJobActionWithInputType(&JA, types::TY_HC_KERNEL) ||
-              IsHCAcceleratorPreprocessJobActionWithInputType(&JA, types::TY_CXX_AMP) ||
-              IsHCAcceleratorPreprocessJobActionWithInputType(&JA, types::TY_CXX_AMP_CPU))) {
+             (JA.ContainsActions(Action::PreprocessJobClass, types::TY_HC_KERNEL) ||
+              JA.ContainsActions(Action::PreprocessJobClass, types::TY_CXX_AMP) ||
+              JA.ContainsActions(Action::PreprocessJobClass, types::TY_CXX_AMP_CPU))) {
     CmdArgs.push_back("-o");
     SmallString<128> KernelPreprocessFile(Output.getFilename());
-    if (IsHCAcceleratorPreprocessJobActionWithInputType(&JA, types::TY_CXX_AMP_CPU)) {
+    if (JA.ContainsActions(Action::PreprocessJobClass, types::TY_CXX_AMP_CPU)) {
       llvm::sys::path::replace_extension(KernelPreprocessFile, ".amp_cpu.i");
     } else {
       llvm::sys::path::replace_extension(KernelPreprocessFile, ".gpu.i");
@@ -4794,7 +4785,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   // C++ AMP-specific
-  if (IsCXXAMPBackendJobAction(&JA) || IsCXXAMPCPUBackendJobAction(&JA) || IsHCHostBackendJobAction(&JA)) {
+  if (JA.ContainsActions(Action::BackendJobClass, types::TY_PP_CXX_AMP) ||
+      JA.ContainsActions(Action::BackendJobClass, types::TY_PP_CXX_AMP_CPU) ||
+      JA.ContainsActions(Action::BackendJobClass, types::TY_PP_HC_HOST)) {
     CmdArgs.push_back("-emit-llvm-bc");
   }
 
@@ -5442,6 +5435,8 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
                                : codegenoptions::NoDebugInfo);
     // Add the -fdebug-compilation-dir flag if needed.
     addDebugCompDirArg(Args, CmdArgs);
+
+    addDebugPrefixMapArg(getToolChain().getDriver(), Args, CmdArgs);
 
     // Set the AT_producer to the clang version when using the integrated
     // assembler on assembly source files.
