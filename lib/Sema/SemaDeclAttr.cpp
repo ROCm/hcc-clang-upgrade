@@ -6122,19 +6122,6 @@ static void handleOpenCLAccessAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 // FIXME: Merge these handlers with handleSimpleAttribute
 //===----------------------------------------------------------------------===//
 
-static void handleAutoAttr(Sema &S, Decl *D, const ParsedAttr &Attr) {
-  if (S.LangOpts.CUDA) {
-    // No support for now
-  } else if (S.LangOpts.CPlusPlusAMP) {
-    D->addAttr(::new (S.Context) AlwaysInlineAttr(Attr.getRange(),
-          S.Context, Attr.getAttributeSpellingListIndex()));
-    D->addAttr(::new (S.Context) CXXAMPRestrictAUTOAttr(Attr.getRange(),
-          S.Context, Attr.getAttributeSpellingListIndex()));
-  } else {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "auto";
-  }
-}
-
 static void handleDeviceAttr(Sema &S, Decl *D, const ParsedAttr &Attr) {
   if (S.LangOpts.CUDA) {
     // check the attribute arguments.
@@ -6153,7 +6140,6 @@ static void handleDeviceAttr(Sema &S, Decl *D, const ParsedAttr &Attr) {
                CUDADeviceAttr(Attr.getRange(), S.Context,
                               Attr.getAttributeSpellingListIndex()));
   } else if (S.LangOpts.CPlusPlusAMP) {
-    if (!S.LangOpts.AMPCPU)
       D->addAttr(::new (S.Context) AlwaysInlineAttr(Attr.getRange(),
                                                     S.Context, Attr.getAttributeSpellingListIndex()));
     D->addAttr(::new (S.Context) CXXAMPRestrictAMPAttr(Attr.getRange(),
@@ -6396,9 +6382,6 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case ParsedAttr::AT_HC_CPU:
   case ParsedAttr::AT_CXXAMPRestrictCPU:
     handleHostAttr(S, D, AL);
-    break;
-  case ParsedAttr::AT_CXXAMPRestrictAUTO:
-    handleAutoAttr(S, D, AL);
     break;
   case ParsedAttr::AT_CUDADevice:
     handleSimpleAttributeWithExclusions<CUDADeviceAttr, CUDAGlobalAttr>(S, D, AL);

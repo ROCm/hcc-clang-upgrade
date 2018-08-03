@@ -820,24 +820,6 @@ static void DeclareImplicitMemberFunctionsWithName(Sema &S,
     }
     break;
 
-  case DeclarationName::Identifier:                                           
-    if (S.getLangOpts().CPlusPlusAMP) {                                       
-      if (const CXXRecordDecl *Record = dyn_cast<CXXRecordDecl>(DC)) {        
-        CXXRecordDecl *Class = const_cast<CXXRecordDecl *>(Record);                 
-        if (!Class->getDefinition() || !CanDeclareSpecialMemberFunction(Record)) {                   
-          break;                                                                    
-        }                                                                           
-        if (Name.getAsString() == "__cxxamp_trampoline") {                    
-          S.DeclareAMPTrampoline(Class, Name);                                
-        } else if (Name.getAsString() == "__cxxamp_trampoline_name") {              
-          S.DeclareAMPTrampolineName(Class, Name);                            
-        } else if (Name.getAsString() == "__cxxamp_serialize") {              
-          S.DeclareAMPSerializer(Class, Name);                                      
-        }                                                                     
-      }                                                                                                   
-    }                                                                         
-    break;
-
   case DeclarationName::CXXDeductionGuideName:
     S.DeclareImplicitDeductionGuides(Name.getCXXDeductionGuideTemplate(), Loc);
     break;
@@ -3116,10 +3098,6 @@ DeclContext::lookup_result Sema::LookupConstructors(CXXRecordDecl *Class) {
       DeclareImplicitCopyConstructor(Class);
     if (getLangOpts().CPlusPlus11 && Class->needsImplicitMoveConstructor())
       DeclareImplicitMoveConstructor(Class);
-  }
-  // C++AMP
-  if (getLangOpts().CPlusPlusAMP && NeedAMPDeserializer(Class)) {
-    DeclareAMPDeserializer(Class, NULL);
   }
 
   CanQualType T = Context.getCanonicalType(Context.getTypeDeclType(Class));

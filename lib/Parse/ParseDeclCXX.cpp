@@ -4421,9 +4421,6 @@ unsigned Parser::ParseRestrictionSpecification(Declarator& D,
 
                 if (II->getName() == "amp")
                   retSpec |= CPPAMP_AMP;
-
-                if (II->getName() == "auto")
-                  retSpec |= CPPAMP_AUTO;
               }
             } else {
               // Not valid specifier
@@ -4442,34 +4439,6 @@ unsigned Parser::ParseRestrictionSpecification(Declarator& D,
     DeclEndLoc = T.getCloseLocation();
   }
 
-  if (retSpec & CPPAMP_AUTO) {
-    // Since it is not completely parsed, manually determine if it has a funciton body
-    // FIXME: the following can not be determined as a function body
-    //    int f() restrict(auto) const {}
-    //    int restrict(auto) f() {}
-    ParsingDeclSpec DS(*this);
-    ParsingDeclarator PD(*this, DS, D.getContext());
-      if (!isStartOfFunctionDefinition(PD)) {
-        #if 0
-        if (DS.getStorageClassSpec() == DeclSpec::SCS_typedef) {
-          Diag(Tok, diag::err_function_declared_typedef);
-          DS.ClearStorageClassSpecs();
-        }
-        #endif
-        // 'auto' restriction is only allowed on function defintion
-        Diag(DeclEndLoc, diag::err_amp_expected_auto_restriction_on_definition);
-    }
-    DeclarationNameInfo NameInfo = Actions.GetNameFromUnqualifiedId(D.getName());
-    LookupResult R(Actions, NameInfo, Sema::LookupUsingDeclName,
-                    Sema::ForVisibleRedeclaration);
-    if (Actions.LookupName(R, getCurScope())) {
-      Diag(DeclEndLoc, diag::err_amp_auto_restricted_function_has_other_declaration)
-        << NameInfo.getName().getAsString();
-      for (LookupResult::iterator I = R.begin(), IEnd = R.end();
-             I != IEnd; ++I)
-        Diag((*I)->getLocation(), diag::note_auto_restricted_prev_declaration);
-    }
-  }
   // FIXME: this is an inefficient, yet effective method
   // try walk up enclising scopes and find restriction specifiers
   if (retSpec == CPPAMP_None) {

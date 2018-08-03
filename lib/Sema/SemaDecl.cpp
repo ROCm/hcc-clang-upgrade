@@ -5462,11 +5462,7 @@ bool Sema::DiagnoseCXXAMPDecl(Decl* Dcl, bool CheckContainer, bool IsInfer) {
         RDecl->getName() == "extent" || RDecl->getName() == "index" ||
         RDecl->getName() == "accelerator_view" || RDecl->getName() == "accelerator" ||
         // FIXM: Restrictly skip checking of public APIs and other underlying codes
-        RDecl->getQualifiedNameAsString().find("std::")!=std::string::npos ||
-        // Allow customized impl.
-        // TODO: Need a user code scope
-        RDecl->getName() == "Serialize" || RDecl->getName().find("__gmac") != std::string::npos ||
-        RDecl->getName().find("Gmac") != std::string::npos)
+        RDecl->getQualifiedNameAsString().find("std::") != std::string::npos) // TODO: probably bogus.
       return false;
 
     if(RDecl->getName() == "") {
@@ -14136,9 +14132,6 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
   if (getDiagnostics().hasErrorOccurred()) {
     DiscardCleanupsInEvaluationContext();
   }
-
-  // C++AMP try use restriction specifier inferring logic
-  TryCXXAMPRestrictionInferring(dcl, Body);
 
   return dcl;
 }

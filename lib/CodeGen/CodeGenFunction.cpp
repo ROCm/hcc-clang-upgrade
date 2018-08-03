@@ -848,7 +848,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   // void foo() restrict(cpu) { return 2; }
 
   if (getContext().getLangOpts().CPlusPlusAMP &&
-      (CGM.getCodeGenOpts().AMPIsDevice || CGM.getCodeGenOpts().AMPCPU)) {
+      CGM.getCodeGenOpts().AMPIsDevice) {
   } else {
     assert(CurFn->isDeclaration() && "Function already has body?");
   }
@@ -968,13 +968,15 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
 
   if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath) {
     if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D)) {
-      if (FD->hasAttr<AnnotateAttr>() &&
-        FD->getAttr<AnnotateAttr>()->getAnnotation() ==
-          "__HIP_global_function__") {
+      if (FD->hasAttr<AnnotateAttr>()) {
+        auto Annot = FD->getAttr<AnnotateAttr>()->getAnnotation();
+
+        if (Annot == "__HCC_KERNEL__" || Annot == "__HIP_global_function__") {
             Fn->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
             Fn->setDoesNotRecurse();
             Fn->setDoesNotThrow();
             Fn->setLinkage(llvm::Function::LinkageTypes::WeakODRLinkage);
+        }
       }
     }
   }
@@ -1377,16 +1379,6 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     EmitDestructorBody(Args);
   else if (isa<CXXConstructorDecl>(FD))
     EmitConstructorBody(Args);
-  else if (getContext().getLangOpts().CPlusPlusAMP &&
-           CGM.getCodeGenOpts().AMPIsDevice &&
-           FD->hasAttr<AnnotateAttr>() &&
-           FD->getAttr<AnnotateAttr>()->getAnnotation() == "__cxxamp_trampoline")
-    CGM.getAMPRuntime().EmitTrampolineBody(*this, FD, Args);
-  else if (getContext().getLangOpts().CPlusPlusAMP &&
-           (!CGM.getCodeGenOpts().AMPIsDevice || CGM.getCodeGenOpts().AMPCPU)&&
-           FD->hasAttr<AnnotateAttr>() &&
-           FD->getAttr<AnnotateAttr>()->getAnnotation() == "__cxxamp_trampoline_name")
-    CGM.getAMPRuntime().EmitTrampolineNameBody(*this, FD, Args);
   else if (getContext().getLangOpts().CPlusPlusAMP &&
            !getContext().getLangOpts().DevicePath &&
            FD->hasAttr<AnnotateAttr>() &&

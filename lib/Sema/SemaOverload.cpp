@@ -9053,22 +9053,16 @@ static bool IsInExplicitCPUFunction(Scope *scope) {
 }
 
 // FIXME: is it a reliable way?
-void Sema::GetCXXAMPParentRestriction(Scope* SC,
-                          bool& ParentCPU, bool& ParentAMP, bool&ParentAUTO) {
+void Sema::GetCXXAMPParentRestriction(
+  Scope* SC, bool& ParentCPU, bool& ParentAMP) {
   if(getCurLambda() && getCurLambda()->CallOperator) {
     ParentCPU = getCurLambda()->CallOperator->hasAttr<CXXAMPRestrictCPUAttr>();
     ParentAMP = getCurLambda()->CallOperator->hasAttr<CXXAMPRestrictAMPAttr>();
-    // Will deduce in 'auto' inferring, however make the overload resolution happy for now
-    if(getCurLambda()->CallOperator->hasAttr<CXXAMPRestrictAUTOAttr>())
-      ParentAUTO = true;
   }
   if(!ParentCPU && !ParentAMP) {
     if(getCurFunctionDecl()) {
       ParentCPU = getCurFunctionDecl()->hasAttr<CXXAMPRestrictCPUAttr>();
       ParentAMP = getCurFunctionDecl()->hasAttr<CXXAMPRestrictAMPAttr>();
-      // Will deduce in 'auto' inferring, however make the overload resolution happy for now
-      if(getCurFunctionDecl()->hasAttr<CXXAMPRestrictAUTOAttr>())
-        ParentAUTO = true;
     }
   }
 
@@ -9084,7 +9078,6 @@ void Sema::GetCXXAMPParentRestriction(Scope* SC,
   if(!getCurFunctionDecl() && !getCurLambda() && SC) {
     ParentAMP = SC->isAMPScope();
     ParentCPU = SC->isCPUScope();
-    ParentAUTO = SC->isAUTOScope();
     if(IsInAMPFunction(SC))
       ParentAMP = true;
     if(IsInExplicitCPUFunction(SC))
@@ -9096,74 +9089,27 @@ void Sema::GetCXXAMPParentRestriction(Scope* SC,
   }
 }
 
-static int getCXXAMPPrio(FunctionDecl *Func, bool isDevice,
-  bool ParentCPU, bool ParentAMP, bool ParentAUTO)
+static int getCXXAMPPrio(
+  FunctionDecl *Func, bool isDevice, bool ParentCPU, bool ParentAMP)
 {
   bool isAMP = Func->hasAttr<CXXAMPRestrictAMPAttr>();
   bool isCPU = Func->hasAttr<CXXAMPRestrictCPUAttr>();
-  // Ensure that the callee's 'auto' has been inferred before, otherwise no way to recursively
-  // resolve its overload without any explicit restrictions on it
-  if(Func->hasAttr<CXXAMPRestrictAUTOAttr>()) {
-    llvm::errs()<<"The function should have been inferred at this point!\n";
-    exit(1);
-  }
-  // Deduce to normal case
-  if(ParentCPU && ParentAMP)
-    ParentAUTO = false;
-
-  int NonAutoSpec = 0;
-  if(ParentAUTO) {
-    NonAutoSpec = clang::CPPAMP_AMP | clang::CPPAMP_CPU ;
-    if(ParentCPU)
-      NonAutoSpec &=~clang::CPPAMP_CPU;
-    if(ParentAMP)
-      NonAutoSpec &=~clang::CPPAMP_AMP;
-  }
 
   if (!isAMP) isCPU = true;
   int Prio = 0;
   // Specially handle auto restricted caller
-  if(NonAutoSpec) {
-    if (isAMP && isCPU)
-      Prio = 2;
-    else if (isDevice && isAMP) {
-      Prio = 2; // If the caller is CPU only, this callee will be diagnosed later
-    } else if (!isDevice && isCPU) {
-      Prio = 2;
-    }
+  if (isAMP && isCPU)
+    Prio = 2;
+  else if (isDevice && isAMP) {
+    Prio = 2; // If the caller is CPU only, this callee will be diagnosed later
+  } else if (!isDevice && isCPU) {
+    Prio = 2;
+  }
     // unreachable
-    else if (!isAMP && !isCPU)
-       Prio = 2;
+  else if (!isAMP && !isCPU)
+    Prio = 2;
 
    return Prio;
-
-  } else {
-    if (isAMP && isCPU)
-      Prio = 2;
-    else if (isDevice && isAMP)
-      Prio = 2; // If the caller is CPU only, this callee will be diagnosed later
-    else if (!isDevice && isCPU) {
-      // FIXME: proposition:use amp context in CPU fallback
-      // If the pro. is true, we should not allow any explicitly cpu-restricted
-      // in an amp context even in CPU path, i.e. !isDevice
-      if(ParentAMP && !ParentCPU)
-        return Prio;
-      Prio = 2;
-    } else if (!isDevice && isAMP) {
-      // FIXME: We can still select amp restricted function in CPU path
-      // since we don't emit it in code generation phase
-      if(ParentAMP && !ParentCPU)
-        return 2;
-    }
-    // unreachable
-    else if (!isAMP && !isCPU)
-      Prio = 2;
-  }
-
-  // Can't resolve
-  //  (1) isDevice && !isAMP
-  //  (2) !isDevice && isAMP
-  return Prio;
 }
 
 namespace {
@@ -9278,16 +9224,15 @@ bool clang::isBetterOverloadCandidate(
   if (S.getLangOpts().CPlusPlusAMP && Cand1.Function && Cand2.Function) {
     bool ParentCPUAttr = false;
     bool ParentAMPAttr = false;
-    bool ParentAUTOAttr = false;
-    S.GetCXXAMPParentRestriction(SC, ParentCPUAttr, ParentAMPAttr, ParentAUTOAttr);
+    S.GetCXXAMPParentRestriction(SC, ParentCPUAttr, ParentAMPAttr);
 
     FunctionDecl *First = Cand1.Function;
     FunctionDecl *Second = Cand2.Function;
     if (!First->isImplicit() && !Second->isImplicit()) {
       int CurPrio = getCXXAMPPrio(First, S.getLangOpts().DevicePath,
-        ParentCPUAttr, ParentAMPAttr, ParentAUTOAttr);
+        ParentCPUAttr, ParentAMPAttr);
       int FunPrio = getCXXAMPPrio(Second, S.getLangOpts().DevicePath,
-        ParentCPUAttr, ParentAMPAttr, ParentAUTOAttr);
+        ParentCPUAttr, ParentAMPAttr);
       if (CurPrio > FunPrio)
         return true;
       if (CurPrio < FunPrio)
@@ -9688,7 +9633,7 @@ OverloadCandidateSet::BestViableFunction(Sema &S, SourceLocation Loc,
       }
 #endif
     // Implementation dependent
-    if (S.getLangOpts().DevicePath && !S.getLangOpts().AMPCPU) {
+    if (S.getLangOpts().DevicePath) {
       // in GPU path, check if calling from AMP to CPU
       bool ParentAMP = false;
       if(S.getCurFunctionDecl() && S.getCurFunctionDecl()->hasAttr<CXXAMPRestrictAMPAttr>())
@@ -12411,23 +12356,8 @@ void Sema::DiagnoseCXXAMPOverloadedCallExpr(SourceLocation LParenLoc,
   bool CalleeAMP = Callee->hasAttr<CXXAMPRestrictAMPAttr>();
   bool CalleeCPU = Callee->hasAttr<CXXAMPRestrictCPUAttr>();
 
-  // Logic for auto-compile-for-accelerator:
-  // In device path, if auto-compile-for-accelerator flag is on,
-  // and caller has GPU attribute (CXXAMPRestrictAMPAttr),
-  // and callee function doesn't have GPU attribute (CXXAMPRestrictAMPAttr),
-  // and callee function is a global function, or a static function,
-  // then annotate it with one, and recalculate related boolean flags
-  if (getLangOpts().DevicePath && getLangOpts().AutoCompileForAccelerator) {
-    if ((CallerAMP && !CalleeAMP) &&
-        (Callee->isGlobal() || Callee->getStorageClass() == SC_Static)) {
-      //llvm::errs() << "add [[hc]] to callee: " << Callee->getName() << "\n";
-      Callee->addAttr(::new (Context) CXXAMPRestrictAMPAttr(Callee->getLocation(), Context, 0));
-      CalleeAMP = Callee->hasAttr<CXXAMPRestrictAMPAttr>();
-    }
-  }
-
   // Case by case
-  if (LambdaInfo && LambdaInfo->CallOperator && !getLangOpts().AMPCPU) {
+  if (LambdaInfo && LambdaInfo->CallOperator) {
     // caller: __GPU, lambda; callee: non __GPU, global
     //    void f(int &flag) { flag = 1; }
     //    auto l = [](int &flag) __GPU {
@@ -12453,7 +12383,7 @@ void Sema::DiagnoseCXXAMPOverloadedCallExpr(SourceLocation LParenLoc,
         <<  LambdaInfo->CallOperator->getQualifiedNameAsString();
 
   }
-  else if(Caller && ! (LambdaInfo && LambdaInfo->CallOperator) && !getLangOpts().AMPCPU) {
+  else if(Caller && ! (LambdaInfo && LambdaInfo->CallOperator)) {
     // caller: __GPU, global; callee: non __GPU, global
     //    void fooxxx(int &flag) { flag = 1; }
     //    bool test() __GPU {

@@ -2032,9 +2032,6 @@ public:
   /// \c constexpr in C++11 or has an 'auto' return type in C++14).
   bool canSkipFunctionBody(Decl *D);
 
-  // C++AMP restriction specifier inferring routine
-  void TryCXXAMPRestrictionInferring(Decl *D, Stmt *Body);
-
   void computeNRVO(Stmt *Body, sema::FunctionScopeInfo *Scope);
   Decl *ActOnFinishFunctionBody(Decl *Decl, Stmt *Body);
   Decl *ActOnFinishFunctionBody(Decl *Decl, Stmt *Body, bool IsInstantiation);
@@ -2826,8 +2823,7 @@ public:
   bool IsInAMPRestricted();
   // Determine if in CPU and/or AMP restricted codes
   bool IsInAnyExplicitRestricted();
-  void GetCXXAMPParentRestriction(Scope* SC, bool& ParentCPU,
-    bool& ParentAMP, bool&ParentAUTO);
+  void GetCXXAMPParentRestriction(Scope* SC, bool& ParentCPU, bool& ParentAMP);
 
   // Emit as a 'note' the specific overload candidate
   void NoteOverloadCandidate(NamedDecl *Found, FunctionDecl *Fn,
@@ -4995,22 +4991,6 @@ public:
   void DefineImplicitCopyAssignment(SourceLocation CurrentLocation,
                                     CXXMethodDecl *MethodDecl);
 
-  /// Defines an AMP CUP-side serialize function.
-  void DefineAmpCpuSerializeFunction(SourceLocation CurrentLocation,
-                                     CXXMethodDecl *MethodDecl);
-  /// Defines an AMP GPU-side deserialize function.
-  void DefineAmpGpuDeSerializeFunction(SourceLocation CurrentLocation,
-                                       CXXMethodDecl *MethodDecl);
-  /// Declare trampoline name lookup code for AMP CPU-side
-  void DeclareAMPTrampolineName(CXXRecordDecl *ClassDecl,
-                                DeclarationName Name);
-  /// Declare trampoline code for AMP GPU-side entry
-  void DeclareAMPTrampoline(CXXRecordDecl *ClassDecl,
-                            DeclarationName Name);
-  /// Define trampoline code for AMP GPU-side entry
-  void DefineAMPTrampoline(SourceLocation CurrentLocation,
-                           CXXMethodDecl *OperatorCall);
-
   /// Declare the implicit move assignment operator for the given class.
   ///
   /// \param ClassDecl The Class declaration into which the implicit
@@ -5912,19 +5892,6 @@ public:
   ///
   /// \returns true if any work was done, false otherwise.
   bool DefineUsedVTables();
-
-  /// \brief Test if a given class requires a
-  /// C++AMP deserializer declaration
-  bool NeedAMPDeserializer(CXXRecordDecl *ClassDecl);
-  /// \brief Test if a given class has a C++AMP deserializer declaration
-  bool HasDeclaredAMPDeserializer(CXXRecordDecl *ClassDecl);
-
-  // Declare C++AMP serializer and deserializer
-  typedef SmallVector<QualType, 16> AMPDeserializerArgs;
-  void DeclareAMPSerializer(CXXRecordDecl *ClassDecl,
-                            DeclarationName Name);
-  void DeclareAMPDeserializer(CXXRecordDecl *ClassDecl,
-                              AMPDeserializerArgs *Args);
 
   void AddImplicitlyDeclaredMembersToClass(CXXRecordDecl *ClassDecl);
 

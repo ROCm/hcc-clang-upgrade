@@ -184,11 +184,11 @@ arrangeLLVMFunctionInfo(CodeGenTypes &CGT, bool instanceMethod,
   // which can be used orthogonally to OpenCL, such as e.g. __stdcall.
   FunctionType::ExtInfo Tmp = FTP->getExtInfo();
 
-  if (FD &&
-      FD->hasAttr<AnnotateAttr>() &&
-      FD->getAttr<AnnotateAttr>()->getAnnotation() ==
-        "__HIP_global_function__") {
-    Tmp = Tmp.withCallingConv(CallingConv::CC_OpenCLKernel);
+  if (FD && FD->hasAttr<AnnotateAttr>()) {
+    auto Annot = FD->getAttr<AnnotateAttr>()->getAnnotation();
+    if (Annot == "__HCC_KERNEL__" || Annot == "__HIP_global_function__") {
+      Tmp = Tmp.withCallingConv(CallingConv::CC_OpenCLKernel);
+    }
   }
 
   return CGT.arrangeLLVMFunctionInfo(resultType, instanceMethod,

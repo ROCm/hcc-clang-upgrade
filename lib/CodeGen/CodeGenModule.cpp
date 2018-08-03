@@ -2151,14 +2151,14 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
   }
 
   // If this is C++AMP, be selective about which declarations we emit.
-  if (LangOpts.CPlusPlusAMP && !CodeGenOpts.AMPCPU) {
+  if (LangOpts.CPlusPlusAMP) {
     if (CodeGenOpts.AMPIsDevice) {
       // If -famp-is-device switch is on, we are in GPU build path.
       // Since we will emit both CPU codes and GPU codes to make C++ mangling
       // algorithm happy, we won't reject anything other than ones with only
       // restrict(cpu).  Another optimization pass will remove all CPU codes.
       if (!Global->hasAttr<CXXAMPRestrictAMPAttr>() &&
-         Global->hasAttr<CXXAMPRestrictCPUAttr>())
+          Global->hasAttr<CXXAMPRestrictCPUAttr>())
         return;
     } else {
       // In host path:
@@ -2504,7 +2504,7 @@ void CodeGenModule::EmitGlobalDefinition(GlobalDecl GD, llvm::GlobalValue *GV) {
   const auto *D = cast<ValueDecl>(GD.getDecl());
 
   // If this is C++AMP, be selective about which declarations we emit.
-  if (LangOpts.CPlusPlusAMP && !CodeGenOpts.AMPCPU) {
+  if (LangOpts.CPlusPlusAMP) {
     if (CodeGenOpts.AMPIsDevice) {
       // If -famp-is-device switch is on, we are in GPU build path.
       if (!isWhiteListForHCC(*this, GD)) return;

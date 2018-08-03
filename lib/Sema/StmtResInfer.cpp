@@ -955,7 +955,7 @@ static void InferFunctionType(FunctionDecl* FD, unsigned& Spec) {
       continue;
 
     QualType Ty = pvDecl->getOriginalType();
-    if (Ty->isCharType() || Ty->isWideCharType() || Ty->isSpecificBuiltinType(BuiltinType::Short) || 
+    if (Ty->isCharType() || Ty->isWideCharType() || Ty->isSpecificBuiltinType(BuiltinType::Short) ||
       Ty->isSpecificBuiltinType(BuiltinType::LongLong) ||
       Ty->isSpecificBuiltinType(BuiltinType::LongDouble) || Ty.isVolatileQualified()) {
       Spec &=~CPPAMP_AMP;
@@ -966,9 +966,9 @@ static void InferFunctionType(FunctionDecl* FD, unsigned& Spec) {
       const EnumType* ETy = dyn_cast<EnumType>(Ty);
       if (ETy && ETy->getDecl()) {
         const Type* UTy = ETy->getDecl()->getIntegerType().getTypePtrOrNull();
-        if (UTy->isCharType() || UTy->isWideCharType() || 
-          UTy->isSpecificBuiltinType(BuiltinType::Short) || 
-          UTy->isSpecificBuiltinType(BuiltinType::LongLong) || 
+        if (UTy->isCharType() || UTy->isWideCharType() ||
+          UTy->isSpecificBuiltinType(BuiltinType::Short) ||
+          UTy->isSpecificBuiltinType(BuiltinType::LongLong) ||
           UTy->isSpecificBuiltinType(BuiltinType::LongDouble)) {
            Spec &=~CPPAMP_AMP;
            return;
@@ -999,54 +999,3 @@ static void InferFunctionType(FunctionDecl* FD, unsigned& Spec) {
 
     return;
 }
-
-// FIXME: Once all statements of the declaration are passed, the restricitons
-// inferring can be performed. This is only allowed in auto-restricted declaration
-// Top down
-void Sema::TryCXXAMPRestrictionInferring(Decl *dcl, Stmt *S) {
-  if (!getLangOpts().CPlusPlusAMP ||!dcl ||!dcl->hasAttr<CXXAMPRestrictAUTOAttr>())
-    return;
-  
-  // Only allow on funtion definition
-  assert(isa<FunctionDecl>(*dcl) && dcl->hasBody());
-
-  unsigned OtherSpec = CPPAMP_AMP | CPPAMP_CPU;
-  if(dcl->hasAttr<CXXAMPRestrictAMPAttr>())
-    OtherSpec &= ~CPPAMP_AMP;
-  if(dcl->hasAttr<CXXAMPRestrictCPUAttr>())
-    OtherSpec &= ~CPPAMP_CPU;
-
-  // Inferring process
-  // skip method in a lambda class (ex: kernel function in parallel_for_each)
-  if (isa<CXXMethodDecl>(dcl) && dyn_cast<CXXMethodDecl>(dcl)->getParent()->isLambda()) {
-  } else if(OtherSpec & CPPAMP_AMP) {
-    // Assuming that 'auto' has been already inferred in parent scope if any
-    // Contained in any CPU only caller?
-    if(!IsInAMPRestricted() && dcl->getParentFunctionOrMethod())
-      OtherSpec &= ~CPPAMP_AMP;
-    else if(FunctionDecl* FD = dyn_cast<FunctionDecl>(dcl))
-     InferFunctionType(FD, OtherSpec);
-  }
-  
-  if(OtherSpec) {
-     StmtResInfer SRI(*this, OtherSpec, &this->getSourceManager());
-     OtherSpec = SRI.Infer(S);
-    }
-
-  // Update non-auto restriction specifiers if any
-  if(OtherSpec) {
-    
-    //Place all manually created Attr in where 'auto' physically is
-    CXXAMPRestrictAUTOAttr *AUTOAttr = dcl->getAttr<CXXAMPRestrictAUTOAttr>();
-    assert(AUTOAttr);
-    if(OtherSpec & CPPAMP_AMP)
-      dcl->addAttr(::new (Context) CXXAMPRestrictAMPAttr(AUTOAttr->getRange(), Context, 0));
-    if(OtherSpec & CPPAMP_CPU)
-      dcl->addAttr(::new (Context) CXXAMPRestrictCPUAttr(AUTOAttr->getRange(), Context, 0));
-  }
-  
-  // The inferring process is done. Drop AUTO Attribute in this compilation path
-  dcl->dropAttr<CXXAMPRestrictAUTOAttr>();
-
-}
-

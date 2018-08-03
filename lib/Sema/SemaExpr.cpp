@@ -5567,21 +5567,8 @@ void Sema::DiagnoseCXXAMPMethodCallExpr(SourceLocation LParenLoc,
   bool CalleeAMP = Callee->hasAttr<CXXAMPRestrictAMPAttr>();
   bool CalleeCPU = Callee->hasAttr<CXXAMPRestrictCPUAttr>();
 
-  // Logic for auto-compile-for-accelerator:
-  // In device path, if auto-compile-for-accelerator flag is on,
-  // and caller method has GPU attribute (CXXAMPRestrictAMPAttr),
-  // and callee method doesn't have GPU attribute (CXXAMPRestrictAMPAttr),
-  // then annotate it with one, and recalculate related boolean flags
-  if (getLangOpts().DevicePath && getLangOpts().AutoCompileForAccelerator) {
-    if (CallerAMP && !CalleeAMP) {
-      //llvm::errs() << "add [[hc]] to callee: " << Callee->getName() << "\n";
-      Callee->addAttr(::new (Context) CXXAMPRestrictAMPAttr(Callee->getLocation(), Context, 0));
-      CalleeAMP = Callee->hasAttr<CXXAMPRestrictAMPAttr>();
-    }
-  }
-
   // Case by case
-  if((LambdaInfo && LambdaInfo->CallOperator) && !getLangOpts().AMPCPU) {
+  if (LambdaInfo && LambdaInfo->CallOperator) {
     // caller: __GPU, lambda; callee: non __GPU, lambda
     // int i = 0;
     // auto l2 = []() { i = 1; };
@@ -5594,7 +5581,7 @@ void Sema::DiagnoseCXXAMPMethodCallExpr(SourceLocation LParenLoc,
       Diag(LParenLoc, diag::err_amp_overloaded_member_function)
         << Callee->getQualifiedNameAsString()
         << LambdaInfo->CallOperator->getQualifiedNameAsString();
-  } else if(Caller && ! (LambdaInfo && LambdaInfo->CallOperator) && !getLangOpts().AMPCPU) {
+  } else if(Caller && ! (LambdaInfo && LambdaInfo->CallOperator)) {
     // caller: __GPU, global; callee: non __GPU, class static
     //    class C1 {
     //      public:
@@ -9891,43 +9878,43 @@ static ValueDecl *getCompareDecl(Expr *E) {
   //     The typeid operator.
   //     asm declarations.
   //     Varargs.
-void Sema::DiagnoseCXXAMPExpr(Expr* Stripped, ExprResult &HS, bool DiagnoseWhenStatic) {
-  if(IsInAMPRestricted()) {
-    if (DeclRefExpr* DRL = dyn_cast<DeclRefExpr>(Stripped))
-      if (VarDecl *var = dyn_cast<VarDecl>(DRL->getDecl())) {
-        QualType Type = var->getType();
-        if(!var->hasLocalStorage() || var->isStaticDataMember()) {
-          if (var->hasAttr<HCCTileStaticAttr>()) {
-             // Skip tile_static
-          } else if(Type.isConstQualified() /*&& LHS.get()->isRValue()*/) {
-            // Skip a static const type and global const type that is rvalue
-            if((var->getStorageClass() == SC_Static &&
-              isa<UnaryOperator>(HS.get()->IgnoreParens()) &&
-              cast<UnaryOperator>(HS.get()->IgnoreParens())->getOpcode()== UO_AddrOf) ||
+void Sema::DiagnoseCXXAMPExpr(
+  Expr* Stripped, ExprResult &HS, bool DiagnoseWhenStatic) {
+  if(!IsInAMPRestricted()) return;
+
+  if (DeclRefExpr* DRL = dyn_cast<DeclRefExpr>(Stripped)) {
+    if (VarDecl *var = dyn_cast<VarDecl>(DRL->getDecl())) {
+      QualType Type = var->getType();
+      if(!var->hasLocalStorage() || var->isStaticDataMember()) {
+        if (var->hasAttr<HCCTileStaticAttr>()) return;
+  
+        if (Type.isConstQualified() /*&& LHS.get()->isRValue()*/) {
+          // Skip a static const type and global const type that is rvalue
+          if ((var->getStorageClass() == SC_Static &&
+               isa<UnaryOperator>(HS.get()->IgnoreParens()) &&
+               cast<UnaryOperator>(HS.get()->IgnoreParens())->getOpcode() ==
+               UO_AddrOf) ||
               DiagnoseWhenStatic) {
-              //Still diagnose pointer to static and/or member, e.g
-              //        static const int flagxxx = 2;
-              //        void foo(bool set) __GPU
-              //       {
-              //          int n = flagxxx + 3;
-              //          const int  *p = &flagxxx;        // error
-              //       }
-              // Or sometimes HS is not a UnaryOperator, we use manually-set flag
-              // 'DiagnoseWhenStatic' to determine
-              //
-              Diag(HS.get()->getLocStart(), diag::err_amp_using_static_or_global_variables)
-                << var->getName();
-            }
-          } else
-            if (getLangOpts().HSAExtension || getLangOpts().AMPCPU) {
-              ; // hsa extention
-            } else {
-              Diag(HS.get()->getLocStart(), diag::err_amp_using_static_or_global_variables)
-                << var->getName();
-            }
+            //Still diagnose pointer to static and/or member, e.g
+            //        static const int flagxxx = 2;
+            //        void foo(bool set) __GPU
+            //       {
+            //          int n = flagxxx + 3;
+            //          const int  *p = &flagxxx;        // error
+            //       }
+            // Or sometimes HS is not a UnaryOperator, we use manually-set flag
+            // 'DiagnoseWhenStatic' to determine
+            //
+            Diag(HS.get()->getLocStart(), diag::err_amp_using_static_or_global_variables)
+              << var->getName();
+          }
+        } else if (!getLangOpts().HSAExtension) {
+            Diag(HS.get()->getLocStart(), diag::err_amp_using_static_or_global_variables)
+              << var->getName();
         }
       }
     }
+  }
 }
 
 /// Diagnose some forms of syntactically-obvious tautological comparison.
@@ -14666,26 +14653,11 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
       } else if (Constructor->isMoveConstructor()) {
         DefineImplicitMoveConstructor(Loc, Constructor);
       }
-    } else if (Constructor->getInheritedConstructor()) {
-      DefineInheritingConstructor(Loc, Constructor);
-    } else if (LangOpts.CPlusPlusAMP) {
-      if (Constructor->hasAttr<CXXAMPRestrictAMPAttr>() &&
-          Constructor->hasAttr<AnnotateAttr>() &&
-          Constructor->getAttr<AnnotateAttr>()->getAnnotation() ==
-            "auto_deserialize") {
-#if 0
-        DeclarationNameInfo  AmpFunInfo = Func -> getNameInfo();
-        std::string MethodFunName = AmpFunInfo.getAsString();
-        llvm::errs() << "Definiting Function = " << MethodFunName << "\n";
-#endif
-
-        // do not generate deserializer in case there are previous errors
-        if (!this->getDiagnostics().hasErrorOccurred())
-          DefineAmpGpuDeSerializeFunction(Loc, Constructor);
+      } else if (Constructor->getInheritedConstructor()) {
+        DefineInheritingConstructor(Loc, Constructor);
       }
-    }
-  } else if (CXXDestructorDecl *Destructor =
-                 dyn_cast<CXXDestructorDecl>(Func)) {
+    } else if (CXXDestructorDecl *Destructor =
+               dyn_cast<CXXDestructorDecl>(Func)) {
     Destructor = cast<CXXDestructorDecl>(Destructor->getFirstDecl());
     if (Destructor->isDefaulted() && !Destructor->isDeleted()) {
       if (Destructor->isTrivial() && !Destructor->hasAttr<DLLExportAttr>())
@@ -14695,16 +14667,7 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
     if (Destructor->isVirtual() && getLangOpts().AppleKext)
       MarkVTableUsed(Loc, Destructor->getParent());
   } else if (CXXMethodDecl *MethodDecl = dyn_cast<CXXMethodDecl>(Func)) {
-    // C++AMP
-    DeclarationNameInfo  AmpFunInfo = Func -> getNameInfo();
-    std::string MethodFunName = AmpFunInfo.getAsString();
-    std::string AmpFunName = "__cxxamp_serialize";
-    if (AmpFunName == MethodFunName) {
-      DefineAmpCpuSerializeFunction(Loc, MethodDecl);
-    } else if (MethodFunName == "__cxxamp_trampoline"||
-         MethodFunName == "__cxxamp_trampoline_name") {
-      DefineAMPTrampoline(Loc, MethodDecl);
-    } else if (MethodDecl->isOverloadedOperator()) {
+    if (MethodDecl->isOverloadedOperator()) {
       if (isHIPFunctor(MethodDecl)) { // TODO: temporary.
         auto t = findCall(MethodDecl->getBody());
         if (t) {
@@ -14732,7 +14695,7 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
     } else if (MethodDecl->isVirtual() && getLangOpts().AppleKext)
       MarkVTableUsed(Loc, MethodDecl->getParent());
   }
-
+  
   // Recursive functions should be marked when used from another function.
   // FIXME: Is this really right?
   if (CurContext == Func) return;

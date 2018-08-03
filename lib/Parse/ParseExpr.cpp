@@ -34,12 +34,11 @@ using namespace clang;
 
 bool Parser::IsInAMPFunction(Scope *scope) {
   while (scope) {
-    if (scope->getFlags() & Scope::FnScope) {
-      FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(static_cast<DeclContext*>(scope->getEntity()));
-      if (FD && FD->hasAttr<CXXAMPRestrictAMPAttr>()) {
-        return true;
-      }
+    if (!(scope->getFlags() & Scope::FnScope)) return false;
+    if (auto FD = dyn_cast_or_null<FunctionDecl>(scope->getEntity())) {
+      if (FD->hasAttr<CXXAMPRestrictAMPAttr>()) return true;
     }
+
     scope = scope->getParent();
   }
   return false;
@@ -179,7 +178,7 @@ ExprResult Parser::ParseAssignmentExpression(TypeCastState isTypeCast) {
 
   if (Tok.is(tok::kw_throw)) {
     // C++ AMP-specific, reject if we are in an AMP-restricted function
-    if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath && !getLangOpts().AMPCPU) {
+    if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath) {
       if (IsInAMPFunction(getCurScope())) {
         Diag(Tok, diag::err_amp_illegal_keyword_throw);
       }

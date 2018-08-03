@@ -1193,16 +1193,6 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     unsigned cppampSpec = CPPAMP_None;
     if (getLangOpts().CPlusPlusAMP) {
       cppampSpec = ParseRestrictionSpecification(D, Attr, DeclEndLoc);
-
-      if (getLangOpts().HSAExtension && getLangOpts().AutoAuto) {
-        // auto-auto: automatically append restrict(auto) in case no restriction specifier is found
-        if (cppampSpec == CPPAMP_None) {
-          cppampSpec = CPPAMP_AUTO;
-          IdentifierInfo *II = &PP.getIdentifierTable().get("auto");
-          assert(II);
-          Attr.addNew(II, DeclEndLoc, 0, DeclEndLoc, /*0, DeclEndLoc,*/ 0, 0, ParsedAttr::AS_GNU);
-        }
-      }
     }
 
     // C++AMP

@@ -27,22 +27,12 @@ class ReturnValueSlot;
 class RValue;
 
 class CGAMPRuntime {
-protected:
+protected: // TODO: Who would ever inherit from this?
   CodeGenModule &CGM;
 
 public:
   CGAMPRuntime(CodeGenModule &CGM) : CGM(CGM) {}
-  virtual ~CGAMPRuntime();
-  virtual void EmitTrampolineBody(CodeGenFunction &CGF, const FunctionDecl *FD,
-                                  FunctionArgList &Args);
-  void EmitTrampolineNameBody(CodeGenFunction &CGF, const FunctionDecl *FD,
-    FunctionArgList &Args);
-
-private:
-
-  void EmitCXXAMPDeserializer(CodeGenFunction &CGF,
-                              const FunctionDecl *Trampoline, 
-                              FunctionArgList& Args, Address& ai);
+  virtual ~CGAMPRuntime() = default;
 };
 
 /// Creates an instance of a C++ AMP runtime class.

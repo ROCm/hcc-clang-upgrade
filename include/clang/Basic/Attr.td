@@ -2990,11 +2990,6 @@ def CXXAMPRestrictAMP : InheritableAttr {
   let Documentation = [Undocumented];
 }
 
-def CXXAMPRestrictAUTO : InheritableAttr {
-  let Spellings = [GNU<"auto">];
-  let Documentation = [Undocumented];
-}
-
 def CXXAMPRestrictCPU : InheritableAttr {
   let Spellings = [GNU<"cpu">];
   let Documentation = [Undocumented];

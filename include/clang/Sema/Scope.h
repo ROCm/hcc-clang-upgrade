@@ -389,8 +389,7 @@ public:
   enum CPPAMPSpecifier {
     CPPAMP_None = 0x0,
     CPPAMP_CPU  = 0x1,
-    CPPAMP_AMP  = 0x2,
-    CPPAMP_AUTO = 0x4
+    CPPAMP_AMP  = 0x2
   };
   void setCXXAMPSpecifier(unsigned A) { CXXAMPSpecifier = A; }
   void setAMPScope() { CXXAMPSpecifier |= CPPAMP_AMP; }
@@ -400,9 +399,6 @@ public:
   }
   bool isCPUScope() const {
     return CXXAMPSpecifier & CPPAMP_CPU;
-  }
-  bool isAUTOScope() const {
-    return CXXAMPSpecifier & CPPAMP_AUTO;
   }
 
   /// isAtCatchScope - Return true if this scope is \@catch.

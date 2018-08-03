@@ -661,7 +661,6 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.AssumeSaneOperatorNew = !Args.hasArg(OPT_fno_assume_sane_operator_new);
   Opts.ObjCAutoRefCountExceptions = Args.hasArg(OPT_fobjc_arc_exceptions);
   Opts.AMPIsDevice = Args.hasArg(OPT_famp_is_device);
-  Opts.AMPCPU = Args.hasArg(OPT_famp_cpu);
   Opts.CXAAtExit = !Args.hasArg(OPT_fno_use_cxa_atexit);
   Opts.RegisterGlobalDtorsWithAtExit =
       Args.hasArg(OPT_fregister_global_dtors_with_atexit);
@@ -2685,16 +2684,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   // C++ AMP: Decide host path or device path
   Opts.DevicePath = Args.hasArg(OPT_famp_is_device);
-  Opts.AMPCPU = Args.hasArg(OPT_famp_cpu);
   Opts.HSAExtension = Args.hasArg(OPT_fhsa_extension);
-
-  // rules for auto-auto:
-  // disabled by default, or explicitly disabled by -fno-auto-auto
-  // enabled by -fauto-auto
-  Opts.AutoAuto = Args.hasArg(OPT_fauto_auto) && !Args.hasArg(OPT_fno_auto_auto);
-
-  // rules for auto-compile-for-accelerator:
-  Opts.AutoCompileForAccelerator = Args.hasArg(OPT_fauto_compile_for_accelerator);
 
   // set CUDA mode for OpenMP target NVPTX if specified in options
   Opts.OpenMPCUDAMode = Opts.OpenMPIsDevice && T.isNVPTX() &&
