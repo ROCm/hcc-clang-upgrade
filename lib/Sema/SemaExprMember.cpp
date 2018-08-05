@@ -1139,8 +1139,9 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
         name = getCurLambda()->CallOperator->getNameAsString();
       }
       // Check local
-      // FIXME: the class should inheritate AMP restriction from parent RECURSIVELY
-      //             especially the class.local. Any missing of that can cause unexpected errors
+      // FIXME: the class should inherit AMP restriction from parent RECURSIVELY
+      //        especially the class.local. Any missing of that can cause
+      //        unexpected errors
       bool MemberAMP = MemberFn->hasAttr<CXXAMPRestrictAMPAttr>();
       bool MemberCPU = MemberFn->hasAttr<CXXAMPRestrictCPUAttr>() || !MemberAMP;
       const CXXRecordDecl * RDecl = MemberFn->getParent();

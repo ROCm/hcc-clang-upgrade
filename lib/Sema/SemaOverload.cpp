@@ -12339,10 +12339,10 @@ bool Sema::buildOverloadedCallSet(Scope *S, Expr *Fn,
 
 void Sema::DiagnoseCXXAMPOverloadedCallExpr(SourceLocation LParenLoc,
                                             FunctionDecl* Callee) {
-  if(!Callee)
-    return;
+  if (!Callee) return;
+  if (Callee->getBuiltinID() != 0) return;
 
-  if(Callee->getQualifiedNameAsString().find("std::")!=std::string::npos)
+  if(Callee->getQualifiedNameAsString().find("std::")!=std::string::npos) // TODO: this is bogus.
     return;
 
   FunctionDecl* Caller = this->getCurFunctionDecl();
@@ -12390,7 +12390,7 @@ void Sema::DiagnoseCXXAMPOverloadedCallExpr(SourceLocation LParenLoc,
     //      int flag = 0;
     //      fooxxx(flag);  // Error
     //    }
-    if(getLangOpts().DevicePath && Caller->isGlobal() && Callee->isGlobal() &&
+    if (getLangOpts().DevicePath && Caller->isGlobal() && Callee->isGlobal() &&
       (CallerAMP && CallerCPU) && (!CalleeAMP && !CalleeCPU) )
       Diag(LParenLoc, diag::err_amp_overloaded_member_function)
         << Callee->getQualifiedNameAsString() << Caller->getNameAsString();

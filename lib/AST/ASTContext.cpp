@@ -9539,6 +9539,21 @@ static GVALinkage basicGVALinkageForFunction(const ASTContext &Context,
   return GVA_DiscardableODR;
 }
 
+static bool isDeclareTargetToDeclaration(const Decl *VD) {
+  for (const Decl *D : VD->redecls()) {
+    if (!D->hasAttrs())
+      continue;
+    if (const auto *Attr = D->getAttr<OMPDeclareTargetDeclAttr>())
+      return Attr->getMapType() == OMPDeclareTargetDeclAttr::MT_To;
+  }
+  if (const auto *V = dyn_cast<VarDecl>(VD)) {
+    if (const VarDecl *TD = V->getTemplateInstantiationPattern())
+      return isDeclareTargetToDeclaration(TD);
+  }
+
+  return false;
+}
+
 static GVALinkage adjustGVALinkageForAttributes(const ASTContext &Context,
                                                 const Decl *D, GVALinkage L) {
   // See http://msdn.microsoft.com/en-us/library/xa0d9ste.aspx
