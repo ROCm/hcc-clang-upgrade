@@ -350,6 +350,7 @@ namespace {
 
     /// Get the type of the designated object.
     QualType getType(ASTContext &Ctx) const {
+      assert(!Invalid && "invalid designator has no subobject type");
       return MostDerivedPathLength == Entries.size()
                  ? MostDerivedType
                  : Ctx.getRecordType(getAsBaseClass(Entries.back()));
@@ -6189,12 +6190,12 @@ bool PointerExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
                 BuiltinOp == Builtin::BI__builtin_wmemmove;
 
     // The result of mem* is the first argument.
-    if (!Visit(E->getArg(0)))
+    if (!Visit(E->getArg(0)) || Result.Designator.Invalid)
       return false;
     LValue Dest = Result;
 
     LValue Src;
-    if (!EvaluatePointer(E->getArg(1), Src, Info))
+    if (!EvaluatePointer(E->getArg(1), Src, Info) || Src.Designator.Invalid)
       return false;
 
     APSInt N;
