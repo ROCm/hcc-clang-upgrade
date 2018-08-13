@@ -350,6 +350,7 @@ namespace {
 
     /// Get the type of the designated object.
     QualType getType(ASTContext &Ctx) const {
+      assert(!Invalid && "invalid designator has no subobject type");
       return MostDerivedPathLength == Entries.size()
                  ? MostDerivedType
                  : Ctx.getRecordType(getAsBaseClass(Entries.back()));
@@ -6189,12 +6190,12 @@ bool PointerExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
                 BuiltinOp == Builtin::BI__builtin_wmemmove;
 
     // The result of mem* is the first argument.
-    if (!Visit(E->getArg(0)))
+    if (!Visit(E->getArg(0)) || Result.Designator.Invalid)
       return false;
     LValue Dest = Result;
 
     LValue Src;
-    if (!EvaluatePointer(E->getArg(1), Src, Info))
+    if (!EvaluatePointer(E->getArg(1), Src, Info) || Src.Designator.Invalid)
       return false;
 
     APSInt N;
@@ -8116,9 +8117,15 @@ bool IntExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
   case Builtin::BI__builtin_classify_type:
     return Success((int)EvaluateBuiltinClassifyType(E, Info.getLangOpts()), E);
 
-  // FIXME: BI__builtin_clrsb
-  // FIXME: BI__builtin_clrsbl
-  // FIXME: BI__builtin_clrsbll
+  case Builtin::BI__builtin_clrsb:
+  case Builtin::BI__builtin_clrsbl:
+  case Builtin::BI__builtin_clrsbll: {
+    APSInt Val;
+    if (!EvaluateInteger(E->getArg(0), Val, Info))
+      return false;
+
+    return Success(Val.getBitWidth() - Val.getMinSignedBits(), E);
+  }
 
   case Builtin::BI__builtin_clz:
   case Builtin::BI__builtin_clzl:
@@ -9697,8 +9704,7 @@ bool FixedPointExprEvaluator::VisitUnaryOperator(const UnaryOperator *E) {
       if (Value.isSigned() && Value.isMinSignedValue() && E->canOverflow()) {
         SmallString<64> S;
         FixedPointValueToString(S, Value,
-                                Info.Ctx.getTypeInfo(E->getType()).Width,
-                                /*Radix=*/10);
+                                Info.Ctx.getTypeInfo(E->getType()).Width);
         Info.CCEDiag(E, diag::note_constexpr_overflow) << S << E->getType();
         if (Info.noteUndefinedBehavior()) return false;
       }
