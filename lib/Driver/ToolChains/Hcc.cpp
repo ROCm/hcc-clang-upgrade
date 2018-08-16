@@ -307,8 +307,10 @@ namespace
 
     bool is_valid(const std::string& gfxip)
     {
-        static constexpr std::array<const char*, 4u> valid = {
-            { "gfx701", "gfx803", "gfx900", "gfx906" }};
+        static constexpr std::array<const char*, 8u> valid = {
+          { "gfx701", "gfx702", "gfx801", "gfx802", "gfx803", "gfx900",
+            "gfx902", "gfx906" }
+        };
 
         return std::find(valid.cbegin(), valid.cend(), gfxip) != valid.cend();
     }
@@ -399,7 +401,7 @@ void HCC::CXXAMPLink::ConstructLinkerJob(
         AMDGPUTargetVector = split_gfx_list(HCC_AMDGPU_TARGET, ' ');
     }
 
-    const auto cnt = std::count(
+    const decltype(AMDGPUTargetVector.size()) cnt = std::count(
         AMDGPUTargetVector.cbegin(), AMDGPUTargetVector.cend(), auto_tgt);
 
     if (cnt > 1) C.getDriver().Diag(diag::warn_amdgpu_target_auto_nonsingular);
