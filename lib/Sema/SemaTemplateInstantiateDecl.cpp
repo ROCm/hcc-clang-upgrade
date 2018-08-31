@@ -1596,7 +1596,6 @@ static void MarkByValueRecordsPassedToHIPGlobalFN(FunctionDecl *FDecl)
       static constexpr const char HIPKernargRecord[]{"__HIP_KERNARG_RECORD__"};
       RD->addAttr(
         AnnotateAttr::CreateImplicit(RD->getASTContext(), HIPKernargRecord));
-      RD->dump();
     }
   }
 }
