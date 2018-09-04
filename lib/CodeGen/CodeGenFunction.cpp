@@ -970,7 +970,6 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
         auto Annot = FD->getAttr<AnnotateAttr>()->getAnnotation();
 
         if (Annot == "__HCC_KERNEL__" || Annot == "__HIP_global_function__") {
-            Fn->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
             Fn->setDoesNotRecurse();
             Fn->setDoesNotThrow();
             Fn->setLinkage(llvm::Function::LinkageTypes::WeakODRLinkage);
