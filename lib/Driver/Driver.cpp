@@ -681,16 +681,14 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
   if (llvm::any_of(Inputs, [](const std::pair<types::ID, const Arg *> &I) {
         return types::isHCC(I.first);
       })) {
-
     const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
     llvm::Triple HccTriple("amdgcn--amdhsa-hcc");
     auto &HccTC = ToolChains[HccTriple.str()];
-    if (!HccTC)
-      HccTC = llvm::make_unique<toolchains::HCCToolChain>(*this, HccTriple, *HostTC, C.getInputArgs());
-      
-    const ToolChain *TC = HccTC.get();
-
-    C.addOffloadDeviceToolChain(TC, Action::OFK_HCC);
+    if (!HccTC) {
+      HccTC = llvm::make_unique<toolchains::HCCToolChain>(
+          *this, HccTriple, *HostTC, C.getInputArgs());
+    }
+    C.addOffloadDeviceToolChain(HccTC.get(), Action::OFK_HCC);
   }
 
   //
@@ -2763,6 +2761,92 @@ class OffloadingActionBuilder final {
     }
   };
 
+  /// \brief HCC/AMP action builder.
+  class HCCActionBuilder final : public DeviceActionBuilder {
+    /// The actions for the current input.
+    ActionList DeviceActions;
+    SmallVector<ActionList, 8> DeviceLinkerInputs;
+    bool IsActive = false;
+
+  public:
+    HCCActionBuilder(Compilation &C, DerivedArgList &Args,
+      const Driver::InputList &Inputs)
+      : DeviceActionBuilder(C, Args, Inputs, Action::OFK_HCC) {}
+
+    ActionBuilderReturnCode getDeviceDependences(
+        OffloadAction::DeviceDependences &DA,
+        phases::ID CurPhase, phases::ID FinalPhase,
+        PhasesTy &Phases) override {
+      if (!IsActive)
+        return ABRT_Inactive;
+
+      if (DeviceActions.empty())
+        return ABRT_Success;
+
+      if (CurPhase == phases::Link) {
+        auto LI = DeviceLinkerInputs.begin();
+        for (auto *A : DeviceActions) {
+          LI->push_back(A);
+          ++LI;
+        }
+        // We will pass the device action as a host dependence, so we don't
+        // need to do anything else with them.
+        DeviceActions.clear();
+        return ABRT_Success;
+      }
+
+      // By default, we produce an action for each device arch.
+      for (Action *&A : DeviceActions)
+        A = C.getDriver().ConstructPhaseAction(C, Args, CurPhase, A);
+
+      return ABRT_Success;
+    }
+
+    ActionBuilderReturnCode addDeviceDepences(Action *HostAction) override {
+      if (!isa<InputAction>(HostAction) ||
+          HostAction->getType() != types::TY_CXX) {
+        IsActive = false;
+        return ABRT_Inactive;
+      }
+
+      DeviceActions.push_back(
+        C.MakeAction<InputAction>(
+          cast<InputAction>(HostAction)->getInputArg(),
+          types::TY_CXX_AMP));
+
+      IsActive = true;
+      return ABRT_Success;
+    }
+
+    void appendTopLevelActions(ActionList &AL) override {
+      for (unsigned I = 0, E = DeviceActions.size(); I != E; ++I) {
+        auto A = DeviceActions[I];
+        OffloadAction::DeviceDependences Dep;
+        Dep.add(*A, *ToolChains.front(), nullptr, Action::OFK_HCC);
+        AL.push_back(C.MakeAction<OffloadAction>(Dep, A->getType()));
+      }
+      DeviceActions.clear();
+    }
+
+    void appendLinkDependences(OffloadAction::DeviceDependences &DA) override {
+      auto TC = ToolChains.begin();
+      for (auto &LI : DeviceLinkerInputs) {
+        auto *DeviceLinkAction =
+          C.MakeAction<LinkJobAction>(LI, types::TY_Image);
+        DA.add(*DeviceLinkAction, **TC, nullptr, Action::OFK_HCC);
+        ++TC;
+      }
+    }
+
+    bool initialize() override {
+      if (!C.hasOffloadToolChain<Action::OFK_HCC>())
+        return false;
+
+      ToolChains.push_back(C.getSingleOffloadToolChain<Action::OFK_HCC>());
+      return false; // no error
+    }
+  };
+
   ///
   /// TODO: Add the implementation for other specialized builders here.
   ///
@@ -2789,6 +2873,9 @@ public:
 
     // Create a specialized builder for OpenMP.
     SpecializedBuilders.push_back(new OpenMPActionBuilder(C, Args, Inputs));
+
+    // Create a specialized builder for HCC.
+    SpecializedBuilders.push_back(new HCCActionBuilder(C, Args, Inputs));
 
     //
     // TODO: Build other specialized builders here.
@@ -3692,17 +3779,6 @@ public:
   /// dropping them. If no suitable tool is found, null will be returned.
   const Tool *getTool(const ActionList *&Inputs,
                       ActionList &CollapsedOffloadAction) {
-
-    if (BaseAction->ContainsActions(Action::AssembleJobClass, types::TY_HC_HOST) ||
-        BaseAction->ContainsActions(Action::AssembleJobClass, types::TY_HC_KERNEL) ||
-        BaseAction->ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP) ||
-        BaseAction->ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP_CPU)) {
-      const ToolChain *DeviceTC = C.getSingleOffloadToolChain<Action::OFK_HCC>();
-      assert(DeviceTC && "HCC Device ToolChain is not set.");
-      Inputs = &BaseAction->getInputs();
-      return DeviceTC->SelectTool(*BaseAction);
-    }
-
     //
     // Get the largest chain of actions that we could combine.
     //
@@ -3914,18 +3990,9 @@ InputInfo Driver::BuildJobsForActionNoCache(
     // FIXME: Clean this up.
     bool SubJobAtTopLevel =
         AtTopLevel && (isa<DsymutilJobAction>(A) || isa<VerifyJobAction>(A));
-    // UPGRADE_TBD: Find a better way to check HCC-specific Action objects
-    // Find correct Tool for HCC-specific Actions in HCC ToolChain
-    bool IsHccTC =
-      JA->ContainsActions(Action::BackendJobClass, types::TY_PP_CXX_AMP) ||
-      JA->ContainsActions(Action::BackendJobClass, types::TY_PP_CXX_AMP_CPU) ||
-      JA->ContainsActions(Action::AssembleJobClass, types::TY_HC_KERNEL) ||
-      JA->ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP) ||
-      JA->ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP_CPU);
     InputInfos.push_back(BuildJobsForAction(
-      C, Input, IsHccTC ? C.getSingleOffloadToolChain<Action::OFK_HCC>() : TC,
-      BoundArch, SubJobAtTopLevel, MultipleArchs, LinkingOutput, CachedResults,
-      A->getOffloadingDeviceKind()));
+      C, Input, TC, BoundArch, SubJobAtTopLevel, MultipleArchs, LinkingOutput,
+      CachedResults, A->getOffloadingDeviceKind()));
   }
 
   // Always use the first input as the base input.
