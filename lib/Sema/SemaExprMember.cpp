@@ -1158,7 +1158,7 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
         if(QualifiedName.find("::accelerator_view")!=std::string::npos ||
           QualifiedName.find("array_view<")!=std::string::npos ||
           QualifiedName.find("::accelerator")!=std::string::npos ||
-          QualifiedName.find("Concurrency::")!=std::string::npos ||
+          QualifiedName.find("hc::")!=std::string::npos ||
           QualifiedName.find("std::")!=std::string::npos) { // TODO: likely bogus.
         } else {
           Diag(MemberLoc, diag::err_amp_overloaded_member_function)
