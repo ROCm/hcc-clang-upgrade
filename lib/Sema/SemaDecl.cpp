@@ -5333,9 +5333,9 @@ bool Sema::IsCXXAMPUnsupportedReferenceType(const Type* Ty,
     return IsCXXAMPUnsupportedPointerType(TargetTy, CheckContainer, IsInfer);
 
   if (TargetTy->isRecordType()) {
-    // Support reference to concurrency::array and/or concurrency::graphics::texture
+    // Support reference to hc::array and/or hc::graphics::texture
     if(CXXRecordDecl* RD = Ty->getAsCXXRecordDecl()) {
-      if((RD->getName() == "array" && PointeeType.getAsString().find("Concurrency::array")) ||
+      if((RD->getName() == "array" && PointeeType.getAsString().find("hc::array")) ||
         (RD->getName() == "texture"&& PointeeType.getAsString().find("graphics::texture")) ||
         RD->getQualifiedNameAsString().find("std::")!=std::string::npos)
         return false;
@@ -5407,9 +5407,9 @@ bool Sema::IsCXXAMPUnsupportedPointerType(const Type* Ty,
   // test pointer to class type
   if (TargetTy->isRecordType()) {
     // Pointers can point to amp-compatible types or
-    // concurrency::array or concurrency::graphics::texture
+    // hc::array or hc::graphics::texture
     if(CXXRecordDecl* RD = TargetTy->getAsCXXRecordDecl()) {
-       if((RD->getName() == "array" && PointeeType.getAsString().find("Concurrency::array")) ||
+       if((RD->getName() == "array" && PointeeType.getAsString().find("hc::array")) ||
         (RD->getName() == "texture"&& PointeeType.getAsString().find("graphics::texture")) ||
         RD->getQualifiedNameAsString().find("std::")!=std::string::npos)
          return false;
@@ -5530,7 +5530,7 @@ bool Sema::DiagnoseCXXAMPDecl(Decl* Dcl, bool CheckContainer, bool IsInfer) {
       if (!getLangOpts().HSAExtension && (FTy->isPointerType() || FTy->isReferenceType())) {
         //pointer or reference is not allowed as pointed to
         //    type, array element type or data member type
-        //    (except reference to concurrency::array/texture)
+        //    (except reference to hc::array/texture)
         QualType PointeeType = FTy->getPointeeType();
         const Type* TargetTy = PointeeType.getTypePtrOrNull();
         bool is = true;
@@ -5559,7 +5559,7 @@ bool Sema::DiagnoseCXXAMPDecl(Decl* Dcl, bool CheckContainer, bool IsInfer) {
         // Handle special case
         if (FTy->isReferenceType() && TargetTy && TargetTy->isRecordType()) {
           if(CXXRecordDecl* RD = TargetTy->getAsCXXRecordDecl()) {
-            if((RD->getName() == "array" && PointeeType.getAsString().find("Concurrency::array")) ||
+            if((RD->getName() == "array" && PointeeType.getAsString().find("hc::array")) ||
              (RD->getName() == "texture"&& PointeeType.getAsString().find("graphics::texture")))
              is = false;
           }
