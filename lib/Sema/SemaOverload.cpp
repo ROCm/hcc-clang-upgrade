@@ -12311,8 +12311,8 @@ bool Sema::buildOverloadedCallSet(Scope *S, Expr *Fn,
 
 void Sema::DiagnoseCXXAMPOverloadedCallExpr(SourceLocation LParenLoc,
                                             FunctionDecl* Callee) {
-  if (!Callee) return;
-  if (Callee->getBuiltinID() != 0) return;
+  if(!Callee || Callee->isConstexpr() || Callee->getBuiltinID() != 0u)
+    return;
 
   if(Callee->getQualifiedNameAsString().find("std::")!=std::string::npos) // TODO: this is bogus.
     return;
