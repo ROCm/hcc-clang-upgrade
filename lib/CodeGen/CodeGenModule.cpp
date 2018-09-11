@@ -1569,10 +1569,6 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
   // Set C++AMP kernels carry AMDGPU_KERNEL calling convention
   if (getLangOpts().OpenCL ||
       (getLangOpts().CPlusPlusAMP && CodeGenOpts.HCIsDevice)) {
-      if (F->getName()=="amp_barrier") {
-          F->addFnAttr(llvm::Attribute::NoDuplicate);
-          F->addFnAttr(llvm::Attribute::NoUnwind);
-      }
       if (FD->hasAttr<OpenCLKernelAttr>())
           F->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
   }
