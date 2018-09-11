@@ -269,6 +269,46 @@ namespace
         std::sort(TargetVec.begin(), TargetVec.end());
         TargetVec.erase(unique(TargetVec.begin(), TargetVec.end()), TargetVec.end());
     }
+
+    void construct_amdgpu_target_cmdargs(
+        Compilation &C,
+        const ToolChain& tc,
+        const ArgList &Args,
+        ArgStringList &CmdArgs)
+    {
+        // specify AMDGPU target
+        constexpr const char auto_tgt[] = "auto";
+        
+        #if !defined(HCC_AMDGPU_TARGET)
+            #define HCC_AMDGPU_TARGET auto_tgt
+        #endif
+
+        auto AMDGPUTargetVector =
+            Args.getAllArgValues(options::OPT_amdgpu_target_EQ);
+
+        if (AMDGPUTargetVector.empty()) {
+            // split HCC_AMDGPU_TARGET list up
+            AMDGPUTargetVector = split_gfx_list(HCC_AMDGPU_TARGET, ' ');
+        }
+
+        const auto cnt = std::count(
+            AMDGPUTargetVector.cbegin(), AMDGPUTargetVector.cend(), auto_tgt);
+
+        if (cnt > 1) C.getDriver().Diag(diag::warn_amdgpu_target_auto_nonsingular);
+        if (cnt == AMDGPUTargetVector.size()) {
+            AMDGPUTargetVector = detect_and_add_targets(C, tc);
+        }
+        AMDGPUTargetVector.erase(
+            std::remove(
+                AMDGPUTargetVector.begin(), AMDGPUTargetVector.end(), auto_tgt),
+            AMDGPUTargetVector.end());
+
+        remove_duplicate_targets(AMDGPUTargetVector);
+
+        for (auto&& AMDGPUTarget : AMDGPUTargetVector) {
+            validate_and_add_to_command(AMDGPUTarget, C, Args, CmdArgs);
+        }
+    }
 }
 
 #ifndef HCC_TOOLCHAIN_RHEL
@@ -284,41 +324,10 @@ void HCC::CXXAMPLink::ConstructLinkerJob(
     const char *LinkingOutput,
     ArgStringList &CmdArgs) const
 {
-    // specify AMDGPU target
-    constexpr const char auto_tgt[] = "auto";
-
     const auto &TC = static_cast<const toolchains::Generic_ELF &>(getToolChain());
     TC.HCCInstallation.AddHCCLibArgs(Args, CmdArgs);
 
-    #if !defined(HCC_AMDGPU_TARGET)
-        #define HCC_AMDGPU_TARGET auto_tgt
-    #endif
-
-    auto AMDGPUTargetVector =
-        Args.getAllArgValues(options::OPT_amdgpu_target_EQ);
-
-    if (AMDGPUTargetVector.empty()) {
-        // split HCC_AMDGPU_TARGET list up
-        AMDGPUTargetVector = split_gfx_list(HCC_AMDGPU_TARGET, ' ');
-    }
-
-    const unsigned cnt = std::count(
-        AMDGPUTargetVector.cbegin(), AMDGPUTargetVector.cend(), auto_tgt);
-
-    if (cnt > 1) C.getDriver().Diag(diag::warn_amdgpu_target_auto_nonsingular);
-    if (cnt == AMDGPUTargetVector.size()) {
-        AMDGPUTargetVector = detect_and_add_targets(C, getToolChain());
-    }
-    AMDGPUTargetVector.erase(
-        std::remove(
-            AMDGPUTargetVector.begin(), AMDGPUTargetVector.end(), auto_tgt),
-        AMDGPUTargetVector.end());
-
-    remove_duplicate_targets(AMDGPUTargetVector);
-
-    for (auto&& AMDGPUTarget : AMDGPUTargetVector) {
-        validate_and_add_to_command(AMDGPUTarget, C, Args, CmdArgs);
-    }
+    construct_amdgpu_target_cmdargs(C, getToolChain(), Args, CmdArgs);
 }
 
 void HCC::CXXAMPLink::ConstructJob(Compilation &C,
