@@ -239,6 +239,52 @@ static void instantiateDependentDiagnoseIfAttr(
         DIA->getSpellingListIndex()));
 }
 
+static void instantiateDependentAMDGPUFlatWorkGroupSizeAttr(
+  Sema &S, const MultiLevelTemplateArgumentList &TemplateArgs,
+  const AMDGPUFlatWorkGroupSizeAttr &Attr, Decl *New) {
+  EnterExpressionEvaluationContext Unevaluated{
+    S, Sema::ExpressionEvaluationContext::ConstantEvaluated};
+
+  ExprResult Result = S.SubstExpr(Attr.getMin(), TemplateArgs);
+  if (Result.isInvalid()) return;
+  Expr *MinExpr = Result.getAs<Expr>();
+
+  Expr *MaxExpr = Attr.getMax();
+
+  if (!MaxExpr) return;
+
+  Result = S.SubstExpr(Attr.getMax(), TemplateArgs);
+  if (Result.isInvalid()) return;
+  MaxExpr = Result.getAs<Expr>();
+
+  New->addAttr(new (S.Context)
+    AMDGPUFlatWorkGroupSizeAttr{Attr.getLocation(), S.Context, MinExpr, MaxExpr,
+                                "", Attr.getSpellingListIndex()});
+}
+
+static void instantiateDependentAMDGPUWavesPerEUAttr(
+  Sema &S, const MultiLevelTemplateArgumentList &TemplateArgs,
+  const AMDGPUWavesPerEUAttr &Attr, Decl *New) {
+  EnterExpressionEvaluationContext Unevaluated{
+    S, Sema::ExpressionEvaluationContext::ConstantEvaluated};
+
+  ExprResult Result = S.SubstExpr(Attr.getMin(), TemplateArgs);
+  if (Result.isInvalid()) return;
+  Expr *MinExpr = Result.getAs<Expr>();
+
+  Expr *MaxExpr = Attr.getMax();
+
+  if (!MaxExpr) return;
+
+  Result = S.SubstExpr(Attr.getMax(), TemplateArgs);
+  if (Result.isInvalid()) return;
+  MaxExpr = Result.getAs<Expr>();
+
+  New->addAttr(new (S.Context)
+    AMDGPUWavesPerEUAttr{Attr.getLocation(), S.Context, MinExpr, MaxExpr, "",
+                         Attr.getSpellingListIndex()});
+}
+
 // Constructs and adds to New a new instance of CUDALaunchBoundsAttr using
 // template A as the base and arguments from TemplateArgs.
 static void instantiateDependentCUDALaunchBoundsAttr(
@@ -411,6 +457,22 @@ void Sema::InstantiateAttrs(const MultiLevelTemplateArgumentList &TemplateArgs,
             dyn_cast<CUDALaunchBoundsAttr>(TmplAttr)) {
       instantiateDependentCUDALaunchBoundsAttr(*this, TemplateArgs,
                                                *CUDALaunchBounds, New);
+      continue;
+    }
+
+    if (const AMDGPUFlatWorkGroupSizeAttr *AMDGPUFlatWGSize =
+        dyn_cast<AMDGPUFlatWorkGroupSizeAttr>(TmplAttr)) {
+      instantiateDependentAMDGPUFlatWorkGroupSizeAttr(*this, TemplateArgs,
+                                                      *AMDGPUFlatWGSize, New);
+
+      continue;
+    }
+
+    if (const AMDGPUWavesPerEUAttr *AMDGPUWavesPerEU =
+        dyn_cast<AMDGPUWavesPerEUAttr>(TmplAttr)) {
+      instantiateDependentAMDGPUWavesPerEUAttr(*this, TemplateArgs,
+                                               *AMDGPUWavesPerEU, New);
+
       continue;
     }
 

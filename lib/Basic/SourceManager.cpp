@@ -729,9 +729,10 @@ FileID SourceManager::getFileIDLocal(unsigned SLocOffset) const {
   const SrcMgr::SLocEntry *I;
 
   // FIXME: Handle file start location
-  // It is CXXAMP Specific. However it shall be ok in general
-  bool patch = (LocalSLocEntryTable[LastFileIDLookup.ID].getOffset() <= SLocOffset);
-  if (LastFileIDLookup.ID < 0 || patch ||
+  // It is HC Specific. However it shall be ok in general - TODO: review.
+  bool Patch =
+    (LocalSLocEntryTable[LastFileIDLookup.ID].getOffset() <= SLocOffset);
+  if (LastFileIDLookup.ID < 0 || Patch ||
       LocalSLocEntryTable[LastFileIDLookup.ID].getOffset() < SLocOffset) {
     // Neither loc prunes our search.
     I = LocalSLocEntryTable.end();

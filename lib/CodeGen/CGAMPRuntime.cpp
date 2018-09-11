@@ -7,9 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This provides an abstract class for C++ AMP code generation.  Concrete
-// subclasses of this implement code generation for specific C++ AMP
-// runtime libraries.
+// This provides an abstract class for HC code generation. Concrete subclasses
+// of this implement code generation for specific HC runtime libraries.
 //
 //===----------------------------------------------------------------------===//
 
@@ -23,9 +22,9 @@
 namespace clang {
 namespace CodeGen {
 
-/// Creates an instance of a C++ AMP runtime class.
-CGAMPRuntime *CreateAMPRuntime(CodeGenModule &CGM) {
-  return new CGAMPRuntime(CGM);
+/// Creates an instance of a HC runtime class.
+CGHCRuntime *CreateHCRuntime(CodeGenModule &CGM) {
+  return new CGHCRuntime(CGM);
 }
 } // namespace CodeGen
 } // namespace clang

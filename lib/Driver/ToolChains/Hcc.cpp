@@ -290,7 +290,7 @@ namespace
   #define HCC_TOOLCHAIN_RHEL false
 #endif
 
-void HCC::CXXAMPLink::ConstructLinkerJob(
+void HCC::HCLink::ConstructLinkerJob(
     Compilation &C,
     const JobAction &JA,
     const InputInfo &Output,
@@ -346,7 +346,7 @@ void HCC::CXXAMPLink::ConstructLinkerJob(
     }
 }
 
-void HCC::CXXAMPLink::ConstructJob(Compilation &C,
+void HCC::HCLink::ConstructJob(Compilation &C,
                                    const JobAction &JA,
                                    const InputInfo &Output,
                                    const InputInfoList &Inputs,
@@ -444,5 +444,5 @@ Tool *HCCToolChain::buildAssembler() const {
 }
 
 Tool *HCCToolChain::buildLinker() const {
-  return new tools::HCC::CXXAMPLink(*this);
+  return new tools::HCC::HCLink(*this);
 }

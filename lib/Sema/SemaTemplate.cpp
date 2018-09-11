@@ -4624,7 +4624,7 @@ Sema::SubstDefaultTemplateArgumentIfAvailable(TemplateDecl *Template,
                 TempTempParm->getDefaultArgument().getTemplateNameLoc());
 }
 
-void Sema::DiagnoseCXXAMPTemplateArgument(NamedDecl *Param,
+void Sema::DiagnoseHCTemplateArgument(NamedDecl *Param,
                                           const TemplateArgumentLoc &AL,
                                           NamedDecl *Template,
                                           SourceLocation TemplateLoc) {
@@ -4634,7 +4634,7 @@ void Sema::DiagnoseCXXAMPTemplateArgument(NamedDecl *Param,
   // Check array's template type parameters.
   IdentifierInfo* Info = Template->getIdentifier();
   if(Info && Info->isStr("array") &&
-    Template->getQualifiedNameAsString().find("Concurrency::array")!=std::string::npos) {
+    Template->getQualifiedNameAsString().find("hc::array")!=std::string::npos) {
     // For a declaration:
     //         template<typename T, N> class array;
     // And a usage,
@@ -4724,7 +4724,7 @@ bool Sema::CheckTemplateArgument(NamedDecl *Param,
                                  CheckTemplateArgumentKind CTAK) {
   // C++AMP
   if(getLangOpts().CPlusPlusAMP && Template) {
-    DiagnoseCXXAMPTemplateArgument(Param, Arg, Template, TemplateLoc);
+    DiagnoseHCTemplateArgument(Param, Arg, Template, TemplateLoc);
   }
 
   // Check template type parameters.
@@ -8173,7 +8173,7 @@ bool Sema::CheckFunctionTemplateSpecialization(
         continue;
       }
 
-      // C++ AMP
+      // HC
       // Check if the specialization has the same or more restriction specifiers
       // Truth table (row: restriction specifier of the input, column: restriction specifier of the candidate.
       // +---------+------+-----+-----+---------+
@@ -8188,14 +8188,16 @@ bool Sema::CheckFunctionTemplateSpecialization(
       // | cpu/amp |  NG  |  NG |  NG |  OK     |
       // +---------+------+-----+-----+---------+
       if (getLangOpts().CPlusPlusAMP) {
-        if (FD->hasAttr<CXXAMPRestrictAMPAttr>()) {
-          if (!Specialization->hasAttr<CXXAMPRestrictAMPAttr>()) {
+        if (FD->hasAttr<HCRestrictHCAttr>()) {
+          if (!Specialization->hasAttr<HCRestrictHCAttr>()) {
             continue;
-          } else if (FD->hasAttr<CXXAMPRestrictCPUAttr>() && !Specialization->hasAttr<CXXAMPRestrictCPUAttr>()) {
+          } else if (FD->hasAttr<HCRestrictCPUAttr>() &&
+                     !Specialization->hasAttr<HCRestrictCPUAttr>()) {
             continue;
           }
         } else {
-          if (Specialization->hasAttr<CXXAMPRestrictAMPAttr>() && !Specialization->hasAttr<CXXAMPRestrictCPUAttr>()) {
+          if (Specialization->hasAttr<HCRestrictHCAttr>() &&
+              !Specialization->hasAttr<HCRestrictCPUAttr>()) {
             continue;
           }
         }
@@ -8298,20 +8300,21 @@ bool Sema::CheckFunctionTemplateSpecialization(
     MarkUnusedFileScopedDecl(Specialization);
   }
 
-  // C++ AMP
+  // HC
   if (getLangOpts().CPlusPlusAMP) {
+    // TODO: Fix for winter cleanup.
     SourceLocation Loc = FD->getLocation();
-    if (FD->hasAttr<CXXAMPRestrictAMPAttr>()) {
-      if (!Specialization->hasAttr<CXXAMPRestrictAMPAttr>())
-        Specialization->addAttr(::new (Context) CXXAMPRestrictAMPAttr(Loc, Context, 0));
+    if (FD->hasAttr<HCRestrictHCAttr>()) {
+      if (!Specialization->hasAttr<HCRestrictHCAttr>())
+        Specialization->addAttr(::new (Context) HCRestrictHCAttr(Loc, Context, 0));
     } else
-      Specialization->dropAttr<CXXAMPRestrictAMPAttr>();
+      Specialization->dropAttr<HCRestrictHCAttr>();
 
-    if (FD->hasAttr<CXXAMPRestrictCPUAttr>()) {
-      if (!Specialization->hasAttr<CXXAMPRestrictCPUAttr>())
-        Specialization->addAttr(::new (Context) CXXAMPRestrictCPUAttr(Loc, Context, 0));
+    if (FD->hasAttr<HCRestrictCPUAttr>()) {
+      if (!Specialization->hasAttr<HCRestrictCPUAttr>())
+        Specialization->addAttr(::new (Context) HCRestrictCPUAttr(Loc, Context, 0));
      } else
-       Specialization->dropAttr<CXXAMPRestrictCPUAttr>();
+       Specialization->dropAttr<HCRestrictCPUAttr>();
   }
 
   // Turn the given function declaration into a function template

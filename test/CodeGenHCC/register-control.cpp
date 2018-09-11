@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -famp-is-device -fhsa-ext -std=c++amp -x hc-kernel -triple amdgcn -target-cpu fiji -emit-llvm -disable-llvm-passes -o - %s| FileCheck %s
+// RUN: %clang_cc1 -fhc-is-device -fhsa-ext -std=c++11 -x hc-kernel -triple amdgcn -target-cpu fiji -emit-llvm -disable-llvm-passes -o - %s| FileCheck %s
 //
 // This test emulates parallel-for-each without relying on HCC header files.
 // By using pseudo definitions of some HCC types this test can generate the trampoline functions which are

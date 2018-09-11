@@ -1625,7 +1625,7 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
 
         unsigned int Err = UINT_MAX;
 
-        if (CallOperator->hasAttr<CXXAMPRestrictAMPAttr>()) {
+        if (CallOperator->hasAttr<HCRestrictHCAttr>()) {
           if (From.getCaptureType()->isGPUArrayType()) {
             if (!From.isCopyCapture()) continue;
           }
@@ -1643,7 +1643,7 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
           if (!From.getCaptureType()->isFunctionPointerType()) continue;
 
           if (auto Var = From.getVariable()) {
-            if (Var->hasAttr<CXXAMPRestrictAMPAttr>()) {
+            if (Var->hasAttr<HCRestrictHCAttr>()) {
               Err = diag::err_amp_captured_variable_type;
             }
           }
@@ -1713,6 +1713,9 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
 
   // Emit delayed shadowing warnings now that the full capture list is known.
   DiagnoseShadowingLambdaDecls(LSI);
+
+  // HC-specific.
+  MaybeAddHCAttr(getLangOpts(), CallOperator);
 
   if (!CurContext->isDependentContext()) {
     switch (ExprEvalContexts.back().Context) {

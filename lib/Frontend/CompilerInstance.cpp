@@ -918,7 +918,8 @@ bool CompilerInstance::ExecuteAction(FrontendAction &Act) {
     return false;
 
   // Create TargetInfo for the other side of CUDA and HCC compilation.
-  if ((getLangOpts().CUDA || getLangOpts().CPlusPlusAMP) && !getFrontendOpts().AuxTriple.empty()) {
+  if ((getLangOpts().CUDA || getLangOpts().CPlusPlusAMP) &&
+      !getFrontendOpts().AuxTriple.empty()) {
     auto TO = std::make_shared<TargetOptions>();
     TO->Triple = llvm::Triple::normalize(getFrontendOpts().AuxTriple);
     TO->HostTriple = getTarget().getTriple().str();

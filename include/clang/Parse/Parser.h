@@ -707,9 +707,9 @@ private:
     return PP.LookAhead(N-1);
   }
 
-  /// C++ AMP-specific
-  /// check if the given scope is AMP-restricted
-  bool IsInAMPFunction(Scope *);
+  /// HC-specific
+  /// check if the given scope is [[hc]]
+  bool IsInHCFunction(Scope *);
 
 public:
   /// NextToken - This peeks ahead one token and returns it without
@@ -1402,9 +1402,6 @@ private:
                             CachedTokens &Toks,
                             bool StopAtSemi = true,
                             bool ConsumeFinalToken = true);
-
-  // C++AMP
-  bool CXXAMPFindRestrictionSeq(CachedTokens &Toks, bool ConsumeFinalToken);
 
   //===--------------------------------------------------------------------===//
   // C99 6.9: External Definitions.
@@ -2631,11 +2628,6 @@ private:
          SourceLocation &EllipsisLoc);
   void ParseBracketDeclarator(Declarator &D);
   void ParseMisplacedBracketDeclarator(Declarator &D);
-
-  // C++AMP
-  unsigned ParseRestrictionSpecification(Declarator &D,
-                                         ParsedAttributes &Attrs,
-                                         SourceLocation &DeclEndLoc);
 
   //===--------------------------------------------------------------------===//
   // C++ 7: Declarations [dcl.dcl]

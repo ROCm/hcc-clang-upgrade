@@ -3154,9 +3154,9 @@ ExprResult Sema::ActOnIntegerConstant(SourceLocation Loc, uint64_t Val) {
                                 Context.IntTy, Loc);
 }
 
-void DiagnoseCXXAMPFloatingLiteral(Sema &S, NumericLiteralParser &Literal,
-                                  QualType Ty, SourceLocation Loc) {
-  if(!S.IsInAMPRestricted() || !Literal.isFloatingLiteral())
+void DiagnoseHCFloatingLiteral(Sema &S, NumericLiteralParser &Literal,
+                               QualType Ty, SourceLocation Loc) {
+  if(!S.IsInHCRestricted() || !Literal.isFloatingLiteral())
     return;
 
   const llvm::fltSemantics &Format = S.Context.getFloatTypeSemantics(Ty);
@@ -3198,9 +3198,11 @@ void DiagnoseCXXAMPFloatingLiteral(Sema &S, NumericLiteralParser &Literal,
   }
 }
 
-void DiagnoseCXXAMPIntergerLiteral(Sema &S, NumericLiteralParser &Literal,
-                                  QualType Ty, SourceLocation Loc, unsigned MaxWidth ) {
-  if(!S.IsInAMPRestricted() || !Literal.isFloatingLiteral())
+// TODO: Fix for winter cleanup
+void DiagnoseHCIntergerLiteral(Sema &S, NumericLiteralParser &Literal,
+                               QualType Ty, SourceLocation Loc,
+                               unsigned MaxWidth) {
+  if(!S.IsInHCRestricted() || !Literal.isFloatingLiteral())
     return;
 
   llvm::APInt ResultVal(MaxWidth, 0);
@@ -3218,10 +3220,10 @@ static Expr *BuildFloatingLiteral(Sema &S, NumericLiteralParser &Literal,
 
   APFloat::opStatus result = Literal.GetFloatValue(Val);
 
-  // C++AMP
-  // Note that we suppress normal diagnositic
+  // HC
+  // Note that we suppress normal diagnostic
   if(S.getLangOpts().CPlusPlusAMP && result != APFloat::opOK) {
-    DiagnoseCXXAMPFloatingLiteral(S, Literal, Ty, Loc);
+    DiagnoseHCFloatingLiteral(S, Literal, Ty, Loc);
   }
 
   // Overflow is always an error, but underflow is only an error if
@@ -3351,11 +3353,12 @@ ExprResult Sema::ActOnNumericConstant(const Token &Tok, Scope *UDLScope) {
       } else {
         llvm::APInt ResultVal(Context.getTargetInfo().getLongLongWidth(), 0);
         if (Literal.GetIntegerValue(ResultVal)) {
-          // C++AMP
+          // HC
           // Note that this suppress normal diagnostic
           if(getLangOpts().CPlusPlusAMP)
-            DiagnoseCXXAMPIntergerLiteral(*this, Literal, CookedTy, Tok.getLocation(),
-              Context.getTargetInfo().getLongLongWidth());
+            DiagnoseHCIntergerLiteral(*this, Literal, CookedTy,
+                                      Tok.getLocation(),
+                                      Context.getTargetInfo().getLongLongWidth());
           else
             Diag(Tok.getLocation(), diag::err_integer_literal_too_large)
                 << /* Unsigned */ 1;
@@ -3506,7 +3509,7 @@ ExprResult Sema::ActOnNumericConstant(const Token &Tok, Scope *UDLScope) {
       // If this value didn't fit into uintmax_t, error and force to ull.
       // C++AMP
       if(getLangOpts().CPlusPlusAMP)
-        DiagnoseCXXAMPIntergerLiteral(*this, Literal, Ty, Tok.getLocation(), MaxWidth);
+        DiagnoseHCIntergerLiteral(*this, Literal, Ty, Tok.getLocation(), MaxWidth);
       else
         Diag(Tok.getLocation(), diag::err_integer_literal_too_large)
             << /* Unsigned */ 1;
@@ -5540,51 +5543,11 @@ ExprResult Sema::ActOnConvertVectorExpr(Expr *E, ParsedType ParsedDestTy,
   return SemaConvertVectorExpr(E, TInfo, BuiltinLoc, RParenLoc);
 }
 
-void Sema::DiagnoseCXXAMPMethodCallExpr(SourceLocation LParenLoc,
-                                  CXXMethodDecl *Callee) {
-  if(!Callee || Callee->isConstexpr() || Callee->getBuiltinID() != 0u)
-    return;
-
-  FunctionDecl* Caller = this->getCurFunctionDecl();
-  LambdaScopeInfo* LambdaInfo = this->getCurLambda();
-  bool CallerAMP = (LambdaInfo && LambdaInfo->CallOperator)?
-    LambdaInfo->CallOperator->hasAttr<CXXAMPRestrictAMPAttr>():
-    (Caller?Caller->hasAttr<CXXAMPRestrictAMPAttr>():false);
-  bool CallerCPU= (LambdaInfo && LambdaInfo->CallOperator)?
-    LambdaInfo->CallOperator->hasAttr<CXXAMPRestrictCPUAttr>():
-    (Caller?Caller->hasAttr<CXXAMPRestrictCPUAttr>():false);
-  bool CalleeAMP = Callee->hasAttr<CXXAMPRestrictAMPAttr>();
-  bool CalleeCPU = Callee->hasAttr<CXXAMPRestrictCPUAttr>();
-
-  // Case by case
-  if (LambdaInfo && LambdaInfo->CallOperator) {
-    // caller: __GPU, lambda; callee: non __GPU, lambda
-    // int i = 0;
-    // auto l2 = []() { i = 1; };
-    // auto l = []() __GPU {
-    //    l2();    // Error
-    //  };
-    if(getLangOpts().DevicePath && Callee->getParent() && Callee->getParent()->isLambda() &&
-      (CallerAMP && CallerCPU) && (!CalleeAMP && !CalleeCPU) )
-      // FIXME: Need a mangled lambda name as '<lambda_xxxxID> operator()'
-      Diag(LParenLoc, diag::err_amp_overloaded_member_function)
-        << Callee->getQualifiedNameAsString()
-        << LambdaInfo->CallOperator->getQualifiedNameAsString();
-  } else if(Caller && ! (LambdaInfo && LambdaInfo->CallOperator)) {
-    // caller: __GPU, global; callee: non __GPU, class static
-    //    class C1 {
-    //      public:
-    //        static void foo(int &flag) {flag = 1;}
-    //    };
-    //    bool test() __GPU {
-    //      int flag = 0;
-    //      C1::foo(flag);    // Error
-    //    }
-    if(getLangOpts().DevicePath && Callee->isStatic() && (CallerAMP && CallerCPU) &&
-      (!CalleeAMP && !CalleeCPU) )
-      Diag(LParenLoc, diag::err_amp_overloaded_member_function)
-        << Callee->getQualifiedNameAsString() << Caller->getNameAsString();
-  }
+// TODO: Fix for winter cleanup; this should be collapsed with
+//       DiagnoseHCOverloadedCallExpr.
+void Sema::DiagnoseHCMethodCallExpr(SourceLocation LParenLoc,
+                                    CXXMethodDecl *Callee) {
+  DiagnoseHCOverloadedCallExpr(LParenLoc, Callee);
 }
 
 /// BuildResolvedCallExpr - Build a call to a resolved expression,
@@ -5772,12 +5735,14 @@ Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
     }
   }
 
-  // C++AMP
-  if(getLangOpts().CPlusPlusAMP) {
+  // TODO - Fix for winter cleanup; this is already done in
+  //        FinishOverloadedCallExpr.
+  // HC
+  if (getLangOpts().CPlusPlusAMP) {
     if (CXXMethodDecl *Method = dyn_cast_or_null<CXXMethodDecl>(FDecl))
-      DiagnoseCXXAMPMethodCallExpr(LParenLoc, Method);
+      DiagnoseHCMethodCallExpr(LParenLoc, Method);
     else
-      DiagnoseCXXAMPOverloadedCallExpr(LParenLoc, FDecl);
+      DiagnoseHCOverloadedCallExpr(LParenLoc, FDecl);
   }
 
   if (CXXMethodDecl *Method = dyn_cast_or_null<CXXMethodDecl>(FDecl))
@@ -9826,70 +9791,18 @@ static ValueDecl *getCompareDecl(Expr *E) {
   return nullptr;
 }
 
-// The following are not allowed in amp restricted codes
+// The following are not allowed in hc restricted code
   //     Recursion.
-  //     Variables declared with the volatile keyword.
   //     Virtual functions.
-  //     Pointers to functions.
-  //     Pointers to member functions.
-  //     Pointers in structures.
-  //     Pointers to pointers.
-  //     goto statements.
-  //     Labeled statements.
   //     try , catch, or throw statements.
-  //     Global variables.
-  //     Static variables. Use tile_static Keyword instead.
-  //>>>>>>>>>>>>>>>>
-  //        Refering to [2.4.3.2] Primary Expressions (C++11 5.1)
-  //          An identifier or qualified identifier that refers to an object shall refer only to:
-  //          (1) a parameter to the function, or
-  //          (2) a local variable declared at a block scope within the function, or
-  //          (3) a non-static member of the class of which this function is a member, or
-  //          (4) a static const type that can be reduced to a integer literal and is only used as an rvalue, or
-  //          (5) a global const type that can be reduced to a integer literal and is only used as an rvalue, or
-  //          (6) a captured variable in a lambda expression.
-  //<<<<<<<<<<<<<<<<
   //     dynamic_cast casts.
   //     The typeid operator.
-  //     asm declarations.
   //     Varargs.
-void Sema::DiagnoseCXXAMPExpr(
+void Sema::DiagnoseHCExpr(
   Expr* Stripped, ExprResult &HS, bool DiagnoseWhenStatic) {
-  if(!IsInAMPRestricted()) return;
+  if(!IsInHCRestricted()) return;
 
-  if (DeclRefExpr* DRL = dyn_cast<DeclRefExpr>(Stripped)) {
-    if (VarDecl *var = dyn_cast<VarDecl>(DRL->getDecl())) {
-      QualType Type = var->getType();
-      if(!var->hasLocalStorage() || var->isStaticDataMember()) {
-        if (var->hasAttr<HCCTileStaticAttr>()) return;
-  
-        if (Type.isConstQualified() /*&& LHS.get()->isRValue()*/) {
-          // Skip a static const type and global const type that is rvalue
-          if ((var->getStorageClass() == SC_Static &&
-               isa<UnaryOperator>(HS.get()->IgnoreParens()) &&
-               cast<UnaryOperator>(HS.get()->IgnoreParens())->getOpcode() ==
-               UO_AddrOf) ||
-              DiagnoseWhenStatic) {
-            //Still diagnose pointer to static and/or member, e.g
-            //        static const int flagxxx = 2;
-            //        void foo(bool set) __GPU
-            //       {
-            //          int n = flagxxx + 3;
-            //          const int  *p = &flagxxx;        // error
-            //       }
-            // Or sometimes HS is not a UnaryOperator, we use manually-set flag
-            // 'DiagnoseWhenStatic' to determine
-            //
-            Diag(HS.get()->getLocStart(), diag::err_amp_using_static_or_global_variables)
-              << var->getName();
-          }
-        } else if (!getLangOpts().HSAExtension) {
-            Diag(HS.get()->getLocStart(), diag::err_amp_using_static_or_global_variables)
-              << var->getName();
-        }
-      }
-    }
-  }
+  // TODO: figure if we actually need to do anything here.
 }
 
 /// Diagnose some forms of syntactically-obvious tautological comparison.
@@ -10243,11 +10156,11 @@ QualType Sema::CheckCompareOperands(ExprResult &LHS, ExprResult &RHS,
     return checkArithmeticOrEnumeralCompare(*this, LHS, RHS, Loc, Opc);
 
   // C++AMP
-  if (getLangOpts().CPlusPlusAMP ) {
+  if (getLangOpts().CPlusPlusAMP) {
     Expr *LHSStripped = LHS.get()->IgnoreParenImpCasts();
     Expr *RHSStripped = RHS.get()->IgnoreParenImpCasts();
-    DiagnoseCXXAMPExpr(LHSStripped, LHS);
-    DiagnoseCXXAMPExpr(RHSStripped, RHS);
+    DiagnoseHCExpr(LHSStripped, LHS);
+    DiagnoseHCExpr(RHSStripped, RHS);
   }
 
   // The result of comparisons is 'bool' in C++, 'int' in C.
@@ -11386,13 +11299,14 @@ QualType Sema::CheckAssignmentOperands(Expr *LHSExpr, ExprResult &RHS,
 
   CheckForNullPointerDereference(*this, LHSExpr);
 
-  // C++AMP
+  // HC
+  // TODO: Fix for winter cleanup.
   //    Primary Expression: " const int *p = &flag;
   //    where flag is a 'static int'
   if(getLangOpts().CPlusPlusAMP) {
     ExprResult ER = LHSExpr;
-    DiagnoseCXXAMPExpr(LHSExpr->IgnoreParenImpCasts(), ER);
-    DiagnoseCXXAMPExpr(RHS.get()->IgnoreParenImpCasts(), RHS);
+    DiagnoseHCExpr(LHSExpr->IgnoreParenImpCasts(), ER);
+    DiagnoseHCExpr(RHS.get()->IgnoreParenImpCasts(), RHS);
   }
 
   // C99 6.5.16p3: The type of an assignment expression is the type of the
@@ -11574,17 +11488,6 @@ static QualType CheckIncrementDecrementOperand(Sema &S, Expr *Op,
   // Now make sure the operand is a modifiable lvalue.
   if (CheckForModifiableLvalue(Op, OpLoc, S))
     return QualType();
-
-  // C++AMP [2.4.3.7]
-  if (S.getLangOpts().CPlusPlusAMP && S.IsInAMPRestricted() && !S.getLangOpts().HSAExtension) {
-    if(ResType->isPointerType() && ResType->getPointeeType()->isBooleanType()) {
-      // No matter IsPrefix or not. We only care about the opcode string
-      StringRef OpcString = (IsInc)?UnaryOperator::getOpcodeStr(UnaryOperatorKind(UO_PreInc))
-             :UnaryOperator::getOpcodeStr(UnaryOperatorKind(UO_PreDec));
-      S.Diag(Op->getExprLoc(), diag::err_amp_arithmetic_operation_on_pointer_to_bool)
-         << OpcString;
-    }
-  }
 
   // In C++, a prefix increment is the same type as the operand. Otherwise
   // (in C or with postfix), the increment is the unqualified type of the
@@ -11842,9 +11745,9 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
         AddressOfError = AO_Register_Variable;
       }
 
-      // C++AMP
-      if(getLangOpts().CPlusPlusAMP) {
-        DiagnoseCXXAMPExpr(op, OrigOp, true);
+      // HC
+      if (getLangOpts().CPlusPlusAMP) {
+        DiagnoseHCExpr(op, OrigOp, true);
       }
     } else if (isa<MSPropertyDecl>(dcl)) {
       AddressOfError = AO_Property_Expansion;
@@ -12397,19 +12300,6 @@ ExprResult Sema::CreateBuiltinBinOp(SourceLocation OpLoc,
   // Check for array bounds violations for both sides of the BinaryOperator
   CheckArrayAccess(LHS.get());
   CheckArrayAccess(RHS.get());
-
-  // C++AMP [2.4.3.7]
-  // FIXME: Should check if there are allowed Pointer arithmetic
-  if (getLangOpts().CPlusPlusAMP && IsInAMPRestricted() && !getLangOpts().HSAExtension) {
-     QualType L = LHS.get()->getType();
-     QualType R = RHS.get()->getType();
-    if(L->isPointerType() && L->getPointeeType()->isBooleanType())
-      Diag(LHS.get()->getExprLoc(), diag::err_amp_arithmetic_operation_on_pointer_to_bool)
-         << BinaryOperator::getOpcodeStr(Opc);
-    if(R->isPointerType() && R->getPointeeType()->isBooleanType())
-      Diag(RHS.get()->getExprLoc(), diag::err_amp_arithmetic_operation_on_pointer_to_bool)
-         << BinaryOperator::getOpcodeStr(Opc);
-  }
 
   if (const ObjCIsaExpr *OISA = dyn_cast<ObjCIsaExpr>(LHS.get()->IgnoreParenCasts())) {
     NamedDecl *ObjectSetClass = LookupSingleName(TUScope,

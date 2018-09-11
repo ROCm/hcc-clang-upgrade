@@ -55,7 +55,7 @@ static bool shouldEmitLifetimeMarkers(const CodeGenOptions &CGOpts,
     return false;
 
   // Disable lifetime markers in HCC kernel build
-  if (LangOpts.CPlusPlusAMP && CGOpts.AMPIsDevice)
+  if (LangOpts.CPlusPlusAMP && CGOpts.HCIsDevice)
     return false;
 
   // Asan uses markers for use-after-scope checks.
@@ -706,8 +706,7 @@ static void GenOpenCLArgMetadata(const FunctionDecl *FD, llvm::Function *Fn,
                   llvm::MDNode::get(Context, argBaseTypeNames));
   Fn->setMetadata("kernel_arg_type_qual",
                   llvm::MDNode::get(Context, argTypeQuals));
-  if (CGM.getCodeGenOpts().EmitOpenCLArgMetadata ||
-      CGM.getLangOpts().CPlusPlusAMP)
+  if (CGM.getCodeGenOpts().EmitOpenCLArgMetadata || CGM.getLangOpts().CPlusPlusAMP)
     Fn->setMetadata("kernel_arg_name",
                     llvm::MDNode::get(Context, argNames));
 }
@@ -836,6 +835,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   CurFn = Fn;
   CurFnInfo = &FnInfo;
 
+  // TODO: Fix for winter cleanup
   // Relax duplicated function definition for C++AMP
   //
   // The reason is because in the modified GPU build path, both CPU and GPU
@@ -846,11 +846,10 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   // Therefore, in the following case StartFunction() might be called twice
   // for function foo(), and thus we need to relax the assert check for C++AMP.
   //
-  // void foo() restrict(amp) { return 1; }
-  // void foo() restrict(cpu) { return 2; }
+  // void foo() [[hc]] { return 1; }
+  // void foo() [[cpu]] { return 2; }
 
-  if (getContext().getLangOpts().CPlusPlusAMP &&
-      CGM.getCodeGenOpts().AMPIsDevice) {
+  if (getContext().getLangOpts().CPlusPlusAMP && CGM.getCodeGenOpts().HCIsDevice) {
   } else {
     assert(CurFn->isDeclaration() && "Function already has body?");
   }
@@ -886,7 +885,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
 
   }
   // Device code has all sanitizers disabled for now
-  if (CGM.getCodeGenOpts().AMPIsDevice)
+  if (CGM.getCodeGenOpts().HCIsDevice)
      SanOpts.clear();
 
   // Apply sanitizer attributes to the function.
@@ -1418,9 +1417,13 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // C11 6.9.1p12:
   //   If the '}' that terminates a function is reached, and the value of the
   //   function call is used by the caller, the behavior is undefined.
-  // Relax the rule for C++AMP
-  if (!getLangOpts().CPlusPlusAMP && getLangOpts().CPlusPlus && !FD->hasImplicitReturnZero() && !SawAsmBlock &&
-      !FD->getReturnType()->isVoidType() && Builder.GetInsertBlock()) {
+  // Relax the rule for C++AMP TODO: Fix for winter cleanup
+  if (!getLangOpts().CPlusPlusAMP &&
+      getLangOpts().CPlusPlus &&
+      !FD->hasImplicitReturnZero() &&
+      !SawAsmBlock &&
+      !FD->getReturnType()->isVoidType() &&
+      Builder.GetInsertBlock()) {
     bool ShouldEmitUnreachable =
         CGM.getCodeGenOpts().StrictReturn ||
         shouldUseUndefinedBehaviorReturnOptimization(FD, getContext());

@@ -3828,11 +3828,11 @@ Sema::BuildMemInitializer(Decl *ConstructorD,
       if ((Member = dyn_cast<FieldDecl>(Result.front())) ||
           (Member = dyn_cast<IndirectFieldDecl>(Result.front()))) {
 
-        // C++AMP
-        // FIMXE: Need to consider non member initializer cases
+        // HC - TODO: fix for Winter Cleanup
+        // FIXME: Need to consider non member initializer cases
         if(getLangOpts().CPlusPlusAMP && ClassDecl->isStruct()
-          && (Constructor->hasAttr<CXXAMPRestrictAMPAttr>() ||
-          Constructor->hasAttr<CXXAMPRestrictCPUAttr>())) {
+           && (Constructor->hasAttr<HCRestrictHCAttr>() ||
+           Constructor->hasAttr<HCRestrictCPUAttr>())) {
           // Can't use IsIncompatibleType
           const Type* Ty  = Member->getType().getTypePtrOrNull();
           QualType TheType = Member->getType();
@@ -3845,7 +3845,7 @@ Sema::BuildMemInitializer(Decl *ConstructorD,
             if(!TheType.isNull() && TheType->isRecordType()) {
               CXXRecordDecl* RDecl = TheType->getAsCXXRecordDecl();
                 if (RDecl->getName() == "array")
-                  Diag(Member->getLocStart(), diag::err_amp_incompatible);
+                  Diag(Member->getBeginLoc(), diag::err_amp_incompatible);
             }
           }
           // Checke if it is array_view's reference or pointer
@@ -10862,6 +10862,10 @@ CXXConstructorDecl *Sema::DeclareImplicitDefaultConstructor(
                                             /* ConstRHS */ false,
                                             /* Diagnose */ false);
   }
+  if (getLangOpts().CPlusPlusAMP) {
+    DefaultCon->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    DefaultCon->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
+  }
 
   // Build an exception specification pointing back at this constructor.
   FunctionProtoType::ExtProtoInfo EPI = getImplicitMethodEPI(*this, DefaultCon);
@@ -11134,6 +11138,10 @@ CXXDestructorDecl *Sema::DeclareImplicitDestructor(CXXRecordDecl *ClassDecl) {
                                             Destructor,
                                             /* ConstRHS */ false,
                                             /* Diagnose */ false);
+  }
+  if (getLangOpts().CPlusPlusAMP) {
+    Destructor->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    Destructor->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
   }
 
   // Build an exception specification pointing back at this destructor.
@@ -11734,6 +11742,10 @@ CXXMethodDecl *Sema::DeclareImplicitCopyAssignment(CXXRecordDecl *ClassDecl) {
                                             /* ConstRHS */ Const,
                                             /* Diagnose */ false);
   }
+  if (getLangOpts().CPlusPlusAMP) {
+    CopyAssignment->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    CopyAssignment->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
+  }
 
   // Build an exception specification pointing back at this member.
   FunctionProtoType::ExtProtoInfo EPI =
@@ -12046,7 +12058,7 @@ Sema::ComputeDefaultedMoveAssignmentExceptionSpec(CXXMethodDecl *MD) {
       = cast<CXXRecordDecl>(Base.getType()->getAs<RecordType>()->getDecl());
     if (CXXMethodDecl *MoveAssign = LookupMovingAssignment(BaseClassDecl,
                                                            0, false, 0))
-      ExceptSpec.CalledDecl(Base.getLocStart(), MoveAssign);
+      ExceptSpec.CalledDecl(Base.getBeginLoc(), MoveAssign);
   }
 
   for (const auto &Base : ClassDecl->vbases()) {
@@ -12054,7 +12066,7 @@ Sema::ComputeDefaultedMoveAssignmentExceptionSpec(CXXMethodDecl *MD) {
       = cast<CXXRecordDecl>(Base.getType()->getAs<RecordType>()->getDecl());
     if (CXXMethodDecl *MoveAssign = LookupMovingAssignment(BaseClassDecl,
                                                            0, false, 0))
-      ExceptSpec.CalledDecl(Base.getLocStart(), MoveAssign);
+      ExceptSpec.CalledDecl(Base.getBeginLoc(), MoveAssign);
   }
 
   for (const auto *Field : ClassDecl->fields()) {
@@ -12107,6 +12119,10 @@ CXXMethodDecl *Sema::DeclareImplicitMoveAssignment(CXXRecordDecl *ClassDecl) {
                                             MoveAssignment,
                                             /* ConstRHS */ false,
                                             /* Diagnose */ false);
+  }
+  if (getLangOpts().CPlusPlusAMP) {
+    MoveAssignment->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    MoveAssignment->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
   }
 
   // Build an exception specification pointing back at this member.
@@ -12485,6 +12501,10 @@ CXXConstructorDecl *Sema::DeclareImplicitCopyConstructor(
                                             /* ConstRHS */ Const,
                                             /* Diagnose */ false);
   }
+  if (getLangOpts().CPlusPlusAMP) {
+    CopyConstructor->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    CopyConstructor->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
+  }
 
   // Build an exception specification pointing back at this member.
   FunctionProtoType::ExtProtoInfo EPI =
@@ -12614,6 +12634,10 @@ CXXConstructorDecl *Sema::DeclareImplicitMoveConstructor(
                                             MoveConstructor,
                                             /* ConstRHS */ false,
                                             /* Diagnose */ false);
+  }
+  if (getLangOpts().CPlusPlusAMP) {
+    MoveConstructor->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    MoveConstructor->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
   }
 
   // Build an exception specification pointing back at this member.
