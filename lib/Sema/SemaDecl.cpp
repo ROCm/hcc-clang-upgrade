@@ -5198,92 +5198,6 @@ static bool RebuildDeclaratorInCurrentInstantiation(Sema &S, Declarator &D,
   return false;
 }
 
-static void Track4ByteAligned(const CXXRecordDecl* RDecl, Sema& S, Declarator &D,
-                                             std::vector<FieldDecl*>&FoundVec, bool& Aligned)
-{
-  // It is myself, Walk the field
-  for (CXXRecordDecl::field_iterator It = RDecl->field_begin(),
-        ItE = RDecl->field_end(); It != ItE; ++It) {
-   const FieldDecl *FD = *It;
-    if(!FD)
-      continue;
-    const RecordType *RT = S.Context.getBaseElementType(FD->getType())->getAs<RecordType>();
-    // The field contains RecordType
-    if (RT) {
-      Aligned = true;
-      break;
-   }
-
-    QualType FieldType = FD->getType();
-    // Array
-    if(const ArrayType* ArrayTy = dyn_cast<ArrayType>(FieldType)) {
-          FieldType = ArrayTy->getElementType();
-      if( FieldType->getAs<RecordType>()) {
-        Aligned = true;
-        break;
-      }
-    }
-
-    if(const Type* Ty = FieldType.getTypePtrOrNull()) {
-      if(Ty->isBooleanType()) {
-        Aligned = false;
-        // Temporarily append, will remove if determine they are aligned
-        FoundVec.push_back(const_cast<FieldDecl*>(FD));
-      } else
-       Aligned = true;
-    } else
-      Aligned= true;
-  }
-
-  if(RDecl->getDefinition()) {
-    RDecl = RDecl->getDefinition();
-    for(CXXRecordDecl::base_class_const_iterator BaseIt = RDecl->bases_begin();
-             BaseIt!=RDecl->bases_end(); BaseIt++) {
-      const CXXRecordDecl *BaseRDecl =
-            cast<CXXRecordDecl>(BaseIt->getType()->getAs<RecordType>()->getDecl());
-        Track4ByteAligned(BaseRDecl, S, D, FoundVec, Aligned);
-    }
-  }
-  return;
-}
-
-static bool IsIncompatibleScalarType(const Type* Ty, bool HSAExtension = false) {
-  assert(Ty);
-  if (HSAExtension) {
-    return false;
-  } else {
-    return Ty->isCharType() ||
-           Ty->isWideCharType() ||
-           Ty->isSpecificBuiltinType(BuiltinType::Short) ||
-           Ty->isSpecificBuiltinType(BuiltinType::LongLong) ||
-           Ty->isSpecificBuiltinType(BuiltinType::LongDouble);
-  }
-}
-
-static inline bool IsCompatibleScalarType(const Type* Ty, bool HSAExtension = false) {
-  assert(Ty);
-  if (HSAExtension) {
-    return Ty->isVoidType() ||
-           Ty->isCharType() ||
-           Ty->isBooleanType() ||
-           Ty->isWideCharType() ||
-           Ty->isSpecificBuiltinType(BuiltinType::Int) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Long) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Short) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Float) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Double) ||
-           Ty->isSpecificBuiltinType(BuiltinType::LongLong) ||
-           Ty->isSpecificBuiltinType(BuiltinType::LongDouble);
-  } else {
-    return Ty->isVoidType() ||
-           Ty->isBooleanType() ||
-           Ty->isSpecificBuiltinType(BuiltinType::Int) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Long) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Float) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Double);
-  }
-}
-
 bool Sema::DiagnoseHCDecl(Decl* Dcl, bool CheckContainer, bool IsInfer) {
   // TODO: Fix for winter cleanup.
   if(!Dcl)
@@ -5355,26 +5269,6 @@ bool Sema::IsIncompatibleType(const Type* Ty, bool CheckContainer, bool IsInfer)
     // if the type has already been checked, simply return false here
     // if the type is really incompatible, it would be found in the previous invocation
     return false;
-  }
-
-  // reject incompatible scalar types
-  if(IsIncompatibleScalarType(Ty, getLangOpts().HSAExtension))
-    return true;
-
-  if(IsCompatibleScalarType(Ty, getLangOpts().HSAExtension))
-    return false;
-
-  // Check EnumeralType
-  if(const EnumType* ET = dyn_cast<EnumType>(Ty)) {
-    // Enumeration types shall have underlying types consisting of
-    //       int, unsigned int, long, or unsigned long.
-    EnumDecl * EDcl = ET->getDecl();
-    assert(EDcl);
-    const Type* ETy = EDcl->getIntegerType().getTypePtrOrNull();
-    return !(ETy->isSpecificBuiltinType(BuiltinType::Int) ||
-      ETy->isSpecificBuiltinType(BuiltinType::UInt) ||
-      ETy->isSpecificBuiltinType(BuiltinType::Long) ||
-      ETy->isSpecificBuiltinType(BuiltinType::ULong));
   }
 
   // reject incompatible array types
@@ -5474,55 +5368,6 @@ Decl *Sema::ActOnDeclarator(Scope *S, Declarator &D) {
       //            A local_array[10];  // is not allowed
       //      });
       //
-
-
-      //FIXME: the following cases should also be handled
-      //(1)          class A3    // supported for amp since m2 now has 32-bit alignment
-      //              {
-      //                 bool m1;
-      //                 __declspec(align(4)) bool m2;
-      //              };
-      //
-      //(2) __declspec(align(4)) bool a1[10]; // not supported since this __declspec(align(4))
-      //(3)     typedef __declspec(align(4)) struct S{ bool m;} ALIGNED_BOOL;
-      //          ALIGNED_BOOL a2[10]; // supported since each array element is now 32-bit aligned
-      //
-      if(DK == clang::Decl::Var) {
-        if (const ValueDecl *VD = dyn_cast<ValueDecl>(Dcl)) {
-          QualType DestType = VD->getType();
-          if(const ArrayType* CA = dyn_cast<ArrayType>(DestType))
-            DestType = CA->getElementType();
-
-          const RecordType *DestRecordType = DestType->getAs<RecordType>();
-          // Only need struct/union/class which has ctors
-          if (DestRecordType) {
-            CXXRecordDecl *DestRecordDecl = cast<CXXRecordDecl>(DestRecordType->getDecl());
-            assert(DestRecordDecl && "Should have constructor initialization!");
-
-            // FIXME: There is a clang bug in ClassTemplateSpecializationDecl which we can't
-            // interate its base classes
-            if(!getLangOpts().HSAExtension &&
-               !dyn_cast<ClassTemplateSpecializationDecl>(DestRecordDecl)) {
-              // Empty class type of array element
-              if(DestRecordDecl && DestRecordDecl->isEmpty() && dyn_cast<ArrayType>(VD->getType()))
-                Diag(Dcl->getLocation(), diag::err_amp_need_4_byte_aligned);
-
-              // Recursively walk up base class for amp_need_4_byte_aligned
-              std::vector<FieldDecl*> FoundVec;
-              bool Aligned = true;
-              Track4ByteAligned(DestRecordDecl, *this, D, FoundVec, Aligned);
-              if(!Aligned) {
-                  for (unsigned i=0; i<FoundVec.size(); i++)
-                    if(FoundVec[i])
-                     Diag(FoundVec[i]->getInnerLocStart(), diag::err_amp_need_4_byte_aligned);
-
-                  // The problematic VarDecl
-                 Diag(Dcl->getLocation(), diag::err_amp_incompatible);
-               }
-             }
-           }
-         }
-       }
      }
    }
   }
@@ -9220,14 +9065,12 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
 
   // HC
   // TODO: Fix for winter cleanup
-  if(getLangOpts().CPlusPlusAMP && (NewFD->getType().getAddressSpace() == LangAS::hcc_tilestatic)) {
+  if (getLangOpts().CPlusPlusAMP &&
+      (NewFD->getType().getAddressSpace() == LangAS::hcc_tilestatic)) {
     Diag(D.getIdentifierLoc(), diag::err_amp_tile_static_on_function_return_result);
   }
   if (getLangOpts().CPlusPlusAMP && NewFD->hasAttr<HCRestrictHCAttr>()) {
     DeclaratorChunk::FunctionTypeInfo &FTI = D.getFunctionTypeInfo();
-    if(!getLangOpts().HSAExtension && FTI.getEllipsisLoc().isValid()) {
-      Diag(FTI.getEllipsisLoc(), diag::err_amp_ellipsis_param_on_function_declarator);
-     }
      // HC
      // Check function params if it is amp restricted
      {
