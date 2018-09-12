@@ -1332,6 +1332,50 @@ shouldUseUndefinedBehaviorReturnOptimization(const FunctionDecl *FD,
   return !T.isTriviallyCopyableType(Context);
 }
 
+static void maybeEmitHCArrayCapturePropagation(CodeGenFunction &CGF,
+                                               const FunctionDecl *FD) {
+  if (!FD->hasAttr<AnnotateAttr>()) return;
+
+  static constexpr const char HCPfe[]{"__HC_PFE__"};
+  if (FD->getAttr<AnnotateAttr>()->getAnnotation() != HCPfe) return;
+
+  static constexpr unsigned int CallableIdx{2u};
+  auto Callable = FD->parameters()[CallableIdx]
+                    ->getOriginalType()
+                    .getNonReferenceType()
+                    ->getAsCXXRecordDecl();
+
+  DeclRefExpr CallableRef{FD->parameters()[CallableIdx], false,
+                          FD->parameters()[CallableIdx]->getOriginalType(),
+                          VK_LValue, FD->getBody()->getBeginLoc()};
+  for (auto &&Field : Callable->fields()) {
+    if (!Field->getType()->isReferenceType()) continue;
+    if (Field->getType().getNonReferenceType().isConstQualified()) continue;
+    if (!Field->getType().getNonReferenceType()->isGPUArrayType()) continue;
+
+    MemberExpr ArrRef{&CallableRef, false, SourceLocation{}, Field,
+                      Field->getBeginLoc(), Field->getType(), VK_LValue,
+                      OK_Ordinary};
+    auto Array = Field->getType().getNonReferenceType()->getAsCXXRecordDecl();
+    auto AddFn = *std::find_if(Array->method_begin(),
+                               Array->method_end(),
+                               [](const CXXMethodDecl *MD) {
+      static constexpr const char AddToCaptured[]{"add_to_captured_"};
+
+      return MD->getName().find(AddToCaptured) != std::string::npos;
+    });
+
+    MemberExpr AddFnRef{&ArrRef, false, SourceLocation{}, AddFn,
+                        AddFn->getBeginLoc(), AddFn->getType(), VK_LValue,
+                        OK_Ordinary};
+
+    CXXMemberCallExpr AddToCaptured{CGF.CGM.getContext(), &AddFnRef, {},
+                                    AddFn->getType(), VK_LValue,
+                                    FD->getBody()->getBeginLoc()};
+
+    CGF.EmitCallExpr(&AddToCaptured);
+  }
+}
 void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
                                    const CGFunctionInfo &FnInfo) {
   const FunctionDecl *FD = cast<FunctionDecl>(GD.getDecl());
@@ -1382,8 +1426,8 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     EmitDestructorBody(Args);
   else if (isa<CXXConstructorDecl>(FD))
     EmitConstructorBody(Args);
-  else if (getContext().getLangOpts().CPlusPlusAMP &&
-           !getContext().getLangOpts().DevicePath &&
+  else if (getLangOpts().CPlusPlusAMP &&
+           !getLangOpts().DevicePath &&
            FD->hasAttr<AnnotateAttr>() &&
            FD->getAttr<AnnotateAttr>()->getAnnotation() ==
              "__HIP_global_function__") {
@@ -1407,6 +1451,9 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     // copy-constructors.
     emitImplicitAssignmentOperatorBody(Args);
   } else if (Body) {
+    if (getLangOpts().CPlusPlusAMP) {
+      maybeEmitHCArrayCapturePropagation(*this, FD);
+    }
     EmitFunctionBody(Args, Body);
   } else
     llvm_unreachable("no definition for emitted function");
@@ -1417,9 +1464,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // C11 6.9.1p12:
   //   If the '}' that terminates a function is reached, and the value of the
   //   function call is used by the caller, the behavior is undefined.
-  // Relax the rule for C++AMP TODO: Fix for winter cleanup
-  if (!getLangOpts().CPlusPlusAMP &&
-      getLangOpts().CPlusPlus &&
+  if (getLangOpts().CPlusPlus &&
       !FD->hasImplicitReturnZero() &&
       !SawAsmBlock &&
       !FD->getReturnType()->isVoidType() &&
