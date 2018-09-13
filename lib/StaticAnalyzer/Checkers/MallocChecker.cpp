@@ -194,6 +194,7 @@ public:
     CK_NewDeleteChecker,
     CK_NewDeleteLeaksChecker,
     CK_MismatchedDeallocatorChecker,
+    CK_InnerPointerChecker,
     CK_NumCheckKinds
   };
 
@@ -1662,13 +1663,10 @@ MallocChecker::getCheckIfTracked(AllocationFamily Family,
   case AF_IfNameIndex: {
     if (ChecksEnabled[CK_MallocChecker])
       return CK_MallocChecker;
-
-    return Optional<MallocChecker::CheckKind>();
+    return None;
   }
   case AF_CXXNew:
-  case AF_CXXNewArray:
-  // FIXME: Add new CheckKind for AF_InnerBuffer.
-  case AF_InnerBuffer: {
+  case AF_CXXNewArray: {
     if (IsALeakCheck) {
       if (ChecksEnabled[CK_NewDeleteLeaksChecker])
         return CK_NewDeleteLeaksChecker;
@@ -1677,7 +1675,12 @@ MallocChecker::getCheckIfTracked(AllocationFamily Family,
       if (ChecksEnabled[CK_NewDeleteChecker])
         return CK_NewDeleteChecker;
     }
-    return Optional<MallocChecker::CheckKind>();
+    return None;
+  }
+  case AF_InnerBuffer: {
+    if (ChecksEnabled[CK_InnerPointerChecker])
+      return CK_InnerPointerChecker;
+    return None;
   }
   case AF_None: {
     llvm_unreachable("no family");
@@ -1980,7 +1983,8 @@ void MallocChecker::ReportUseAfterFree(CheckerContext &C, SourceRange Range,
                                        SymbolRef Sym) const {
 
   if (!ChecksEnabled[CK_MallocChecker] &&
-      !ChecksEnabled[CK_NewDeleteChecker])
+      !ChecksEnabled[CK_NewDeleteChecker] &&
+      !ChecksEnabled[CK_InnerPointerChecker])
     return;
 
   Optional<MallocChecker::CheckKind> CheckKind = getCheckIfTracked(C, Sym);
@@ -1992,15 +1996,20 @@ void MallocChecker::ReportUseAfterFree(CheckerContext &C, SourceRange Range,
       BT_UseFree[*CheckKind].reset(new BugType(
           CheckNames[*CheckKind], "Use-after-free", categories::MemoryError));
 
+    AllocationFamily AF =
+        C.getState()->get<RegionState>(Sym)->getAllocationFamily();
+
     auto R = llvm::make_unique<BugReport>(*BT_UseFree[*CheckKind],
-                                         "Use of memory after it is freed", N);
+        AF == AF_InnerBuffer
+              ? "Inner pointer of container used after re/deallocation"
+              : "Use of memory after it is freed",
+        N);
 
     R->markInteresting(Sym);
     R->addRange(Range);
     R->addVisitor(llvm::make_unique<MallocBugVisitor>(Sym));
 
-    const RefState *RS = C.getState()->get<RegionState>(Sym);
-    if (RS->getAllocationFamily() == AF_InnerBuffer)
+    if (AF == AF_InnerBuffer)
       R->addVisitor(allocation_state::getInnerPointerBRVisitor(Sym));
 
     C.emitReport(std::move(R));
@@ -2940,13 +2949,22 @@ std::shared_ptr<PathDiagnosticPiece> MallocChecker::MallocBugVisitor::VisitNode(
         case AF_CXXNewArray:
         case AF_IfNameIndex:
           Msg = "Memory is released";
+          StackHint = new StackHintGeneratorForSymbol(Sym,
+                                              "Returning; memory was released");
           break;
         case AF_InnerBuffer: {
-          OS << "Inner pointer invalidated by call to ";
+          const MemRegion *ObjRegion =
+              allocation_state::getContainerObjRegion(statePrev, Sym);
+          const auto *TypedRegion = cast<TypedValueRegion>(ObjRegion);
+          QualType ObjTy = TypedRegion->getValueType();
+          OS << "Inner buffer of '" << ObjTy.getAsString() << "' ";
+
           if (N->getLocation().getKind() == ProgramPoint::PostImplicitCallKind) {
-            OS << "destructor";
+            OS << "deallocated by call to destructor";
+            StackHint = new StackHintGeneratorForSymbol(Sym,
+                                      "Returning; inner buffer was deallocated");
           } else {
-            OS << "'";
+            OS << "reallocated by call to '";
             const Stmt *S = RS->getStmt();
             if (const auto *MemCallE = dyn_cast<CXXMemberCallExpr>(S)) {
               OS << MemCallE->getMethodDecl()->getNameAsString();
@@ -2959,6 +2977,8 @@ std::shared_ptr<PathDiagnosticPiece> MallocChecker::MallocBugVisitor::VisitNode(
               OS << (D ? D->getNameAsString() : "unknown");
             }
             OS << "'";
+            StackHint = new StackHintGeneratorForSymbol(Sym,
+                                      "Returning; inner buffer was reallocated");
           }
           Msg = OS.str();
           break;
@@ -2966,8 +2986,6 @@ std::shared_ptr<PathDiagnosticPiece> MallocChecker::MallocBugVisitor::VisitNode(
         case AF_None:
           llvm_unreachable("Unhandled allocation family!");
       }
-      StackHint = new StackHintGeneratorForSymbol(Sym,
-                                             "Returning; memory was released");
 
       // See if we're releasing memory while inlining a destructor
       // (or one of its callees). This turns on various common
@@ -3107,6 +3125,18 @@ void ento::registerNewDeleteLeaksChecker(CheckerManager &mgr) {
     checker->CheckNames[MallocChecker::CK_NewDeleteChecker] =
         mgr.getCurrentCheckName();
   }
+}
+
+// Intended to be used in InnerPointerChecker to register the part of
+// MallocChecker connected to it.
+void ento::registerInnerPointerCheckerAux(CheckerManager &mgr) {
+    registerCStringCheckerBasic(mgr);
+    MallocChecker *checker = mgr.registerChecker<MallocChecker>();
+    checker->IsOptimistic = mgr.getAnalyzerOptions().getBooleanOption(
+        "Optimistic", false, checker);
+    checker->ChecksEnabled[MallocChecker::CK_InnerPointerChecker] = true;
+    checker->CheckNames[MallocChecker::CK_InnerPointerChecker] =
+        mgr.getCurrentCheckName();
 }
 
 #define REGISTER_CHECKER(name)                                                 \

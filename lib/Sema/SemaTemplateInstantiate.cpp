@@ -199,6 +199,7 @@ bool Sema::CodeSynthesisContext::isInstantiationRecord() const {
   case DefaultTemplateArgumentChecking:
   case DeclaringSpecialMember:
   case DefiningSynthesizedFunction:
+  case ExceptionSpecEvaluation:
     return false;
 
   // This function should never be called when Kind's value is Memoization.
@@ -621,6 +622,12 @@ void Sema::PrintInstantiationStack() {
       break;
     }
 
+    case CodeSynthesisContext::ExceptionSpecEvaluation:
+      Diags.Report(Active->PointOfInstantiation,
+                   diag::note_evaluating_exception_spec_here)
+          << cast<FunctionDecl>(Active->Entity);
+      break;
+
     case CodeSynthesisContext::ExceptionSpecInstantiation:
       Diags.Report(Active->PointOfInstantiation,
                    diag::note_template_exception_spec_instantiation_here)
@@ -694,6 +701,12 @@ Optional<TemplateDeductionInfo *> Sema::isSFINAEContext() const {
       // This happens in a context unrelated to template instantiation, so
       // there is no SFINAE.
       return None;
+
+    case CodeSynthesisContext::ExceptionSpecEvaluation:
+      // FIXME: This should not be treated as a SFINAE context, because
+      // we will cache an incorrect exception specification. However, clang
+      // bootstrap relies this! See PR31692.
+      break;
 
     case CodeSynthesisContext::Memoization:
       break;
@@ -1708,7 +1721,7 @@ void Sema::SubstExceptionSpec(FunctionDecl *New, const FunctionProtoType *Proto,
       Proto->getExtProtoInfo().ExceptionSpec;
 
   SmallVector<QualType, 4> ExceptionStorage;
-  if (SubstExceptionSpec(New->getTypeSourceInfo()->getTypeLoc().getLocEnd(),
+  if (SubstExceptionSpec(New->getTypeSourceInfo()->getTypeLoc().getEndLoc(),
                          ESI, ExceptionStorage, Args))
     // On error, recover by dropping the exception specification.
     ESI.Type = EST_None;
@@ -1789,7 +1802,7 @@ ParmVarDecl *Sema::SubstParmVarDecl(ParmVarDecl *OldParm,
       ExprResult NewArg = SubstExpr(Arg, TemplateArgs);
       if (NewArg.isUsable()) {
         // It would be nice if we still had this.
-        SourceLocation EqualLoc = NewArg.get()->getLocStart();
+        SourceLocation EqualLoc = NewArg.get()->getBeginLoc();
         SetParamDefaultArgument(NewParm, NewArg.get(), EqualLoc);
       }
     } else {
@@ -2303,7 +2316,7 @@ bool Sema::InstantiateInClassInitializer(
     Diag(PointOfInstantiation,
          diag::err_in_class_initializer_not_yet_parsed)
         << OutermostClass << Pattern;
-    Diag(Pattern->getLocEnd(), diag::note_in_class_initializer_not_yet_parsed);
+    Diag(Pattern->getEndLoc(), diag::note_in_class_initializer_not_yet_parsed);
     Instantiation->setInvalidDecl();
     return true;
   }
@@ -2337,7 +2350,7 @@ bool Sema::InstantiateInClassInitializer(
   Expr *Init = NewInit.get();
   assert((!Init || !isa<ParenListExpr>(Init)) && "call-style init in class");
   ActOnFinishCXXInClassMemberInitializer(
-      Instantiation, Init ? Init->getLocStart() : SourceLocation(), Init);
+      Instantiation, Init ? Init->getBeginLoc() : SourceLocation(), Init);
 
   if (auto *L = getASTMutationListener())
     L->DefaultMemberInitializerInstantiated(Instantiation);

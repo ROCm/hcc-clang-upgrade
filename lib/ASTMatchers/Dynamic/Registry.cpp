@@ -167,6 +167,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(cxxCtorInitializer);
   REGISTER_MATCHER(cxxDefaultArgExpr);
   REGISTER_MATCHER(cxxDeleteExpr);
+  REGISTER_MATCHER(cxxDependentScopeMemberExpr);
   REGISTER_MATCHER(cxxDestructorDecl);
   REGISTER_MATCHER(cxxDynamicCastExpr);
   REGISTER_MATCHER(cxxForRangeStmt);
@@ -356,6 +357,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(isExpansionInSystemHeader);
   REGISTER_MATCHER(isInteger);
   REGISTER_MATCHER(isIntegral);
+  REGISTER_MATCHER(isInstantiationDependent);
   REGISTER_MATCHER(isInTemplateInstantiation);
   REGISTER_MATCHER(isLambda);
   REGISTER_MATCHER(isListInitialization);
@@ -375,8 +377,10 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(isStaticStorageClass);
   REGISTER_MATCHER(isStruct);
   REGISTER_MATCHER(isTemplateInstantiation);
+  REGISTER_MATCHER(isTypeDependent);
   REGISTER_MATCHER(isUnion);
   REGISTER_MATCHER(isUnsignedInteger);
+  REGISTER_MATCHER(isValueDependent);
   REGISTER_MATCHER(isVariadic);
   REGISTER_MATCHER(isVirtual);
   REGISTER_MATCHER(isVirtualAsWritten);
@@ -475,6 +479,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(unaryTransformType);
   REGISTER_MATCHER(unless);
   REGISTER_MATCHER(unresolvedLookupExpr);
+  REGISTER_MATCHER(unresolvedMemberExpr);
   REGISTER_MATCHER(unresolvedUsingTypenameDecl);
   REGISTER_MATCHER(unresolvedUsingValueDecl);
   REGISTER_MATCHER(userDefinedLiteral);

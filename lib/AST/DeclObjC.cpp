@@ -357,7 +357,7 @@ ObjCInterfaceDecl *ObjCInterfaceDecl::getSuperClass() const {
 
 SourceLocation ObjCInterfaceDecl::getSuperClassLoc() const {
   if (TypeSourceInfo *superTInfo = getSuperClassTInfo())
-    return superTInfo->getTypeLoc().getLocStart();
+    return superTInfo->getTypeLoc().getBeginLoc();
 
   return SourceLocation();
 }
@@ -829,6 +829,14 @@ bool ObjCMethodDecl::isThisDeclarationADesignatedInitializer() const {
       hasAttr<ObjCDesignatedInitializerAttr>();
 }
 
+bool ObjCMethodDecl::definedInNSObject(const ASTContext &Ctx) const {
+  if (const auto *PD = dyn_cast<const ObjCProtocolDecl>(getDeclContext()))
+    return PD->getIdentifier() == Ctx.getNSObjectName();
+  if (const auto *ID = dyn_cast<const ObjCInterfaceDecl>(getDeclContext()))
+    return ID->getIdentifier() == Ctx.getNSObjectName();
+  return false;
+}
+
 bool ObjCMethodDecl::isDesignatedInitializerForTheInterface(
     const ObjCMethodDecl **InitMethod) const {
   if (getMethodFamily() != OMF_init)
@@ -969,9 +977,9 @@ ObjCMethodDecl *ObjCMethodDecl::getCanonicalDecl() {
   return this;
 }
 
-SourceLocation ObjCMethodDecl::getLocEnd() const {
+SourceLocation ObjCMethodDecl::getEndLoc() const {
   if (Stmt *Body = getBody())
-    return Body->getLocEnd();
+    return Body->getEndLoc();
   return DeclEndLoc;
 }
 

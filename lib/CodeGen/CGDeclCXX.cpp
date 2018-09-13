@@ -347,6 +347,10 @@ llvm::Function *CodeGenModule::CreateGlobalInitOrDestructFunction(
       !isInSanitizerBlacklist(SanitizerKind::Memory, Fn, Loc))
     Fn->addFnAttr(llvm::Attribute::SanitizeMemory);
 
+  if (getLangOpts().Sanitize.has(SanitizerKind::KernelMemory) &&
+      !isInSanitizerBlacklist(SanitizerKind::KernelMemory, Fn, Loc))
+    Fn->addFnAttr(llvm::Attribute::SanitizeMemory);
+
   if (getLangOpts().Sanitize.has(SanitizerKind::SafeStack) &&
       !isInSanitizerBlacklist(SanitizerKind::SafeStack, Fn, Loc))
     Fn->addFnAttr(llvm::Attribute::SafeStack);
@@ -566,7 +570,7 @@ void CodeGenFunction::GenerateCXXGlobalVarDeclInitFunc(llvm::Function *Fn,
   if (D->hasAttr<NoDebugAttr>())
     DebugInfo = nullptr; // disable debug info indefinitely for this function
 
-  CurEHLocation = D->getLocStart();
+  CurEHLocation = D->getBeginLoc();
 
   StartFunction(GlobalDecl(D), getContext().VoidTy, Fn,
                 getTypes().arrangeNullaryFunction(),
@@ -680,7 +684,7 @@ llvm::Function *CodeGenFunction::generateDestroyHelper(
   llvm::Function *fn = CGM.CreateGlobalInitOrDestructFunction(
       FTy, "__cxx_global_array_dtor", FI, VD->getLocation());
 
-  CurEHLocation = VD->getLocStart();
+  CurEHLocation = VD->getBeginLoc();
 
   StartFunction(VD, getContext().VoidTy, fn, FI, args);
 

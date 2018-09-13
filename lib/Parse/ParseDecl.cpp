@@ -1947,7 +1947,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
 
       Diag(Loc, diag::err_c11_noreturn_misplaced)
           << (Fixit ? FixItHint::CreateRemoval(Loc) : FixItHint())
-          << (Fixit ? FixItHint::CreateInsertion(D.getLocStart(), "_Noreturn ")
+          << (Fixit ? FixItHint::CreateInsertion(D.getBeginLoc(), "_Noreturn ")
                     : FixItHint());
     }
   }
@@ -2334,20 +2334,28 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     llvm::function_ref<void()> ExprListCompleter;
     auto ThisVarDecl = dyn_cast_or_null<VarDecl>(ThisDecl);
     auto ConstructorCompleter = [&, ThisVarDecl] {
-      Actions.CodeCompleteConstructor(
+      QualType PreferredType = Actions.ProduceConstructorSignatureHelp(
           getCurScope(), ThisVarDecl->getType()->getCanonicalTypeInternal(),
-          ThisDecl->getLocation(), Exprs);
+          ThisDecl->getLocation(), Exprs, T.getOpenLocation());
+      CalledSignatureHelp = true;
+      Actions.CodeCompleteExpression(getCurScope(), PreferredType);
     };
     if (ThisVarDecl) {
       // ParseExpressionList can sometimes succeed even when ThisDecl is not
       // VarDecl. This is an error and it is reported in a call to
       // Actions.ActOnInitializerError(). However, we call
-      // CodeCompleteConstructor only on VarDecls, falling back to default
-      // completer in other cases.
+      // ProduceConstructorSignatureHelp only on VarDecls, falling back to
+      // default completer in other cases.
       ExprListCompleter = ConstructorCompleter;
     }
 
     if (ParseExpressionList(Exprs, CommaLocs, ExprListCompleter)) {
+      if (ThisVarDecl && PP.isCodeCompletionReached() && !CalledSignatureHelp) {
+        Actions.ProduceConstructorSignatureHelp(
+            getCurScope(), ThisVarDecl->getType()->getCanonicalTypeInternal(),
+            ThisDecl->getLocation(), Exprs, T.getOpenLocation());
+        CalledSignatureHelp = true;
+      }
       Actions.ActOnInitializerError(ThisDecl);
       SkipUntil(tok::r_paren, StopAtSemi);
     } else {
@@ -2882,7 +2890,7 @@ Parser::DiagnoseMissingSemiAfterTagDefinition(DeclSpec &DS, AccessSpecifier AS,
     return false;
 
   const PrintingPolicy &PPol = Actions.getASTContext().getPrintingPolicy();
-  Diag(PP.getLocForEndOfToken(DS.getRepAsDecl()->getLocEnd()),
+  Diag(PP.getLocForEndOfToken(DS.getRepAsDecl()->getEndLoc()),
        diag::err_expected_after)
       << DeclSpec::getSpecifierName(DS.getTypeSpecType(), PPol) << tok::semi;
 
@@ -5411,7 +5419,7 @@ void Parser::ParseDeclaratorInternal(Declarator &D,
       // Sema will have to catch (syntactically invalid) pointers into global
       // scope. It has to catch pointers into namespace scope anyway.
       D.AddTypeInfo(DeclaratorChunk::getMemberPointer(
-                        SS, DS.getTypeQualifiers(), DS.getLocEnd()),
+                        SS, DS.getTypeQualifiers(), DS.getEndLoc()),
                     std::move(DS.getAttributes()),
                     /* Don't replace range end. */ SourceLocation());
       return;
@@ -6210,7 +6218,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                   const Type* UTy = ETy->getDecl()->getIntegerType().getTypePtrOrNull();
                   if (UTy->isCharType() || UTy->isWideCharType() || UTy->isSpecificBuiltinType(BuiltinType::Short) || UTy->isSpecificBuiltinType(BuiltinType::LongLong) || UTy->isSpecificBuiltinType(BuiltinType::LongDouble)) {
                     Diag(param->IdentLoc, diag::err_amp_illegal_function_parameter);
-                    Diag(ETy->getDecl()->getLocStart(), diag::err_amp_illegal_function_parameter);
+                    Diag(ETy->getDecl()->getBeginLoc(), diag::err_amp_illegal_function_parameter);
                   }
                 }
               }
@@ -6219,16 +6227,16 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
 
           // check if the return type is of incompatible type
           if (!getLangOpts().HSAExtension && D.getDeclSpec().getTypeSpecType() == DeclSpec::TST_char) {
-            Diag(D.getLocStart(), diag::err_amp_illegal_function_return_char);
+            Diag(D.getBeginLoc(), diag::err_amp_illegal_function_return_char);
           } else if (!getLangOpts().HSAExtension && D.getDeclSpec().getTypeSpecWidth() == DeclSpec::TSW_short) {
-            Diag(D.getLocStart(), diag::err_amp_illegal_function_return_short);
+            Diag(D.getBeginLoc(), diag::err_amp_illegal_function_return_short);
           } else if (D.getDeclSpec().getTypeQualifiers() & DeclSpec::TQ_volatile) {
-            Diag(D.getLocStart(), diag::err_amp_illegal_function_return_volatile);
+            Diag(D.getBeginLoc(), diag::err_amp_illegal_function_return_volatile);
           }
 
           // check if the function is volatile-qualified
           if (DS.getTypeQualifiers() & DeclSpec::TQ_volatile) {
-            Diag(D.getLocStart(), diag::err_amp_illegal_function_return_volatile);
+            Diag(D.getBeginLoc(), diag::err_amp_illegal_function_return_volatile);
           }
         }
       }
@@ -6820,7 +6828,7 @@ void Parser::ParseMisplacedBracketDeclarator(Declarator &D) {
 
   if (NeedParens) {
     // Create a DeclaratorChunk for the inserted parens.
-    SourceLocation EndLoc = PP.getLocForEndOfToken(D.getLocEnd());
+    SourceLocation EndLoc = PP.getLocForEndOfToken(D.getEndLoc());
     D.AddTypeInfo(DeclaratorChunk::getParen(SuggestParenLoc, EndLoc),
                   SourceLocation());
   }
@@ -6836,11 +6844,11 @@ void Parser::ParseMisplacedBracketDeclarator(Declarator &D) {
   if (!D.getIdentifier() && !NeedParens)
     return;
 
-  SourceLocation EndBracketLoc = TempDeclarator.getLocEnd();
+  SourceLocation EndBracketLoc = TempDeclarator.getEndLoc();
 
   // Generate the move bracket error message.
   SourceRange BracketRange(StartBracketLoc, EndBracketLoc);
-  SourceLocation EndLoc = PP.getLocForEndOfToken(D.getLocEnd());
+  SourceLocation EndLoc = PP.getLocForEndOfToken(D.getEndLoc());
 
   if (NeedParens) {
     Diag(EndLoc, diag::err_brackets_go_after_unqualified_id)
