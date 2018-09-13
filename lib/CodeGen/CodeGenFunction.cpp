@@ -55,7 +55,7 @@ static bool shouldEmitLifetimeMarkers(const CodeGenOptions &CGOpts,
     return false;
 
   // Disable lifetime markers in HCC kernel build
-  if (LangOpts.CPlusPlusAMP && CGOpts.AMPIsDevice)
+  if (LangOpts.CPlusPlusAMP && CGOpts.HCIsDevice)
     return false;
 
   // Asan uses markers for use-after-scope checks.
@@ -706,8 +706,7 @@ static void GenOpenCLArgMetadata(const FunctionDecl *FD, llvm::Function *Fn,
                   llvm::MDNode::get(Context, argBaseTypeNames));
   Fn->setMetadata("kernel_arg_type_qual",
                   llvm::MDNode::get(Context, argTypeQuals));
-  if (CGM.getCodeGenOpts().EmitOpenCLArgMetadata ||
-      CGM.getLangOpts().CPlusPlusAMP)
+  if (CGM.getCodeGenOpts().EmitOpenCLArgMetadata || CGM.getLangOpts().CPlusPlusAMP)
     Fn->setMetadata("kernel_arg_name",
                     llvm::MDNode::get(Context, argNames));
 }
@@ -836,6 +835,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   CurFn = Fn;
   CurFnInfo = &FnInfo;
 
+  // TODO: Fix for winter cleanup
   // Relax duplicated function definition for C++AMP
   //
   // The reason is because in the modified GPU build path, both CPU and GPU
@@ -846,11 +846,10 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   // Therefore, in the following case StartFunction() might be called twice
   // for function foo(), and thus we need to relax the assert check for C++AMP.
   //
-  // void foo() restrict(amp) { return 1; }
-  // void foo() restrict(cpu) { return 2; }
+  // void foo() [[hc]] { return 1; }
+  // void foo() [[cpu]] { return 2; }
 
-  if (getContext().getLangOpts().CPlusPlusAMP &&
-      CGM.getCodeGenOpts().AMPIsDevice) {
+  if (getContext().getLangOpts().CPlusPlusAMP && CGM.getCodeGenOpts().HCIsDevice) {
   } else {
     assert(CurFn->isDeclaration() && "Function already has body?");
   }
@@ -886,7 +885,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
 
   }
   // Device code has all sanitizers disabled for now
-  if (CGM.getCodeGenOpts().AMPIsDevice)
+  if (CGM.getCodeGenOpts().HCIsDevice)
      SanOpts.clear();
 
   // Apply sanitizer attributes to the function.
@@ -970,7 +969,6 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
         auto Annot = FD->getAttr<AnnotateAttr>()->getAnnotation();
 
         if (Annot == "__HCC_KERNEL__" || Annot == "__HIP_global_function__") {
-            Fn->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
             Fn->setDoesNotRecurse();
             Fn->setDoesNotThrow();
             Fn->setLinkage(llvm::Function::LinkageTypes::WeakODRLinkage);
@@ -1334,6 +1332,50 @@ shouldUseUndefinedBehaviorReturnOptimization(const FunctionDecl *FD,
   return !T.isTriviallyCopyableType(Context);
 }
 
+static void maybeEmitHCArrayCapturePropagation(CodeGenFunction &CGF,
+                                               const FunctionDecl *FD) {
+  if (!FD->hasAttr<AnnotateAttr>()) return;
+
+  static constexpr const char HCPfe[]{"__HC_PFE__"};
+  if (FD->getAttr<AnnotateAttr>()->getAnnotation() != HCPfe) return;
+
+  static constexpr unsigned int CallableIdx{2u};
+  auto Callable = FD->parameters()[CallableIdx]
+                    ->getOriginalType()
+                    .getNonReferenceType()
+                    ->getAsCXXRecordDecl();
+
+  DeclRefExpr CallableRef{FD->parameters()[CallableIdx], false,
+                          FD->parameters()[CallableIdx]->getOriginalType(),
+                          VK_LValue, FD->getBody()->getBeginLoc()};
+  for (auto &&Field : Callable->fields()) {
+    if (!Field->getType()->isReferenceType()) continue;
+    if (Field->getType().getNonReferenceType().isConstQualified()) continue;
+    if (!Field->getType().getNonReferenceType()->isGPUArrayType()) continue;
+
+    MemberExpr ArrRef{&CallableRef, false, SourceLocation{}, Field,
+                      Field->getBeginLoc(), Field->getType(), VK_LValue,
+                      OK_Ordinary};
+    auto Array = Field->getType().getNonReferenceType()->getAsCXXRecordDecl();
+    auto AddFn = *std::find_if(Array->method_begin(),
+                               Array->method_end(),
+                               [](const CXXMethodDecl *MD) {
+      static constexpr const char AddToCaptured[]{"add_to_captured_"};
+
+      return MD->getName().find(AddToCaptured) != std::string::npos;
+    });
+
+    MemberExpr AddFnRef{&ArrRef, false, SourceLocation{}, AddFn,
+                        AddFn->getBeginLoc(), AddFn->getType(), VK_LValue,
+                        OK_Ordinary};
+
+    CXXMemberCallExpr AddToCaptured{CGF.CGM.getContext(), &AddFnRef, {},
+                                    AddFn->getType(), VK_LValue,
+                                    FD->getBody()->getBeginLoc()};
+
+    CGF.EmitCallExpr(&AddToCaptured);
+  }
+}
 void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
                                    const CGFunctionInfo &FnInfo) {
   const FunctionDecl *FD = cast<FunctionDecl>(GD.getDecl());
@@ -1384,8 +1426,8 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     EmitDestructorBody(Args);
   else if (isa<CXXConstructorDecl>(FD))
     EmitConstructorBody(Args);
-  else if (getContext().getLangOpts().CPlusPlusAMP &&
-           !getContext().getLangOpts().DevicePath &&
+  else if (getLangOpts().CPlusPlusAMP &&
+           !getLangOpts().DevicePath &&
            FD->hasAttr<AnnotateAttr>() &&
            FD->getAttr<AnnotateAttr>()->getAnnotation() ==
              "__HIP_global_function__") {
@@ -1409,6 +1451,9 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     // copy-constructors.
     emitImplicitAssignmentOperatorBody(Args);
   } else if (Body) {
+    if (getLangOpts().CPlusPlusAMP) {
+      maybeEmitHCArrayCapturePropagation(*this, FD);
+    }
     EmitFunctionBody(Args, Body);
   } else
     llvm_unreachable("no definition for emitted function");
@@ -1419,9 +1464,11 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // C11 6.9.1p12:
   //   If the '}' that terminates a function is reached, and the value of the
   //   function call is used by the caller, the behavior is undefined.
-  // Relax the rule for C++AMP
-  if (!getLangOpts().CPlusPlusAMP && getLangOpts().CPlusPlus && !FD->hasImplicitReturnZero() && !SawAsmBlock &&
-      !FD->getReturnType()->isVoidType() && Builder.GetInsertBlock()) {
+  if (getLangOpts().CPlusPlus &&
+      !FD->hasImplicitReturnZero() &&
+      !SawAsmBlock &&
+      !FD->getReturnType()->isVoidType() &&
+      Builder.GetInsertBlock()) {
     bool ShouldEmitUnreachable =
         CGM.getCodeGenOpts().StrictReturn ||
         shouldUseUndefinedBehaviorReturnOptimization(FD, getContext());

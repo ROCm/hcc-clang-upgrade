@@ -26,17 +26,17 @@ class FunctionArgList;
 class ReturnValueSlot;
 class RValue;
 
-class CGAMPRuntime {
+class CGHCRuntime {
 protected: // TODO: Who would ever inherit from this?
   CodeGenModule &CGM;
 
 public:
-  CGAMPRuntime(CodeGenModule &CGM) : CGM(CGM) {}
-  virtual ~CGAMPRuntime() = default;
+  CGHCRuntime(CodeGenModule &CGM) : CGM(CGM) {}
+  virtual ~CGHCRuntime() = default;
 };
 
 /// Creates an instance of a C++ AMP runtime class.
-CGAMPRuntime *CreateAMPRuntime(CodeGenModule &CGM);
+CGHCRuntime *CreateHCRuntime(CodeGenModule &CGM);
 
 }
 }

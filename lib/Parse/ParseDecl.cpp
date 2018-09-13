@@ -2254,7 +2254,8 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
   if (isTokenEqualOrEqualTypo()) {
     SourceLocation EqualLoc = ConsumeToken();
 
-    // C++ AMP-specific
+    // TODO: Fix for winter cleanup (maybe)
+    // HC-specific
     // tile_static variables can't be initialized.
     if (getLangOpts().CPlusPlusAMP) {
       if (IsTileStatic(D)) {
@@ -2314,7 +2315,8 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     }
   } else if (Tok.is(tok::l_paren)) {
 
-    // C++ AMP-specific
+    // TODO: Fix for winter cleanup (maybe)
+    // HC-specific
     // tile_static variables can't be initialized.
     if (getLangOpts().CPlusPlusAMP) {
       if (IsTileStatic(D)) {
@@ -2376,6 +2378,7 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
   } else if (getLangOpts().CPlusPlus11 && Tok.is(tok::l_brace) &&
              (!CurParsedObjCImpl || !D.isFunctionDeclarator())) {
 
+    // TODO: Fix for winter cleanup (maybe)
     // C++ AMP-specific
     // tile_static variables can't be initialized.
     if (getLangOpts().CPlusPlusAMP) {
@@ -3761,13 +3764,6 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
                                  getLangOpts());
       break;
     case tok::kw_restrict:
-      // Must distinguish between '__restrict' and 'restrict(cpu,amp)':
-      // '__restrict' is a type qualifier
-      // 'restrict(cpu,amp)' is C++AMP restriction specifier
-      if (getLangOpts().CPlusPlusAMP) {
-        if (NextToken().is(tok::l_paren))
-          return;
-      }
       isInvalid = DS.SetTypeQual(DeclSpec::TQ_restrict, Loc, PrevSpec, DiagID,
                                  getLangOpts());
       break;
@@ -5731,6 +5727,7 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
     D.SetRangeEnd(Tok.getLocation());
     ConsumeToken();
     goto PastIdentifier;
+  // TODO: Fix for winter cleanup (maybe)
   } else if (Tok.is(tok::identifier) && !D.mayHaveIdentifier() &&
              !getLangOpts().CPlusPlusAMP) { // Relax the rule for C++AMP
     // We're not allowed an identifier here, but we got one. Try to figure out
@@ -6182,65 +6179,6 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
       if (ParseRefQualifier(RefQualifierIsLValueRef, RefQualifierLoc))
         EndLoc = RefQualifierLoc;
 
-      // Parse C++AMP restriction specifier
-      unsigned cppampSpec = CPPAMP_None;
-      if (getLangOpts().CPlusPlusAMP) {
-        cppampSpec = ParseRestrictionSpecification(D, FnAttrs, EndLoc);
-        // Reset Scope's CXXAMP specifier
-        getCurScope()->setCXXAMPSpecifier(0);
-        // AMP-restricted function-only
-        if (cppampSpec & CPPAMP_AMP) {
-
-          // check if there's incompatible parameters in the function declarator
-          for (SmallVector<DeclaratorChunk::ParamInfo, 16>::iterator param = ParamInfo.begin(); param != ParamInfo.end(); ++param) {
-            ParmVarDecl *pvDecl = dyn_cast_or_null<ParmVarDecl>(param->Param);
-            if (pvDecl) {
-              QualType t = pvDecl->getOriginalType();
-              const Type* Ty = t.getTypePtrOrNull();
-              // reject incompatible scalar types
-              if (getLangOpts().HSAExtension) {
-                ; // hsa-ext
-              } else {
-                if (Ty->isCharType() || Ty->isWideCharType() || Ty->isSpecificBuiltinType(BuiltinType::Short) || Ty->isSpecificBuiltinType(BuiltinType::LongLong) || Ty->isSpecificBuiltinType(BuiltinType::LongDouble)) {
-                    Diag(param->IdentLoc, diag::err_amp_illegal_function_parameter);
-                }
-              }
-
-              // reject incompatible volatile type qualifier
-              if (t.isVolatileQualified()) {
-                  Diag(param->IdentLoc, diag::err_amp_illegal_function_parameter_volatile);
-              }
-
-              // reject incompatible enum types
-              if (Ty && Ty->isEnumeralType()) {
-                const EnumType* ETy = dyn_cast<EnumType>(Ty);
-                if (ETy && ETy->getDecl()) {
-                  const Type* UTy = ETy->getDecl()->getIntegerType().getTypePtrOrNull();
-                  if (UTy->isCharType() || UTy->isWideCharType() || UTy->isSpecificBuiltinType(BuiltinType::Short) || UTy->isSpecificBuiltinType(BuiltinType::LongLong) || UTy->isSpecificBuiltinType(BuiltinType::LongDouble)) {
-                    Diag(param->IdentLoc, diag::err_amp_illegal_function_parameter);
-                    Diag(ETy->getDecl()->getBeginLoc(), diag::err_amp_illegal_function_parameter);
-                  }
-                }
-              }
-            }
-          }
-
-          // check if the return type is of incompatible type
-          if (!getLangOpts().HSAExtension && D.getDeclSpec().getTypeSpecType() == DeclSpec::TST_char) {
-            Diag(D.getBeginLoc(), diag::err_amp_illegal_function_return_char);
-          } else if (!getLangOpts().HSAExtension && D.getDeclSpec().getTypeSpecWidth() == DeclSpec::TSW_short) {
-            Diag(D.getBeginLoc(), diag::err_amp_illegal_function_return_short);
-          } else if (D.getDeclSpec().getTypeQualifiers() & DeclSpec::TQ_volatile) {
-            Diag(D.getBeginLoc(), diag::err_amp_illegal_function_return_volatile);
-          }
-
-          // check if the function is volatile-qualified
-          if (DS.getTypeQualifiers() & DeclSpec::TQ_volatile) {
-            Diag(D.getBeginLoc(), diag::err_amp_illegal_function_return_volatile);
-          }
-        }
-      }
-
       // C++11 [expr.prim.general]p3:
       //   If a declaration declares a member function or member function
       //   template of a class X, the expression this is a prvalue of type
@@ -6292,16 +6230,19 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                                                  ExceptionSpecTokens);
       if (ESpecType != EST_None) {
           EndLoc = ESpecRange.getEnd();
-  
-        // C++AMP specific, reject exception specifiers for amp-restricted functions
-        if (getLangOpts().CPlusPlusAMP && (cppampSpec & CPPAMP_AMP)) {
-          Diag(ESpecRange.getBegin(), diag::err_amp_no_throw);
-        }
       }
 
       // Parse attribute-specifier-seq[opt]. Per DR 979 and DR 1297, this goes
       // after the exception-specification.
       MaybeParseCXX11Attributes(FnAttrs);
+
+      // TODO: Fix for winter cleanup.
+      if (getLangOpts().CPlusPlusAMP && ESpecType == EST_Dynamic) {
+          for (auto &&A : FnAttrs) {
+            if (A.getKind() != ParsedAttr::AT_HC_HC) continue;
+            Diag(ESpecRange.getBegin(), diag::err_amp_no_throw);
+          }
+      }
 
       // Parse trailing-return-type[opt].
       LocalEndLoc = EndLoc;
@@ -6312,18 +6253,6 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         LocalEndLoc = Tok.getLocation();
         SourceRange Range;
 
-        // C++AMP specific
-        // Update Scope to mark if it is in AMP, CPU or dual context
-        // FIXME: only used in Trailing return case for now
-        if (getLangOpts().CPlusPlusAMP) {
-          // Reset Scope's CXXAMP specifier
-          getCurScope()->setCXXAMPSpecifier(0);
-          if (cppampSpec & CPPAMP_AMP)
-            getCurScope()->setAMPScope();
-
-          if (cppampSpec & CPPAMP_CPU)
-            getCurScope()->setCPUScope();
-        }
         TrailingReturnType =
             ParseTrailingReturnType(Range, D.mayBeFollowedByCXXDirectInit());
         EndLoc = Range.getEnd();

@@ -5557,25 +5557,6 @@ private:
   }
 };
 
-namespace
-{
-  inline
-  bool checkAllAreIntegral(const ParsedAttr &Attr, Sema &S) {
-    for (auto i = 0u; i != Attr.getNumArgs(); ++i) {
-      auto e = Attr.getArgAsExpr(i);
-      if (e && !e->getType()->isIntegralOrEnumerationType()) {
-        S.Diag(getAttrLoc(Attr), diag::err_attribute_argument_n_type)
-          << Attr << i << AANT_ArgumentIntegerConstant
-          << e->getSourceRange();
-
-        return false;
-      }
-    }
-
-    return true;
-  }
-}
-
 static void handleAMDGPUFlatWorkGroupSizeAttr(Sema &S, Decl *D,
                                               const ParsedAttr &AL) {
   uint32_t Min = 0;
@@ -5618,9 +5599,6 @@ static void handleAMDGPUFlatWorkGroupSizeAttr(Sema &S, Decl *D,
 }
 
 static void handleAMDGPUWavesPerEUAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
-  if (!checkAllAreIntegral(AL, S))
-    return;
-
   uint32_t Min = 0;
   Expr *MinExpr = AL.getArgAsExpr(0);
   if (MinExpr->isEvaluatable(S.Context) &&
@@ -5654,10 +5632,6 @@ static void handleAMDGPUWavesPerEUAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 }
 
 static void handleAMDGPUNumSGPRAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
-
-  if (!checkAllAreIntegral(AL, S))
-    return;
-
   uint32_t NumSGPR = 0;
   Expr *NumSGPRExpr = AL.getArgAsExpr(0);
   if (NumSGPRExpr->isEvaluatable(S.Context) &&
@@ -5670,10 +5644,6 @@ static void handleAMDGPUNumSGPRAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 }
 
 static void handleAMDGPUNumVGPRAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
-
-  if (!checkAllAreIntegral(AL, S))
-    return;
-
   uint32_t NumVGPR = 0;
   Expr *NumVGPRExpr = AL.getArgAsExpr(0);
   if (NumVGPRExpr->isEvaluatable(S.Context) &&
@@ -5687,8 +5657,6 @@ static void handleAMDGPUNumVGPRAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 
 static void handleAMDGPUMaxWorkGroupDimAttr(Sema &S, Decl *D,
                                             const ParsedAttr &Attr) {
-  if (!checkAllAreIntegral(Attr, S))
-    return;
   if (!checkAttributeAtLeastNumArgs(S, Attr, 3))
     return;
 
@@ -6139,7 +6107,7 @@ static void handleDestroyAttr(Sema &S, Decl *D, const ParsedAttr &A) {
 }
 
 //===----------------------------------------------------------------------===//
-// C++ AMP specific attribute handlers.
+// HC specific attribute handlers.
 // FIXME: Merge these handlers with handleSimpleAttribute
 //===----------------------------------------------------------------------===//
 
@@ -6161,10 +6129,12 @@ static void handleDeviceAttr(Sema &S, Decl *D, const ParsedAttr &Attr) {
                CUDADeviceAttr(Attr.getRange(), S.Context,
                               Attr.getAttributeSpellingListIndex()));
   } else if (S.LangOpts.CPlusPlusAMP) {
-      D->addAttr(::new (S.Context) AlwaysInlineAttr(Attr.getRange(),
-                                                    S.Context, Attr.getAttributeSpellingListIndex()));
-    D->addAttr(::new (S.Context) CXXAMPRestrictAMPAttr(Attr.getRange(),
-          S.Context, Attr.getAttributeSpellingListIndex()));
+      D->addAttr(::new (S.Context)
+                 AlwaysInlineAttr(Attr.getRange(), S.Context,
+                                  Attr.getAttributeSpellingListIndex()));
+      D->addAttr(::new (S.Context)
+                 HCRestrictHCAttr(Attr.getRange(), S.Context,
+                                  Attr.getAttributeSpellingListIndex()));
   } else {
     S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "device";
   }
@@ -6186,8 +6156,9 @@ static void handleHostAttr(Sema &S, Decl *D, const ParsedAttr &Attr) {
                CUDAHostAttr(Attr.getRange(), S.Context,
                             Attr.getAttributeSpellingListIndex()));
   } else if (S.LangOpts.CPlusPlusAMP) {
-    D->addAttr(::new (S.Context) CXXAMPRestrictCPUAttr(Attr.getRange(),
-          S.Context, Attr.getAttributeSpellingListIndex()));
+    D->addAttr(::new (S.Context)
+               HCRestrictCPUAttr(Attr.getRange(), S.Context,
+                                 Attr.getAttributeSpellingListIndex()));
   } else {
     S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "host";
   }
@@ -6397,11 +6368,11 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
     handleGlobalAttr(S, D, AL);
     break;
   case ParsedAttr::AT_HC_HC:
-  case ParsedAttr::AT_CXXAMPRestrictAMP:
+  case ParsedAttr::AT_HCRestrictHC:
     handleDeviceAttr(S, D, AL);
     break;
   case ParsedAttr::AT_HC_CPU:
-  case ParsedAttr::AT_CXXAMPRestrictCPU:
+  case ParsedAttr::AT_HCRestrictCPU:
     handleHostAttr(S, D, AL);
     break;
   case ParsedAttr::AT_CUDADevice:
@@ -6915,7 +6886,9 @@ void Sema::ProcessDeclAttributeList(Scope *S, Decl *D,
   // good to have a way to specify "these attributes must appear as a group",
   // for these. Additionally, it would be good to have a way to specify "these
   // attribute must never appear as a group" for attributes like cold and hot.
-  if (!D->hasAttr<OpenCLKernelAttr>()) {
+  if (!D->hasAttr<OpenCLKernelAttr>() &&
+      (!D->hasAttr<AnnotateAttr>() || // TODO: hoist into a more robust check.
+        D->getAttr<AnnotateAttr>()->getAnnotation() != "__HCC_KERNEL__")) {
     // These attributes cannot be applied to a non-kernel function.
     if (const auto *A = D->getAttr<ReqdWorkGroupSizeAttr>()) {
       // FIXME: This emits a different error message than
@@ -6931,7 +6904,8 @@ void Sema::ProcessDeclAttributeList(Scope *S, Decl *D,
     } else if (const auto *A = D->getAttr<OpenCLIntelReqdSubGroupSizeAttr>()) {
       Diag(D->getLocation(), diag::err_opencl_kernel_attr) << A;
       D->setInvalidDecl();
-    } else if (!D->hasAttr<CUDAGlobalAttr>() && !D->hasAttr<CXXAMPRestrictAMPAttr>()) {
+    } else if (!D->hasAttr<CUDAGlobalAttr>() &&
+               !D->hasAttr<HCRestrictHCAttr>()) {
       if (const auto *A = D->getAttr<AMDGPUFlatWorkGroupSizeAttr>()) {
         Diag(D->getLocation(), diag::err_attribute_wrong_decl_type)
             << A << ExpectedKernelFunction;

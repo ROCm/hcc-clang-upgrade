@@ -55,7 +55,6 @@ add_clang_library(clangSema
   SemaTemplateInstantiateDecl.cpp
   SemaTemplateVariadic.cpp
   SemaType.cpp
-  StmtResInfer.cpp
   TypeLocBuilder.cpp
 
   LINK_LIBS

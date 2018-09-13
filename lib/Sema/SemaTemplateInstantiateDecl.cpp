@@ -239,6 +239,52 @@ static void instantiateDependentDiagnoseIfAttr(
         DIA->getSpellingListIndex()));
 }
 
+static void instantiateDependentAMDGPUFlatWorkGroupSizeAttr(
+  Sema &S, const MultiLevelTemplateArgumentList &TemplateArgs,
+  const AMDGPUFlatWorkGroupSizeAttr &Attr, Decl *New) {
+  EnterExpressionEvaluationContext Unevaluated{
+    S, Sema::ExpressionEvaluationContext::ConstantEvaluated};
+
+  ExprResult Result = S.SubstExpr(Attr.getMin(), TemplateArgs);
+  if (Result.isInvalid()) return;
+  Expr *MinExpr = Result.getAs<Expr>();
+
+  Expr *MaxExpr = Attr.getMax();
+
+  if (!MaxExpr) return;
+
+  Result = S.SubstExpr(Attr.getMax(), TemplateArgs);
+  if (Result.isInvalid()) return;
+  MaxExpr = Result.getAs<Expr>();
+
+  New->addAttr(new (S.Context)
+    AMDGPUFlatWorkGroupSizeAttr{Attr.getLocation(), S.Context, MinExpr, MaxExpr,
+                                "", Attr.getSpellingListIndex()});
+}
+
+static void instantiateDependentAMDGPUWavesPerEUAttr(
+  Sema &S, const MultiLevelTemplateArgumentList &TemplateArgs,
+  const AMDGPUWavesPerEUAttr &Attr, Decl *New) {
+  EnterExpressionEvaluationContext Unevaluated{
+    S, Sema::ExpressionEvaluationContext::ConstantEvaluated};
+
+  ExprResult Result = S.SubstExpr(Attr.getMin(), TemplateArgs);
+  if (Result.isInvalid()) return;
+  Expr *MinExpr = Result.getAs<Expr>();
+
+  Expr *MaxExpr = Attr.getMax();
+
+  if (!MaxExpr) return;
+
+  Result = S.SubstExpr(Attr.getMax(), TemplateArgs);
+  if (Result.isInvalid()) return;
+  MaxExpr = Result.getAs<Expr>();
+
+  New->addAttr(new (S.Context)
+    AMDGPUWavesPerEUAttr{Attr.getLocation(), S.Context, MinExpr, MaxExpr, "",
+                         Attr.getSpellingListIndex()});
+}
+
 // Constructs and adds to New a new instance of CUDALaunchBoundsAttr using
 // template A as the base and arguments from TemplateArgs.
 static void instantiateDependentCUDALaunchBoundsAttr(
@@ -411,6 +457,22 @@ void Sema::InstantiateAttrs(const MultiLevelTemplateArgumentList &TemplateArgs,
             dyn_cast<CUDALaunchBoundsAttr>(TmplAttr)) {
       instantiateDependentCUDALaunchBoundsAttr(*this, TemplateArgs,
                                                *CUDALaunchBounds, New);
+      continue;
+    }
+
+    if (const AMDGPUFlatWorkGroupSizeAttr *AMDGPUFlatWGSize =
+        dyn_cast<AMDGPUFlatWorkGroupSizeAttr>(TmplAttr)) {
+      instantiateDependentAMDGPUFlatWorkGroupSizeAttr(*this, TemplateArgs,
+                                                      *AMDGPUFlatWGSize, New);
+
+      continue;
+    }
+
+    if (const AMDGPUWavesPerEUAttr *AMDGPUWavesPerEU =
+        dyn_cast<AMDGPUWavesPerEUAttr>(TmplAttr)) {
+      instantiateDependentAMDGPUWavesPerEUAttr(*this, TemplateArgs,
+                                               *AMDGPUWavesPerEU, New);
+
       continue;
     }
 
@@ -3746,6 +3808,32 @@ static void InstantiateDefaultCtorDefaultArgs(Sema &S,
   }
 }
 
+static void MaybeCheckArrayCaptureInPFE(Sema &S, FunctionDecl *Function)
+{
+  if (!Function) return;
+  if (!Function->hasAttr<AnnotateAttr>()) return;
+
+  static constexpr const char HCPfe[]{"__HC_PFE__"};
+  if (Function->getAttr<AnnotateAttr>()->getAnnotation().find(HCPfe) ==
+      StringRef::npos) return;
+
+  static constexpr unsigned int CallableIdx{2u};
+  auto Callable = Function->parameters()[CallableIdx]
+                          ->getOriginalType()
+                          .getNonReferenceType()
+                          ->getAsCXXRecordDecl();
+
+  for (auto &&Field : Callable->fields()) {
+    QualType FieldT = Field->getType();
+    if (FieldT->isPointerType()) FieldT = FieldT->getPointeeType();
+
+    if (!FieldT->isGPUArrayType()) continue;
+
+    S.Diag(Field->getLocation(), diag::err_amp_captured_array_type_by_value)
+      << Field->getName();
+  }
+}
+
 /// Instantiate the definition of the given function from its
 /// template.
 ///
@@ -3973,6 +4061,8 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
   LocalInstantiations.perform();
   Scope.Exit();
   GlobalInstantiations.perform();
+
+  MaybeCheckArrayCaptureInPFE(*this, Function);
 }
 
 VarTemplateSpecializationDecl *Sema::BuildVarTemplateInstantiation(

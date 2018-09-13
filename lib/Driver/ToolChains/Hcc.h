@@ -62,9 +62,9 @@ public:
 };
 
 // \brief C++AMP linker.
-class LLVM_LIBRARY_VISIBILITY CXXAMPLink : public Tool {
+class LLVM_LIBRARY_VISIBILITY HCLink : public Tool {
 public:
-  CXXAMPLink(const ToolChain &TC) : Tool("clamp-link", "HC linker", TC) {}
+  HCLink(const ToolChain &TC) : Tool("clamp-link", "HC linker", TC) {}
 
   bool hasGoodDiagnostics() const override { return true; }
   bool hasIntegratedAssembler() const override { return false; }

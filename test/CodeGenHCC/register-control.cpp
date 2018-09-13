@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -famp-is-device -fhsa-ext -std=c++amp -x hc-kernel -triple amdgcn -target-cpu fiji -emit-llvm -disable-llvm-passes -o - %s| FileCheck %s
+// RUN: %clang_cc1 -fhc-is-device -fhsa-ext -std=c++11 -x hc-kernel -triple amdgcn -target-cpu fiji -emit-llvm -disable-llvm-passes -o - %s| FileCheck %s
 //
 // This test emulates parallel-for-each without relying on HCC header files.
 // By using pseudo definitions of some HCC types this test can generate the trampoline functions which are
@@ -8,13 +8,13 @@
 class accelerator_view { int dummy; };
 class extent { int dummy; };
 struct index {
-  index() __attribute__((annotate("__cxxamp_opencl_index"))){}
+  index() {}
   int x;
 };
 
 struct array {
   int x;
-  void foo() restrict(amp) {}
+  void foo() [[hc]] {}
 };
 
 template <typename Kernel>
@@ -36,7 +36,7 @@ int main() {
   // Test parallel-for-each with functor.
   class A {
   public:
-    void foo()restrict(amp){}
+    void foo() [[hc]] {}
     // CHECK-LABEL: define internal amdgpu_kernel void @_ZZ4mainEN1A19__cxxamp_trampolineEi(i32)
     // CHECK-SAME: #[[ATTR2:[0-9]+]]
     void operator()(index& i)

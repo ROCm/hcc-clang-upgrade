@@ -1616,55 +1616,6 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
       CaptureInits.push_back(Init);
     }
 
-    // C++AMP - TODO: this is very very awful and needs to be redone.
-    if (getLangOpts().CPlusPlusAMP) {
-      std::vector<std::pair<Capture, unsigned>> FoundVec;
-
-      for (auto&& From : LSI->Captures) {
-        assert(!From.isBlockCapture() && "Cannot capture __block variables");
-
-        unsigned int Err = UINT_MAX;
-
-        if (CallOperator->hasAttr<CXXAMPRestrictAMPAttr>()) {
-          if (From.getCaptureType()->isGPUArrayType()) {
-            if (!From.isCopyCapture()) continue;
-          }
-          if (getLangOpts().HSAExtension) continue;
-
-          if (!From.getCaptureType()->isPointerType()) continue;
-          if (!From.isReferenceCapture()) continue;
-          if (!From.isThisCapture()) continue;
-
-          Err = (From.isReferenceCapture() || From.isThisCapture()) ?
-            diag::err_amp_captured_by_reference_for_variables :
-            diag::err_amp_captured_variable_type;
-        } else {
-          if (From.isThisCapture()) continue;
-          if (!From.getCaptureType()->isFunctionPointerType()) continue;
-
-          if (auto Var = From.getVariable()) {
-            if (Var->hasAttr<CXXAMPRestrictAMPAttr>()) {
-              Err = diag::err_amp_captured_variable_type;
-            }
-          }
-        }
-
-        if (Err != UINT_MAX) FoundVec.emplace_back(From, Err);
-      }
-
-      if (!FoundVec.empty()) {
-        for (auto&& Found : FoundVec) {
-          if (auto Var = Found.first.getVariable()) {
-            Diag(Found.first.getLocation(), Found.second) << Var->getName();
-          } else {
-            Diag(Found.first.getLocation(), Found.second);
-          }
-        }
-
-        return ExprError();
-      }
-    }
-
     // C++11 [expr.prim.lambda]p6:
     //   The closure type for a lambda-expression with no lambda-capture
     //   has a public non-virtual non-explicit const conversion function
@@ -1713,6 +1664,9 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
 
   // Emit delayed shadowing warnings now that the full capture list is known.
   DiagnoseShadowingLambdaDecls(LSI);
+
+  // HC-specific.
+  MaybeAddHCAttr(getLangOpts(), CallOperator);
 
   if (!CurContext->isDependentContext()) {
     switch (ExprEvalContexts.back().Context) {

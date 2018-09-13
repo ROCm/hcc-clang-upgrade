@@ -63,7 +63,7 @@ public:
 };
 
 class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
-  mutable std::unique_ptr<HCC::CXXAMPLink> HCLinker;
+  mutable std::unique_ptr<HCC::HCLink> HCLinker;
 
 public:
   Linker(const ToolChain &TC) : GnuTool("GNU::Linker", "linker", TC) {}
@@ -293,7 +293,7 @@ protected:
   CudaInstallationDetector CudaInstallation;
   HCCInstallationDetector HCCInstallation;
 
-  friend class tools::HCC::CXXAMPLink;
+  friend class tools::HCC::HCLink;
 
 public:
   Generic_GCC(const Driver &D, const llvm::Triple &Triple,

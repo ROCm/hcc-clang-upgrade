@@ -481,7 +481,7 @@ static void InitializeStandardPredefinedMacros(const TargetInfo &TI,
   }
   if(LangOpts.DevicePath) {
     Builder.defineMacro("__GPU__", "1");
-    Builder.defineMacro("__KALMAR_ACCELERATOR__", "1");
+    Builder.defineMacro("__HCC_ACCELERATOR__", "1");
     Builder.defineMacro("__HCC_ACCELERATOR__", "1");
   }
 }
@@ -583,7 +583,7 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   Builder.defineMacro("__clang__"); // Clang Frontend
 
   // hcc macros
-  Builder.defineMacro("__KALMAR_CC__", "1");
+  Builder.defineMacro("__HC_CC__", "1");
   Builder.defineMacro("__HCC__", "1");
 
 #define TOSTR2(X) #X
@@ -606,7 +606,7 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   // - CL : for non-HSA systems
   // - HLC : for HLC backend
   // - AMDGPU : for Lightning backend
-  Builder.defineMacro("__hcc_backend__", TOSTR(KALMAR_BACKEND));
+  Builder.defineMacro("__hcc_backend__", TOSTR(HC_BACKEND));
 
 #undef TOSTR
 #undef TOSTR2
@@ -1146,7 +1146,8 @@ void clang::InitializePreprocessor(
   if (InitOpts.UsePredefines) {
     // FIXME: This will create multiple definitions for most of the predefined
     // macros. This is not the right way to handle this.
-    if ((LangOpts.CUDA || LangOpts.OpenMPIsDevice || LangOpts.CPlusPlusAMP) && PP.getAuxTargetInfo())
+    if ((LangOpts.CUDA || LangOpts.OpenMPIsDevice || LangOpts.CPlusPlusAMP) &&
+        PP.getAuxTargetInfo())
       InitializePredefinedMacros(*PP.getAuxTargetInfo(), LangOpts, FEOpts,
                                  Builder);
 

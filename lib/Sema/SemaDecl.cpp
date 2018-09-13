@@ -4455,16 +4455,18 @@ Sema::ParsedFreeStandingDeclSpec(Scope *S, AccessSpecifier AS, DeclSpec &DS,
     }
   }
 
-  // C++AMP
-  if(getLangOpts().CPlusPlusAMP && TagD) {
+  // HC
+  // TODO: Fix for winter cleanup
+  if (getLangOpts().CPlusPlusAMP && TagD) {
     // If TagD is not null, Dcl itself presents a CXXRecordDecl
-    if(CXXRecordDecl* RD = dyn_cast<CXXRecordDecl>(TagD)) {
-      for ( CXXRecordDecl::method_iterator MethodIt = RD->method_begin(),
-                  MethodItE = RD->method_end(); MethodIt != MethodItE; ++MethodIt) {
-            if(MethodIt->isUserProvided() && MethodIt->hasAttr<CXXAMPRestrictAMPAttr>() &&
-               MethodIt->isVirtual()) {
-               Diag(MethodIt->getSourceRange().getBegin(), diag::err_amp_virtual_member_function);
-            }
+    if (auto *RD = dyn_cast<CXXRecordDecl>(TagD)) {
+      for (auto &&Method : RD->methods()) {
+        if (!Method->isUserProvided()) continue;
+        if (!Method->hasAttr<HCRestrictHCAttr>()) continue;
+        if (!Method->isVirtual()) continue;
+
+        Diag(Method->getSourceRange().getBegin(),
+             diag::err_amp_virtual_member_function);
       }
     }
   }
@@ -5189,235 +5191,8 @@ static bool RebuildDeclaratorInCurrentInstantiation(Sema &S, Declarator &D,
   return false;
 }
 
-static void Track4ByteAligned(const CXXRecordDecl* RDecl, Sema& S, Declarator &D,
-                                             std::vector<FieldDecl*>&FoundVec, bool& Aligned)
-{
-  // It is myself, Walk the field
-  for (CXXRecordDecl::field_iterator It = RDecl->field_begin(),
-        ItE = RDecl->field_end(); It != ItE; ++It) {
-   const FieldDecl *FD = *It;
-    if(!FD)
-      continue;
-    const RecordType *RT = S.Context.getBaseElementType(FD->getType())->getAs<RecordType>();
-    // The field contains RecordType
-    if (RT) {
-      Aligned = true;
-      break;
-   }
-
-    QualType FieldType = FD->getType();
-    // Array
-    if(const ArrayType* ArrayTy = dyn_cast<ArrayType>(FieldType)) {
-          FieldType = ArrayTy->getElementType();
-      if( FieldType->getAs<RecordType>()) {
-        Aligned = true;
-        break;
-      }
-    }
-
-    if(const Type* Ty = FieldType.getTypePtrOrNull()) {
-      if(Ty->isBooleanType()) {
-        Aligned = false;
-        // Temporarily append, will remove if determine they are aligned
-        FoundVec.push_back(const_cast<FieldDecl*>(FD));
-      } else
-       Aligned = true;
-    } else
-      Aligned= true;
-  }
-
-  if(RDecl->getDefinition()) {
-    RDecl = RDecl->getDefinition();
-    for(CXXRecordDecl::base_class_const_iterator BaseIt = RDecl->bases_begin();
-             BaseIt!=RDecl->bases_end(); BaseIt++) {
-      const CXXRecordDecl *BaseRDecl =
-            cast<CXXRecordDecl>(BaseIt->getType()->getAs<RecordType>()->getDecl());
-        Track4ByteAligned(BaseRDecl, S, D, FoundVec, Aligned);
-    }
-  }
-  return;
-}
-
-static bool IsIncompatibleScalarType(const Type* Ty, bool HSAExtension = false) {
-  assert(Ty);
-  if (HSAExtension) {
-    return false;
-  } else {
-    return Ty->isCharType() ||
-           Ty->isWideCharType() ||
-           Ty->isSpecificBuiltinType(BuiltinType::Short) ||
-           Ty->isSpecificBuiltinType(BuiltinType::LongLong) ||
-           Ty->isSpecificBuiltinType(BuiltinType::LongDouble);
-  }
-}
-
-static inline bool IsCompatibleScalarType(const Type* Ty, bool HSAExtension = false) {
-  assert(Ty);
-  if (HSAExtension) {
-    return Ty->isVoidType() ||
-           Ty->isCharType() ||
-           Ty->isBooleanType() ||
-           Ty->isWideCharType() ||
-           Ty->isSpecificBuiltinType(BuiltinType::Int) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Long) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Short) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Float) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Double) ||
-           Ty->isSpecificBuiltinType(BuiltinType::LongLong) ||
-           Ty->isSpecificBuiltinType(BuiltinType::LongDouble);
-  } else {
-    return Ty->isVoidType() ||
-           Ty->isBooleanType() ||
-           Ty->isSpecificBuiltinType(BuiltinType::Int) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Long) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Float) ||
-           Ty->isSpecificBuiltinType(BuiltinType::Double);
-  }
-}
-
-static inline bool hasUnsupportedTypeQualifier(QualType Ty, bool HSAExtension = false) {
-  return (HSAExtension) ? false : Ty.isVolatileQualified();
-}
-
-bool Sema::IsCXXAMPUnsupportedReferenceType(const Type* Ty,
-  bool CheckContainer, bool IsInfer) {
-  assert(Ty);
-
-  // relax all reference types as ok in HSA extension mode
-  if (getLangOpts().HSAExtension) {
-    return false;
-  }
-
-  const ReferenceType* RTy = dyn_cast<ReferenceType>(Ty);
-  if(!RTy)
-    return false;
-
-  // Recursively test its pointee type
-  QualType PointeeType = RTy->getPointeeType();
-  const Type* TargetTy= RTy->getPointeeType().getTypePtrOrNull();
-  assert(TargetTy);
-
-  // reject reference to volatile type
-  if(hasUnsupportedTypeQualifier(PointeeType, getLangOpts().HSAExtension))
-    return true;
-
-  //References (lvalue and rvalue) shall refer only to amp-compatible types
-  if(IsIncompatibleScalarType(TargetTy, getLangOpts().HSAExtension))
-    return true;
-  if(IsCompatibleScalarType(TargetTy, getLangOpts().HSAExtension))
-    return false;
-
-  // reject reference to function type
-  if (TargetTy->isFunctionType())
-    return true;
-
-  //No reference type is considered amp-compatible
-  if (TargetTy->isReferenceType())
-    return true;
-
-  //Reference to std::nullptr_t is not allowed
-  // Need to be ahead of PointerType check
-  if(TargetTy->isNullPtrType() && PointeeType.getAsString().find("std::nullptr_t"))
-    return true;
-
-  // Additionally, references to pointers are supported as long as the pointer type is itself
-  // supported
-  if(TargetTy->isPointerType() || TargetTy->isMemberPointerType())
-    return IsCXXAMPUnsupportedPointerType(TargetTy, CheckContainer, IsInfer);
-
-  if (TargetTy->isRecordType()) {
-    // Support reference to concurrency::array and/or concurrency::graphics::texture
-    if(CXXRecordDecl* RD = Ty->getAsCXXRecordDecl()) {
-      if((RD->getName() == "array" && PointeeType.getAsString().find("Concurrency::array")) ||
-        (RD->getName() == "texture"&& PointeeType.getAsString().find("graphics::texture")) ||
-        RD->getQualifiedNameAsString().find("std::")!=std::string::npos)
-        return false;
-      else
-       return IsIncompatibleType(TargetTy, CheckContainer, IsInfer);
-    }
-  }
-
-  // TODO: References are onlysupported as local variables
-  // and/or function parameters
-  // and/or function return types
-  return false;
-}
-
-// Check PointerType & MemberPointerType
-bool Sema::IsCXXAMPUnsupportedPointerType(const Type* Ty,
-  bool CheckContainer, bool IsInfer) {
-  assert(Ty);
-
-  // relax all pointer types as ok in HSA extension mode
-  if (getLangOpts().HSAExtension) {
-    return false;
-  }
-
-   // reject incompatible function pointer types
-  if (Ty->isFunctionPointerType() || Ty->isMemberFunctionPointerType())
-    return true;
-    // Pointers to members (C++11 8.3.3) shall only refer to non-static data members.
-  if(Ty->isMemberPointerType()) {
-    // FIXME: no way to check if it is non-static or not
-    if(Ty->isMemberDataPointerType())
-      return true;
-    else
-      return true;
-  }
-
-  const PointerType* PTy = dyn_cast<PointerType>(Ty);
-  if(!PTy)
-    return false;
-
-  // Recursively test its pointee type
-  QualType PointeeType = PTy->getPointeeType();
-  const Type* TargetTy= PTy->getPointeeType().getTypePtrOrNull();
-  assert(TargetTy);
-
-   //std::nullptr_t type is supported and treated as a pointer type
-  if(Ty->isNullPtrType() && PointeeType.getAsString().find("std::nullptr_t"))
-    return true;
-
-  // reject reference to volatile type
-  if(hasUnsupportedTypeQualifier(PointeeType, getLangOpts().HSAExtension))
-    return true;
-
-  //Pointers shall only point to amp-compatible types
-  if(IsIncompatibleScalarType(TargetTy, getLangOpts().HSAExtension))
-    return true;
-  if(IsCompatibleScalarType(TargetTy, getLangOpts().HSAExtension)) {
-    // FIXME: reject this kind of pointer type
-    if(Ty->isMemberDataPointerType())
-      return true;
-    else
-      return false;
-  }
-  // reject pointer to pointer type
-  // No pointer type is considered amp-compatible
-  if (TargetTy->isPointerType() || TargetTy->isMemberPointerType())
-    return true;
-
-  // test pointer to class type
-  if (TargetTy->isRecordType()) {
-    // Pointers can point to amp-compatible types or
-    // concurrency::array or concurrency::graphics::texture
-    if(CXXRecordDecl* RD = TargetTy->getAsCXXRecordDecl()) {
-       if((RD->getName() == "array" && PointeeType.getAsString().find("Concurrency::array")) ||
-        (RD->getName() == "texture"&& PointeeType.getAsString().find("graphics::texture")) ||
-        RD->getQualifiedNameAsString().find("std::")!=std::string::npos)
-         return false;
-       else
-          return IsIncompatibleType(TargetTy, CheckContainer, IsInfer);
-     }
-   }
-
-  // TODO: Pointers are only supported as local variables
-  // and/or function parameters
-  // and/or function return types
-  return false;
-}
-
-bool Sema::DiagnoseCXXAMPDecl(Decl* Dcl, bool CheckContainer, bool IsInfer) {
+bool Sema::DiagnoseHCDecl(Decl* Dcl, bool CheckContainer, bool IsInfer) {
+  // TODO: Fix for winter cleanup.
   if(!Dcl)
     return false;
 
@@ -5441,52 +5216,13 @@ bool Sema::DiagnoseCXXAMPDecl(Decl* Dcl, bool CheckContainer, bool IsInfer) {
       // FIXME:need to consider 'typedef' operator
     }
 
-    // Check if the record decl* is 4-byte aligned
-    if (!getLangOpts().HSAExtension) {
-      if(RDecl->hasDefinition() && RDecl->isStruct() && !RDecl->isLambda()) {
-        CXXRecordDecl* DefRDecl = RDecl->getDefinition();
-        if(const TypeDecl* TD = dyn_cast<TypeDecl>(Dcl)) {
-          const Type* Ty = TD->getTypeForDecl();
-          if(!Ty->isIncompleteType()) {
-            Type::TypeClass TC = Ty->getTypeClass();
-            if(TC == Type::Elaborated ||TC == Type::InjectedClassName ||
-              (TC == Type::TemplateSpecialization && Context.getCanonicalType(Ty) == Ty)){
-            // FIXME: The following TypeClass might cause endless loop. Just skip them for now
-            // TypeClass: Elaborated, e.g, struct obj_N identifier
-            //   template <int N>
-            //   struct obj_N {
-            //     char m;
-            //     int i;
-            //   };
-            //
-            // TypeClass: InjectedClassName, e.g, obj_N_T<N, T> identifier
-            //   template <int N, typename T>
-            //   struct obj_N_T {
-            //     T m;
-            //     int i;
-            //   };
-            } else {
-              unsigned Alignment = Context.getTypeAlignInChars(Ty).getQuantity();
-              bool isPowerOf2 = Context.getTypeSizeInChars(Ty).isPowerOfTwo();
-              if(!isPowerOf2 && (Alignment & 0x3)) {
-                if(!IsInfer)
-                  Diag(DefRDecl->getBeginLoc(), diag::err_amp_data_member_offset_not_natural_alignment);
-                return false;
-              }
-            }
-          }
-        }
-      }
-    }
-
     if(RDecl->getDefinition()) {
       RDecl = RDecl->getDefinition();
       // Walk through base classes
       for(CXXRecordDecl::base_class_const_iterator BaseIt = RDecl->bases_begin();
            BaseIt!=RDecl->bases_end(); BaseIt++) {
         // it shall not have virtual base classes, and virtual member functions
-        if(!getLangOpts().HSAExtension && BaseIt->isVirtual()) {
-          if(!IsInfer)
+        if (BaseIt->isVirtual()) {
             Diag(BaseIt->getBeginLoc(), diag::err_amp_incompatible);
           return true;
         }
@@ -5494,89 +5230,17 @@ bool Sema::DiagnoseCXXAMPDecl(Decl* Dcl, bool CheckContainer, bool IsInfer) {
           const CXXRecordDecl *BaseRDecl = cast<CXXRecordDecl>(RT->getDecl());
           if(!BaseRDecl)
             continue;
-          return DiagnoseCXXAMPDecl(const_cast<CXXRecordDecl*>(BaseRDecl), CheckContainer, IsInfer);
+          return DiagnoseHCDecl(const_cast<CXXRecordDecl*>(BaseRDecl), CheckContainer, IsInfer);
         }
       }
     }
 
-    // traverse each field, reject incompatible field
-    for (CXXRecordDecl::field_iterator It = RDecl->field_begin(), ItE = RDecl->field_end(); It != ItE; ++It) {
-      const FieldDecl *FD = *It;
-      QualType FieldType = FD->getType();
-      const Type* FTy = FieldType.getTypePtrOrNull();
-      // At this point, float* is not diagnosed
-      if (hasUnsupportedTypeQualifier(FieldType, getLangOpts().HSAExtension) || IsIncompatibleType(FTy, CheckContainer, IsInfer)) {
-        if(!IsInfer)
-          Diag(FD->getBeginLoc(), diag::err_amp_incompatible);
-        return true;
-      }
-
-      // no bitfield is amp-compatible
-      if (!getLangOpts().HSAExtension && FD->isBitField()) {
-        if(!IsInfer)
-          Diag(FD->getBeginLoc(), diag::err_amp_incompatible);
-        return true;
-      }
-      // no pointer type is amp-compatible
-      // no reference type is amp-compatible
-      // At this point, float* is diagnosed when we know it is a member data pointer
-      if (!getLangOpts().HSAExtension && (FTy->isPointerType() || FTy->isReferenceType())) {
-        //pointer or reference is not allowed as pointed to
-        //    type, array element type or data member type
-        //    (except reference to concurrency::array/texture)
-        QualType PointeeType = FTy->getPointeeType();
-        const Type* TargetTy = PointeeType.getTypePtrOrNull();
-        bool is = true;
-        // Test pointer type
-        if(FTy->isPointerType())
-          is = IsIncompatibleType(TargetTy, CheckContainer, IsInfer);
-
-        // Handle special case in struct
-        // struct A {
-        //   float* m;  // not allowed
-        // }
-        if(RDecl->isStruct())
-          is = true;
-
-        // Handle special case in lambda
-        // parallel_for_each[]() {
-        //   float* m;     // is allowed
-        //   float** m1; // not allowed
-        // }
-        #if 0
-        if(RDecl->isClass() && RDecl->isLambda()) {
-         // do nothing
-        }
-        #endif
-
-        // Handle special case
-        if (FTy->isReferenceType() && TargetTy && TargetTy->isRecordType()) {
-          if(CXXRecordDecl* RD = TargetTy->getAsCXXRecordDecl()) {
-            if((RD->getName() == "array" && PointeeType.getAsString().find("Concurrency::array")) ||
-             (RD->getName() == "texture"&& PointeeType.getAsString().find("graphics::texture")))
-             is = false;
-          }
-        }
-        if(is) {
-          if(!IsInfer)
-            Diag(FD->getBeginLoc(), diag::err_amp_incompatible);
-          return true;
-        }
-      }
-
-    //It is a typename
-
-  }
-
     // traverse each member function, reject incompatible member function
-    for (CXXRecordDecl::method_iterator It = RDecl->method_begin(),
-      ItE = RDecl->method_end(); It != ItE; ++It) {
-      const CXXMethodDecl *MD = *It;
-      if (MD->isVirtual()) {
-        if(!IsInfer)
-          Diag(MD->getBeginLoc(), diag::err_amp_incompatible);
-        return true;
-      }
+    for (auto &&Method : RDecl->methods()) {
+      if (!Method->isVirtual()) continue;
+
+      Diag(Method->getBeginLoc(), diag::err_amp_incompatible);
+      return true;
     }
   }
 
@@ -5600,48 +5264,10 @@ bool Sema::IsIncompatibleType(const Type* Ty, bool CheckContainer, bool IsInfer)
     return false;
   }
 
-  // reject incompatible scalar types
-  if(IsIncompatibleScalarType(Ty, getLangOpts().HSAExtension))
-    return true;
-
-  if(IsCompatibleScalarType(Ty, getLangOpts().HSAExtension))
-    return false;
-
-  // Check EnumeralType
-  if(const EnumType* ET = dyn_cast<EnumType>(Ty)) {
-    // Enumeration types shall have underlying types consisting of
-    //       int, unsigned int, long, or unsigned long.
-    EnumDecl * EDcl = ET->getDecl();
-    assert(EDcl);
-    const Type* ETy = EDcl->getIntegerType().getTypePtrOrNull();
-    return !(ETy->isSpecificBuiltinType(BuiltinType::Int) ||
-      ETy->isSpecificBuiltinType(BuiltinType::UInt) ||
-      ETy->isSpecificBuiltinType(BuiltinType::Long) ||
-      ETy->isSpecificBuiltinType(BuiltinType::ULong));
-  }
-
-  // Check reference type
-  if (Ty->isReferenceType())
-    return IsCXXAMPUnsupportedReferenceType(Ty, CheckContainer, IsInfer);
-
-  // Check pointer type
-  if (Ty->isPointerType() || Ty->isMemberPointerType())
-    return IsCXXAMPUnsupportedPointerType(Ty, CheckContainer, IsInfer);
-
   // reject incompatible array types
   if (Ty->isArrayType()) {
-    if (const ArrayType* ATy = dyn_cast<ArrayType>(Ty)) {
-      if (const Type* ETy = ATy->getElementType().getTypePtrOrNull()) {
-        // reject array of pointer
-        if (!getLangOpts().HSAExtension && ETy->isPointerType()) {
-          return true;
-        }
-
-        // reject array of incompatible scalar type
-        if (!getLangOpts().HSAExtension && (IsIncompatibleScalarType(ETy) || ETy->isBooleanType())) { // array of bool is not 4-bytes aligned
-          return true;
-        }
-
+    if (auto ATy = dyn_cast<ArrayType>(Ty)) {
+      if (auto ETy = ATy->getElementType().getTypePtrOrNull()) {
         // test array of class type
         if (ETy->isClassType()) {
           return IsIncompatibleType(ETy, CheckContainer, IsInfer);
@@ -5657,50 +5283,31 @@ bool Sema::IsIncompatibleType(const Type* Ty, bool CheckContainer, bool IsInfer)
       if(ClassTemplateDecl* CTDecl = dyn_cast_or_null<ClassTemplateDecl>(
         TST->getTemplateName().getAsTemplateDecl())) {
         if(CTDecl->getTemplatedDecl())
-          return DiagnoseCXXAMPDecl(CTDecl->getTemplatedDecl(), CheckContainer, IsInfer);
+          return DiagnoseHCDecl(CTDecl->getTemplatedDecl(),
+                                CheckContainer, IsInfer);
       }
   }
 
   // reject incompatible class types
   if (Ty->isRecordType()) {
-    return DiagnoseCXXAMPDecl(Ty->getAsCXXRecordDecl(), CheckContainer, IsInfer);
+    return DiagnoseHCDecl(Ty->getAsCXXRecordDecl(), CheckContainer, IsInfer);
   }
 
   return false;
 }
 
-bool Sema::IsCXXAMPTileStatic(Declarator &D) {
- if (D.getDeclSpec().hasAttributes()) {
-    return D.getDeclSpec().getAttributes().hasAttribute(ParsedAttr::AT_HCCTileStatic);
-  }
-  return false;
+bool Sema::IsHCTileStatic(Declarator &D) {
+  if (!D.getDeclSpec().hasAttributes()) return false;
+
+  return D.getDeclSpec()
+          .getAttributes()
+          .hasAttribute(ParsedAttr::AT_HCCTileStatic);
 }
 
- void Sema::DiagnosticCXXAMPTileStatic(Declarator &D, Decl *Dcl) {
-  if(!IsInAMPRestricted())
-    Diag(D.getIdentifierLoc(), diag::err_amp_tile_static_unsupported_usage);
+ void Sema::DiagnosticHCTileStatic(Declarator &D, Decl *Dcl) {
+  if (IsInHCRestricted()) return;
 
-  if(!Dcl)
-    return;
-
-  if (getLangOpts().HSAExtension)
-    return;
-
-  clang::Decl::Kind DK= Dcl->getKind();
-  if(DK == clang::Decl::Var) {
-    if (const ValueDecl *VD = dyn_cast<ValueDecl>(Dcl)) {
-      const Type* Ty = VD->getType().getTypePtrOrNull();
-      if(Ty && (Ty->isPointerType() ||Ty->isReferenceType()))
-        Diag(D.getIdentifierLoc(), diag::err_amp_tile_static_pointer_or_reference);
-      // std::nullptr_t is not a base type
-      if (!VD->getType().getBaseTypeIdentifier()) {
-        QualType Child = VD->getType().IgnoreParens();
-        if(Child.getAsString().find("std::nullptr_t")!=std::string::npos)
-          Diag(D.getIdentifierLoc(), diag::err_amp_using_nullptr_in_tile_static)
-          << Child.getAsString();
-      }
-    }
-  }
+  Diag(D.getIdentifierLoc(), diag::err_amp_tile_static_unsupported_usage);
 }
 
 
@@ -5708,10 +5315,11 @@ Decl *Sema::ActOnDeclarator(Scope *S, Declarator &D) {
   D.setFunctionDefinitionKind(FDK_Declaration);
   Decl *Dcl = HandleDeclarator(S, D, MultiTemplateParamsArg());
 
-  // C++AMP
+  // HC
+  // TODO: Fix for winter cleanup.
   if(getLangOpts().CPlusPlusAMP) {
     // handle incompatible types for variables
-    if(IsInAMPRestricted()) {
+    if(IsInHCRestricted()) {
       clang::Decl::Kind DK= Dcl->getKind();
 
       if(DK == clang::Decl::Var) {
@@ -5727,26 +5335,22 @@ Decl *Sema::ActOnDeclarator(Scope *S, Declarator &D) {
           if(QTy.getAsString().find("ecl_accelerator_info")!=std::string::npos ||
             QTy.getAsString().find("std::")!=std::string::npos) {
             // Skip own implementation
-          } else {
-            if (hasUnsupportedTypeQualifier(QTy, getLangOpts().HSAExtension) || IsIncompatibleType(Ty))
-              Diag(D.getDeclSpec().getBeginLoc(), diag::err_amp_type_unsupported)
-                << QTy.getAsString();
           }
         }
       }
     }
 
     // Diagnose tile_static
-    if(IsCXXAMPTileStatic(D)) {
-      DiagnosticCXXAMPTileStatic(D, Dcl);
+    if (IsHCTileStatic(D)) {
+      DiagnosticHCTileStatic(D, Dcl);
     } else {
       // Not tile_static
-     if(IsInAMPRestricted()) {
+     if(IsInHCRestricted()) {
       clang::Decl::Kind DK= Dcl->getKind();
 
       //base class, data member or array element must be at least 4 byte aligned
       //
-      //     parallel_for_each(arr.get_extent(), [&](index<1> idx) restrict(amp) {
+      //     parallel_for_each(arr.get_extent(), [&](index<1> idx) [[hc]] {
       //             struct A_base
       //            {
       //               bool m1;             // Only a bool.local, and not 4 byte aligned
@@ -5757,55 +5361,6 @@ Decl *Sema::ActOnDeclarator(Scope *S, Declarator &D) {
       //            A local_array[10];  // is not allowed
       //      });
       //
-
-
-      //FIXME: the following cases should also be handled
-      //(1)          class A3    // supported for amp since m2 now has 32-bit alignment
-      //              {
-      //                 bool m1;
-      //                 __declspec(align(4)) bool m2;
-      //              };
-      //
-      //(2) __declspec(align(4)) bool a1[10]; // not supported since this __declspec(align(4))
-      //(3)     typedef __declspec(align(4)) struct S{ bool m;} ALIGNED_BOOL;
-      //          ALIGNED_BOOL a2[10]; // supported since each array element is now 32-bit aligned
-      //
-      if(DK == clang::Decl::Var) {
-        if (const ValueDecl *VD = dyn_cast<ValueDecl>(Dcl)) {
-          QualType DestType = VD->getType();
-          if(const ArrayType* CA = dyn_cast<ArrayType>(DestType))
-            DestType = CA->getElementType();
-
-          const RecordType *DestRecordType = DestType->getAs<RecordType>();
-          // Only need struct/union/class which has ctors
-          if (DestRecordType) {
-            CXXRecordDecl *DestRecordDecl = cast<CXXRecordDecl>(DestRecordType->getDecl());
-            assert(DestRecordDecl && "Should have constructor initialization!");
-
-            // FIXME: There is a clang bug in ClassTemplateSpecializationDecl which we can't
-            // interate its base classes
-            if(!getLangOpts().HSAExtension &&
-               !dyn_cast<ClassTemplateSpecializationDecl>(DestRecordDecl)) {
-              // Empty class type of array element
-              if(DestRecordDecl && DestRecordDecl->isEmpty() && dyn_cast<ArrayType>(VD->getType()))
-                Diag(Dcl->getLocation(), diag::err_amp_need_4_byte_aligned);
-
-              // Recursively walk up base class for amp_need_4_byte_aligned
-              std::vector<FieldDecl*> FoundVec;
-              bool Aligned = true;
-              Track4ByteAligned(DestRecordDecl, *this, D, FoundVec, Aligned);
-              if(!Aligned) {
-                  for (unsigned i=0; i<FoundVec.size(); i++)
-                    if(FoundVec[i])
-                     Diag(FoundVec[i]->getInnerLocStart(), diag::err_amp_need_4_byte_aligned);
-
-                  // The problematic VarDecl
-                 Diag(Dcl->getLocation(), diag::err_amp_incompatible);
-               }
-             }
-           }
-         }
-       }
      }
    }
   }
@@ -7352,6 +6907,7 @@ NamedDecl *Sema::ActOnVariableDeclarator(
     }
   }
 
+  // TODO: Fix for winter cleanup.
   if (getLangOpts().CPlusPlusAMP) {
     if (SC == SC_None && S->getFnParent() != nullptr &&
         (NewVD->hasAttr<HCCTileStaticAttr>())) {
@@ -8364,10 +7920,11 @@ static NamedDecl *DiagnoseInvalidRedeclaration(
                                   : Sema::LookupOrdinaryName,
                     Sema::ForVisibleRedeclaration);
 
-  // C++ AMP-specific
+  // HC-specific
   //
-  // relax the rule to allow out-of-line definitions of CPU-restrited member functions or operators
-  if (SemaRef.getLangOpts().CPlusPlusAMP && NewFD->hasAttr<CXXAMPRestrictCPUAttr>()) {
+  // relax the rule to allow out-of-line definitions of CPU-restricted member
+  // functions or operators
+  if (SemaRef.getLangOpts().CPlusPlusAMP && NewFD->hasAttr<HCRestrictCPUAttr>()) {
     return nullptr;
   }
 
@@ -8596,11 +8153,12 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
                                     NameInfo, R, TInfo, isInline,
                                     /*isImplicitlyDeclared=*/false);
 
-      // C++AMP-specific
+      // HC-specific
+      // TODO: Fix for winter cleanup
       if (SemaRef.getLangOpts().CPlusPlusAMP) {
-        bool isAMP = Record->hasAttr<CXXAMPRestrictAMPAttr>();
-        bool isCPU = Record->hasAttr<CXXAMPRestrictCPUAttr>();
-        if (isAMP ^ isCPU) {
+        bool isHC = Record->hasAttr<HCRestrictHCAttr>();
+        bool isCPU = Record->hasAttr<HCRestrictCPUAttr>();
+        if (isHC ^ isCPU) {
           SemaRef.Diag(D.getIdentifierLoc(), diag::err_amp_destructor_overloading);
           return 0;
         }
@@ -9354,7 +8912,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
               //            // can't call an amp function through a pointer
               //            return 1;
               //       }
-              if(Param->hasAttr<CXXAMPRestrictAMPAttr>())
+              if(Param->hasAttr<HCRestrictHCAttr>())
                 Diag(Param->getLocation(), diag::err_amp_bad_reinterpret_cast_from_pointer_to_functionptr);
               }
             }
@@ -9369,7 +8927,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
               // int test(int (*p)(int, int) __GPU) { // Error overloaded param
               //    return p(3, 4); // Error in call
               // }
-              if(Param->hasAttr<CXXAMPRestrictAMPAttr>())
+              if(Param->hasAttr<HCRestrictHCAttr>())
                 // FIXME: is it overloaded?
                 Diag(Param->getLocation(), diag::err_amp_bad_reinterpret_cast_from_pointer_to_functionptr);
               }
@@ -9495,16 +9053,15 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     }
   }
 
-  // C++AMP
-  if(getLangOpts().CPlusPlusAMP && (NewFD->getType().getAddressSpace() == LangAS::hcc_tilestatic)) {
+  // HC
+  // TODO: Fix for winter cleanup
+  if (getLangOpts().CPlusPlusAMP &&
+      (NewFD->getType().getAddressSpace() == LangAS::hcc_tilestatic)) {
     Diag(D.getIdentifierLoc(), diag::err_amp_tile_static_on_function_return_result);
   }
-  if (getLangOpts().CPlusPlusAMP && NewFD->hasAttr<CXXAMPRestrictAMPAttr>()) {
+  if (getLangOpts().CPlusPlusAMP && NewFD->hasAttr<HCRestrictHCAttr>()) {
     DeclaratorChunk::FunctionTypeInfo &FTI = D.getFunctionTypeInfo();
-    if(!getLangOpts().HSAExtension && FTI.getEllipsisLoc().isValid()) {
-      Diag(FTI.getEllipsisLoc(), diag::err_amp_ellipsis_param_on_function_declarator);
-     }
-     // C++AMP
+     // HC
      // Check function params if it is amp restricted
      {
         for(unsigned i = 0; i< Params.size(); i++) {
@@ -10685,10 +10242,12 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
     }
   }
 
-  // C++AMP
+   // TODO: Fix for winter cleanup
+   // HC
    // Apply this routine only when we have function definition.
    // FIXME: This should be applied after all C++/C++11 semantic checks
-   //             And the following assumptiions should be considered if not correct in further impl.
+   //        And the following assumptiions should be considered if not correct
+   //        in further impl.
    // (1) No AMP specific restrictions in signature
    // (2) Do not merge or overload if AMP restriction is not intersected correctly
    // (3) No intersections of all overloaded functions, only Ovl_Match
@@ -10709,16 +10268,16 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
     //                  return 1;
     //              }
     // Ugly codes
-    bool CurCPU = NewFD->hasAttr<CXXAMPRestrictCPUAttr>();
-    bool CurAMP = NewFD->hasAttr<CXXAMPRestrictAMPAttr>();
+    bool CurCPU = NewFD->hasAttr<HCRestrictCPUAttr>();
+    bool CurHC = NewFD->hasAttr<HCRestrictHCAttr>();
     bool PreviousCPU = false;
-    bool PreviousAMP = false;
-    for(LookupResult::iterator PreDecl = Previous.begin(); PreDecl!=Previous.end(); PreDecl++) {
-      PreviousCPU |= (*PreDecl)->hasAttr<CXXAMPRestrictCPUAttr>();
-      PreviousAMP |= (*PreDecl)->hasAttr<CXXAMPRestrictAMPAttr>();
+    bool PreviousHC = false;
+    for (LookupResult::iterator PreDecl = Previous.begin(); PreDecl!=Previous.end(); PreDecl++) {
+      PreviousCPU |= (*PreDecl)->hasAttr<HCRestrictCPUAttr>();
+      PreviousHC |= (*PreDecl)->hasAttr<HCRestrictHCAttr>();
     }
     // Case by Case
-    if(PreviousCPU && PreviousAMP && CurAMP && !CurCPU) {
+    if(PreviousCPU && PreviousHC && CurHC && !CurCPU) {
       // Previous __GPU, current __GPU_ONLY
       Diag(NewFD->getLocation(), diag::err_amp_function_redefinition)
         << NewFD->getNameInfo().getAsString();
@@ -10991,18 +10550,19 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
       checkCUDATargetOverload(NewFD, Previous);
   }
 
-  // C++AMP
+  // TODO: Fix for winter cleanup
+  // HC
   // C linkage functions can't have multiple restriction specifiers
-  //   extern "C" void foo() restrict(amp, cpu) {}  // Error
+  //   extern "C" void foo() [[cpu, hc]] {}  // Error
   // However, for HIP __global__ functions we allow it orthogonally to the
   // linkage specifier, since our mechanism for implementing restrictions is not
   // in any way impacting mangling, unlike what the original C++AMP had.
   // TODO: this is too verbose, should be split up into separate functions.
   if (getLangOpts().CPlusPlusAMP && NewFD->isExternC() &&
-    NewFD->hasAttr<CXXAMPRestrictCPUAttr>() &&
-    NewFD->hasAttr<CXXAMPRestrictAMPAttr>() &&
-    (!NewFD->hasAttr<AnnotateAttr>() ||
-     NewFD->getAttr<AnnotateAttr>()->getAnnotation() != "__HIP_global_function__"))
+      NewFD->hasAttr<HCRestrictCPUAttr>() &&
+      NewFD->hasAttr<HCRestrictHCAttr>() &&
+      (!NewFD->hasAttr<AnnotateAttr>() ||
+      NewFD->getAttr<AnnotateAttr>()->getAnnotation() != "__HIP_global_function__"))
     Diag(NewFD->getLocation(), diag::err_amp_c_linkage_function_has_multiple_restrictions)
           << NewFD->getDeclName();
 
@@ -12468,43 +12028,44 @@ Sema::ActOnCXXForRangeIdentifier(Scope *S, SourceLocation IdentLoc,
                        AttrEnd.isValid() ? AttrEnd : IdentLoc);
 }
 
+// TODO: Fix for winter cleanup
 /// True if the expression is valid for the initialization expression of a
-/// C++AMP global array.
-static bool checkCXXAMPGlobalArrayInitExpr(Stmt *E) {
+/// HC global array.
+static bool checkHCGlobalArrayInitExpr(Stmt *E) {
   if (auto *CE = dyn_cast<CXXConstructExpr>(E)) {
     auto *CD = CE->getConstructor();
-    if (CD->hasAttr<CXXAMPRestrictAMPAttr>() &&
-        !CD->hasAttr<CXXAMPRestrictCPUAttr>())
+    if (CD->hasAttr<HCRestrictHCAttr>() &&
+        !CD->hasAttr<HCRestrictCPUAttr>())
       return false;
     for (auto I : CE->arguments()) {
-      if (!checkCXXAMPGlobalArrayInitExpr(I))
+      if (!checkHCGlobalArrayInitExpr(I))
         return false;
     }
     for (auto I : CD->inits()) {
-      if (!checkCXXAMPGlobalArrayInitExpr(I->getInit()))
+      if (!checkHCGlobalArrayInitExpr(I->getInit()))
         return false;
     }
     return true;
   } else if (auto *EWC = dyn_cast<ExprWithCleanups>(E)) {
     for (auto I : EWC->children()) {
-      if (!checkCXXAMPGlobalArrayInitExpr(I))
+      if (!checkHCGlobalArrayInitExpr(I))
         return false;
     }
     return true;
   } else if (auto *IL = dyn_cast<InitListExpr>(E)) {
     for (auto I : IL->children()) {
-      if (!checkCXXAMPGlobalArrayInitExpr(I))
+      if (!checkHCGlobalArrayInitExpr(I))
         return false;
     }
     return true;
   } else if (auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E)) {
-    return checkCXXAMPGlobalArrayInitExpr(MTE->GetTemporaryExpr());
+    return checkHCGlobalArrayInitExpr(MTE->GetTemporaryExpr());
   } else if (auto *CBE = dyn_cast<CXXBindTemporaryExpr>(E)) {
-    return checkCXXAMPGlobalArrayInitExpr(CBE->getSubExpr());
+    return checkHCGlobalArrayInitExpr(CBE->getSubExpr());
   } else if (auto *IC = dyn_cast<ImplicitCastExpr>(E)) {
-    return checkCXXAMPGlobalArrayInitExpr(IC->getSubExpr());
+    return checkHCGlobalArrayInitExpr(IC->getSubExpr());
   } else if (auto *FC = dyn_cast<CXXFunctionalCastExpr>(E)) {
-    return checkCXXAMPGlobalArrayInitExpr(FC->getSubExpr());
+    return checkHCGlobalArrayInitExpr(FC->getSubExpr());
   }
   return true;
 }
@@ -12681,7 +12242,8 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
   bool IsGlobal = GlobalStorage && !var->isStaticLocal();
   QualType baseType = Context.getBaseElementType(type);
 
-  // C++AMP
+  // HC
+  // TODO: fix for winter cleanup.
   if(IsGlobal && dyn_cast<ArrayType>(type)) {
     const ArrayType* AT = dyn_cast<ArrayType>(type);
     const RecordType *RT = AT->getElementType()->getAs<RecordType>();
@@ -12691,13 +12253,13 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
       //     struct A
       //     {
       //        int var;
-      //        A() restrict(amp) { }
+      //        A() [[hc]] { }
       //     };
       //
       //     A arr[5];   // Error: Array initialization in global scope, CPU restricted by default
       //
       if(RDecl && RDecl->hasUserDeclaredConstructor()) {
-        if (!checkCXXAMPGlobalArrayInitExpr(var->getInit()))
+        if (!checkHCGlobalArrayInitExpr(var->getInit()))
           Diag(var->getLocation(), diag::err_amp_call_from_cpu_to_amp);
       }
     }
@@ -13556,14 +13118,15 @@ Sema::CheckForFunctionRedefinition(FunctionDecl *FD,
     return;
   }
 
-  // C++AMP
+  // HC
+  // TODO: Fix for winter cleanup.
   // FIXME: Remove && Definition ?
   if (getLangOpts().CPlusPlusAMP && FD->isExternC() && Definition) {
     // Mangling is removed and linker will have 2 definitions of the same function
-    //   extern "C" void foo() restrict(amp) { }
-    //   extern "C" void foo() restrict(cpu) { } // Error
-    if (FD->hasAttr<CXXAMPRestrictAMPAttr>()!=Definition->hasAttr<CXXAMPRestrictAMPAttr>() ||
-        FD->hasAttr<CXXAMPRestrictCPUAttr>()!=Definition->hasAttr<CXXAMPRestrictCPUAttr>())
+    //   extern "C" void foo() [[hc]] { }
+    //   extern "C" void foo() [[cpu]] { } // Error
+    if (FD->hasAttr<HCRestrictHCAttr>()!=Definition->hasAttr<HCRestrictHCAttr>() ||
+        FD->hasAttr<HCRestrictCPUAttr>()!=Definition->hasAttr<HCRestrictCPUAttr>())
       Diag(Definition->getLocation(), diag::err_amp_has_second_c_linkage_overloaded_function)
         << FD->getDeclName();
   } else if (getLangOpts().GNUMode && Definition->isInlineSpecified() &&
@@ -14057,22 +13620,6 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
           MarkVTableUsed(FD->getLocation(), MD->getParent(), true);
         }
       }
-    }
-
-    // C++AMP
-    if(getLangOpts().CPlusPlusAMP  && !getLangOpts().HSAExtension &&
-      ((getCurLambda() && (FD == getCurLambda()->CallOperator)) ||
-      FD->isGlobal())) {
-      if (FD->hasAttr<CXXAMPRestrictAMPAttr>()) {
-        std::vector<Expr* > FoundVec;
-        TrackMemoryOperator(Body, FoundVec);
-        if(FoundVec.size()) {
-          for (unsigned i = 0; i <FoundVec.size(); i++) {
-            if(FoundVec[i])
-              Diag(FoundVec[i]->getExprLoc(), diag::err_amp_memory_operation);
-            }
-         }
-       }
     }
 
     assert((FD == getCurFunctionDecl() || getCurLambda()->CallOperator == FD) &&
@@ -16821,23 +16368,24 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
         }
       }
 
-      // C++AMP
-      if (getLangOpts().CPlusPlusAMP && CXXRecord->hasUserDeclaredDestructor()) {
-        bool hasAMP = false;
-        bool hasCPU = false;
-        for (CXXRecordDecl::ctor_iterator CtorIt = CXXRecord->ctor_begin(),
-                                          CtorE = CXXRecord->ctor_end();
-             CtorIt != CtorE; ++CtorIt) {
-          hasAMP |= CtorIt->hasAttr<CXXAMPRestrictAMPAttr>();
-          hasCPU |= CtorIt->hasAttr<CXXAMPRestrictCPUAttr>();
-        }
-        CXXDestructorDecl *Dtor = CXXRecord->getDestructor();
-        if ((hasAMP && !Dtor->hasAttr<CXXAMPRestrictAMPAttr>()) ||
-            (hasCPU && !Dtor->hasAttr<CXXAMPRestrictCPUAttr>())) {
-          Diag(Dtor->getLocation(), diag::err_amp_dtor_rest_cover_all_ctor);
-          Record->setInvalidDecl();
-        }
-      }
+      // // HC
+      // // TODO: Fix for winter cleanup
+      // if (getLangOpts().CPlusPlusAMP && CXXRecord->hasUserDeclaredDestructor()) {
+      //   bool hasHC = false;
+      //   bool hasCPU = false;
+      //   for (CXXRecordDecl::ctor_iterator CtorIt = CXXRecord->ctor_begin(),
+      //                                     CtorE = CXXRecord->ctor_end();
+      //        CtorIt != CtorE; ++CtorIt) {
+      //     hasHC |= CtorIt->hasAttr<HCRestrictHCAttr>();
+      //     hasCPU |= CtorIt->hasAttr<HCRestrictCPUAttr>();
+      //   }
+      //   CXXDestructorDecl *Dtor = CXXRecord->getDestructor();
+      //   if ((hasHC && !Dtor->hasAttr<HCRestrictHCAttr>()) ||
+      //       (hasCPU && !Dtor->hasAttr<HCRestrictCPUAttr>())) {
+      //     Diag(Dtor->getLocation(), diag::err_amp_dtor_rest_cover_all_ctor);
+      //     Record->setInvalidDecl();
+      //   }
+      // }
     }
 
     if (!Completed)

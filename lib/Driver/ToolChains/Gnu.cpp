@@ -554,7 +554,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C,
     ArgStringList CmdArgs;
 
     if (!HCLinker)
-      HCLinker = std::unique_ptr<HCC::CXXAMPLink>(new HCC::CXXAMPLink(getToolChain()));
+      HCLinker = std::unique_ptr<HCC::HCLink>(new HCC::HCLink(getToolChain()));
 
     HCLinker->ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);
     this->ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);

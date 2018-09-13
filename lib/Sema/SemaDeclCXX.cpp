@@ -3841,11 +3841,11 @@ Sema::BuildMemInitializer(Decl *ConstructorD,
   if (ValueDecl *Member = tryLookupCtorInitMemberDecl(
           ClassDecl, SS, TemplateTypeTy, MemberOrBase)) {
 
-        // C++AMP
-        // FIMXE: Need to consider non member initializer cases
+        // HC - TODO: fix for Winter Cleanup
+        // FIXME: Need to consider non member initializer cases
         if(getLangOpts().CPlusPlusAMP && ClassDecl->isStruct()
-          && (Constructor->hasAttr<CXXAMPRestrictAMPAttr>() ||
-          Constructor->hasAttr<CXXAMPRestrictCPUAttr>())) {
+           && (Constructor->hasAttr<HCRestrictHCAttr>() ||
+           Constructor->hasAttr<HCRestrictCPUAttr>())) {
           // Can't use IsIncompatibleType
           const Type* Ty  = Member->getType().getTypePtrOrNull();
           QualType TheType = Member->getType();
@@ -10911,6 +10911,10 @@ CXXConstructorDecl *Sema::DeclareImplicitDefaultConstructor(
                                             /* ConstRHS */ false,
                                             /* Diagnose */ false);
   }
+  if (getLangOpts().CPlusPlusAMP) {
+    DefaultCon->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    DefaultCon->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
+  }
 
   // Build an exception specification pointing back at this constructor.
   FunctionProtoType::ExtProtoInfo EPI = getImplicitMethodEPI(*this, DefaultCon);
@@ -11183,6 +11187,10 @@ CXXDestructorDecl *Sema::DeclareImplicitDestructor(CXXRecordDecl *ClassDecl) {
                                             Destructor,
                                             /* ConstRHS */ false,
                                             /* Diagnose */ false);
+  }
+  if (getLangOpts().CPlusPlusAMP) {
+    Destructor->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    Destructor->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
   }
 
   // Build an exception specification pointing back at this destructor.
@@ -11786,6 +11794,10 @@ CXXMethodDecl *Sema::DeclareImplicitCopyAssignment(CXXRecordDecl *ClassDecl) {
                                             /* ConstRHS */ Const,
                                             /* Diagnose */ false);
   }
+  if (getLangOpts().CPlusPlusAMP) {
+    CopyAssignment->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    CopyAssignment->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
+  }
 
   // Build an exception specification pointing back at this member.
   FunctionProtoType::ExtProtoInfo EPI =
@@ -12159,6 +12171,10 @@ CXXMethodDecl *Sema::DeclareImplicitMoveAssignment(CXXRecordDecl *ClassDecl) {
                                             MoveAssignment,
                                             /* ConstRHS */ false,
                                             /* Diagnose */ false);
+  }
+  if (getLangOpts().CPlusPlusAMP) {
+    MoveAssignment->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    MoveAssignment->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
   }
 
   // Build an exception specification pointing back at this member.
@@ -12537,6 +12553,10 @@ CXXConstructorDecl *Sema::DeclareImplicitCopyConstructor(
                                             /* ConstRHS */ Const,
                                             /* Diagnose */ false);
   }
+  if (getLangOpts().CPlusPlusAMP) {
+    CopyConstructor->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    CopyConstructor->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
+  }
 
   // Build an exception specification pointing back at this member.
   FunctionProtoType::ExtProtoInfo EPI =
@@ -12666,6 +12686,10 @@ CXXConstructorDecl *Sema::DeclareImplicitMoveConstructor(
                                             MoveConstructor,
                                             /* ConstRHS */ false,
                                             /* Diagnose */ false);
+  }
+  if (getLangOpts().CPlusPlusAMP) {
+    MoveConstructor->addAttr(HCRestrictCPUAttr::CreateImplicit(Context));
+    MoveConstructor->addAttr(HCRestrictHCAttr::CreateImplicit(Context));
   }
 
   // Build an exception specification pointing back at this member.

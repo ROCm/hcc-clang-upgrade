@@ -8670,7 +8670,7 @@ def err_amp_bad_reinterpret_cast_from_pointer_to_functionptr : Error<
 def err_amp_memory_operation : Error<
 "operator is not supported in amp-compatible codes'">;
 def err_amp_unsupported_reference_or_pointer : Error<
-"pointer or reference is not allowed as pointed to type, array element type or data member type (except reference to concurrency::array/texture)">;
+"pointer or reference is not allowed as pointed to type, array element type or data member type (except reference to hc::array/texture)">;
 def err_amp_incompatible : Error<
 "the field type is not amp-compatible">;
 def err_amp_type_unsupported : Error<
