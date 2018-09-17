@@ -26,18 +26,21 @@ private:
   std::string IncPath;
   std::string LibPath;
 
-  std::vector<const char *> SystemLibs = {"-ldl", "-lm", "-lpthread"};
+  std::vector<const char *> SystemLibs = {"-ldl","-lm", "-lpthread",
+                                          "-lhsa-runtime64"};
   std::vector<const char *> RuntimeLibs = {"-lhc_am", "-lmcwamp"};
 
 public:
   HCCInstallationDetector(const Driver &D, const llvm::opt::ArgList &Args);
-      
-  void AddHCCIncludeArgs(const llvm::opt::ArgList &DriverArgs, llvm::opt::ArgStringList &CC1Args) const;
 
-  void AddHCCLibArgs(const llvm::opt::ArgList &Args, llvm::opt::ArgStringList &CmdArgs) const;
-      
+  void AddHCCIncludeArgs(const llvm::opt::ArgList &DriverArgs,
+                         llvm::opt::ArgStringList &CC1Args) const;
+
+  void AddHCCLibArgs(const llvm::opt::ArgList &Args,
+                     llvm::opt::ArgStringList &CmdArgs) const;
+
   bool isValid() const { return IsValid; }
-      
+
   void print(raw_ostream &OS) const;
 };
 
@@ -105,12 +108,17 @@ public:
                         llvm::opt::ArgStringList &CC1Args,
                         Action::OffloadKind DeviceOffloadKind) const override;
 
-  void AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs, llvm::opt::ArgStringList &CC1Args) const override;
+  void AddClangSystemIncludeArgs(
+    const llvm::opt::ArgList &DriverArgs,
+    llvm::opt::ArgStringList &CC1Args) const override;
 
-  void AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &Args, llvm::opt::ArgStringList &CC1Args) const override;
+  void AddClangCXXStdlibIncludeArgs(
+    const llvm::opt::ArgList &Args,
+    llvm::opt::ArgStringList &CC1Args) const override;
 
-  void AddHCCIncludeArgs(const llvm::opt::ArgList &DriverArgs, llvm::opt::ArgStringList &CC1Args) const override;
-  
+  void AddHCCIncludeArgs(const llvm::opt::ArgList &DriverArgs,
+                         llvm::opt::ArgStringList &CC1Args) const override;
+
   bool useIntegratedAs() const override { return false; }
 
   // HCC ToolChain use DWARF version 2 by default
