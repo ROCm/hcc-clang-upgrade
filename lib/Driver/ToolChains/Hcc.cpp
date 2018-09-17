@@ -44,7 +44,7 @@ HCCInstallationDetector::HCCInstallationDetector(const Driver &D, const llvm::op
   for (const auto &HCCPath: HCCPathCandidates) {
     if (HCCPath.empty() ||
         !(FS.exists(HCCPath + "/include/hc.hpp") || FS.exists(HCCPath + "/include/hcc/hc.hpp")) || 
-        !FS.exists(HCCPath + "/lib/libmcwamp.a"))
+        !FS.exists(HCCPath + "/lib/libmcwamp.so"))
       continue;
 
     IncPath = HCCPath;
