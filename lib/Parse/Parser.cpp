@@ -1969,6 +1969,10 @@ void Parser::CodeCompleteMacroArgument(IdentifierInfo *Macro,
                                                 ArgumentIndex);
 }
 
+void Parser::CodeCompleteIncludedFile(llvm::StringRef Dir, bool IsAngled) {
+  Actions.CodeCompleteIncludedFile(Dir, IsAngled);
+}
+
 void Parser::CodeCompleteNaturalLanguage() {
   Actions.CodeCompleteNaturalLanguage();
 }
