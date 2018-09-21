@@ -8711,7 +8711,7 @@ def err_amp_call_from_cpu_to_amp : Error<
 def err_amp_call_from_amp_to_cpu : Error<
 "call from AMP-restricted function to CPU-restricted function">;
 def err_amp_call_from_both_amp_and_cpu_to_disctint : Error<
-"call from both amp and cpu restricted function to disctint restricted function">;
+"call from both amp and cpu restricted function to distinct restricted function">;
 def err_amp_need_4_byte_aligned : Error<
 "variables in AMP-restricted function shall be 4-bytes aligned">;
 def err_amp_captured_variable_type : Error<
