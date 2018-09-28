@@ -142,16 +142,24 @@ void HCC::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
 namespace
 {
     std::string temporary_replace_long_form_GFXIp(
-        const Compilation& c, std::string l)
+        const Driver& D, std::string l)
     {   // Precondition: l = "AMD:AMDGPU:\d:\d:\d"
         // TODO: this should be removed once we have transitioned all users to
         //       the short form. It is purposefully inefficient.
+        static const std::string long_gfx_ip_prefix{"AMD:AMDGPU:"};
+        if (std::search(
+            l.cbegin(), l.cend(),
+            long_gfx_ip_prefix.cbegin(),
+            long_gfx_ip_prefix.cend()) == l.cend()) {
+            // old prefix not found
+            return l;
+        }
         const auto t = l;
 
         l.replace(0u, 3u, {'g', 'f', 'x'});
         l.erase(std::copy_if(
             l.begin() + 3u, l.end(), l.begin() + 3u, isdigit), l.end());
-        c.getDriver().Diag(diag::warn_drv_deprecated_arg) << t << l;
+        D.Diag(diag::warn_drv_deprecated_arg) << t << l;
 
         return l;
     }
@@ -168,7 +176,7 @@ namespace
     };
 
     std::vector<std::string> detect_gfxip(
-        const Compilation& c, const ToolChain& tc)
+        const Driver& D, const ToolChain& tc)
     {   // Invariant: iff it executes correctly, rocm_agent_enumerator returns
         //            at least gfx000; returning only gfx000 signals the absence
         //            of valid GPU agents.
@@ -208,16 +216,16 @@ namespace
     }
 
     std::vector<std::string> detect_and_add_targets(
-        const Compilation& c, const ToolChain& tc)
+        const Driver& D, const ToolChain& tc)
     {
         constexpr const char null_agent[] = "gfx000";
 
-        const auto detected_targets = detect_gfxip(c, tc);
+        const auto detected_targets = detect_gfxip(D, tc);
         if (detected_targets.empty()) {
-            c.getDriver().Diag(diag::warn_amdgpu_agent_detector_failed);
+            D.Diag(diag::warn_amdgpu_agent_detector_failed);
         }
         else if (detected_targets[0] == null_agent) {
-            c.getDriver().Diag(diag::err_amdgpu_no_agent_available);
+            D.Diag(diag::err_amdgpu_no_agent_available);
         }
 
         return detected_targets;
@@ -239,23 +247,19 @@ namespace
             deprecated.cbegin(), deprecated.cend(), gfxip) != deprecated.cend();
     }
 
-    void validate_and_add_to_command(
+    bool validate_and_deprecate_check(
         const std::string& gfxip,
-        const Compilation& c,
-        const ArgList& args,
-        ArgStringList& cmd_args)
+        const Driver& D)
     {
-        static constexpr const char prefix[] = "--amdgpu-target=";
-
         if (!is_valid(gfxip)) {
-            c.getDriver().Diag(diag::warn_amdgpu_target_invalid) << gfxip;
-            return;
+            D.Diag(diag::warn_amdgpu_target_invalid) << gfxip;
+            return false;
         }
 
         if (is_deprecated(gfxip)) {
-            c.getDriver().Diag(diag::warn_amdgpu_target_deprecated) << gfxip;
+            D.Diag(diag::warn_amdgpu_target_deprecated) << gfxip;
         }
-        cmd_args.push_back(args.MakeArgString(prefix + gfxip));
+        return true;
     }
 
     template<typename T>
@@ -322,7 +326,7 @@ void HCC::CXXAMPLink::ConstructLinkerJob(
 
     if (cnt > 1) C.getDriver().Diag(diag::warn_amdgpu_target_auto_nonsingular);
     if (cnt == AMDGPUTargetVector.size()) {
-        AMDGPUTargetVector = detect_and_add_targets(C, getToolChain());
+        AMDGPUTargetVector = detect_and_add_targets(C.getDriver(), getToolChain());
     }
     AMDGPUTargetVector.erase(
         std::remove(
@@ -332,17 +336,13 @@ void HCC::CXXAMPLink::ConstructLinkerJob(
     remove_duplicate_targets(AMDGPUTargetVector);
 
     for (auto&& AMDGPUTarget : AMDGPUTargetVector) {
+        static constexpr const char prefix[] = "--amdgpu-target=";
+
         // TODO: this is Temporary.
-        static const std::string long_gfx_ip_prefix{"AMD:AMDGPU:"};
-        if (std::search(
-            AMDGPUTarget.cbegin(),
-            AMDGPUTarget.cend(),
-            long_gfx_ip_prefix.cbegin(),
-            long_gfx_ip_prefix.cend()) != AMDGPUTarget.cend()) {
-            AMDGPUTarget =
-                temporary_replace_long_form_GFXIp(C, AMDGPUTarget);
-        }
-        validate_and_add_to_command(AMDGPUTarget, C, Args, CmdArgs);
+        AMDGPUTarget = temporary_replace_long_form_GFXIp(C.getDriver(), AMDGPUTarget);
+
+        if(validate_and_deprecate_check(AMDGPUTarget, C.getDriver()))
+          CmdArgs.push_back(Args.MakeArgString(prefix + AMDGPUTarget));
     }
 }
 
@@ -377,7 +377,45 @@ void HCCToolChain::addClangTargetOptions(
     Action::OffloadKind DeviceOffloadKind) const {
   HostTC.addClangTargetOptions(DriverArgs, CC1Args, DeviceOffloadKind);
 
-  // TBD, depends on mode set correct arguments
+  // specify AMDGPU target
+  constexpr const char auto_tgt[] = "auto";
+
+  #if !defined(HCC_AMDGPU_TARGET)
+      #define HCC_AMDGPU_TARGET auto_tgt
+  #endif
+
+  auto GpuArchTargets = DriverArgs.getAllArgValues(options::OPT_amdgpu_target_EQ);
+
+  if (GpuArchTargets.empty()) {
+      // split HCC_AMDGPU_TARGET list up
+      GpuArchTargets = split_gfx_list(HCC_AMDGPU_TARGET, ' ');
+  }
+
+  const unsigned cnt = std::count(
+      GpuArchTargets.cbegin(), GpuArchTargets.cend(), auto_tgt);
+
+  if (cnt > 1) getDriver().Diag(diag::warn_amdgpu_target_auto_nonsingular);
+  if (cnt == GpuArchTargets.size()) {
+      GpuArchTargets = detect_and_add_targets(getDriver(), HostTC);
+  }
+  GpuArchTargets.erase(
+        std::remove(
+            GpuArchTargets.begin(), GpuArchTargets.end(), auto_tgt),
+            GpuArchTargets.end());
+
+  remove_duplicate_targets(GpuArchTargets);
+
+  assert(!GpuArchTargets.empty() && "Must have an explicit GPU arch.");
+
+  for (auto&& GpuArch : GpuArchTargets) {
+    if(validate_and_deprecate_check(GpuArch, getDriver())) {
+      // TODO: this is Temporary.
+      GpuArch = temporary_replace_long_form_GFXIp(getDriver(), GpuArch);
+
+      CC1Args.push_back("-target-cpu");
+      CC1Args.push_back(DriverArgs.MakeArgStringRef(GpuArch));
+    }
+  }
 }
 
 void HCCToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs, ArgStringList &CC1Args) const {
