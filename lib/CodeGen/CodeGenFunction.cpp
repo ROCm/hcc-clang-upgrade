@@ -1347,7 +1347,8 @@ static void maybeEmitHCArrayCapturePropagation(CodeGenFunction &CGF,
                     ->getAsCXXRecordDecl();
 
   DeclRefExpr CallableRef{FD->parameters()[CallableIdx], false,
-                          FD->parameters()[CallableIdx]->getOriginalType(),
+                          FD->parameters()[CallableIdx]->getOriginalType()
+                                                       .getNonReferenceType(),
                           VK_LValue, FD->getBody()->getBeginLoc()};
   for (auto &&Field : Callable->fields()) {
     if (!Field->getType()->isReferenceType()) continue;
@@ -1355,8 +1356,9 @@ static void maybeEmitHCArrayCapturePropagation(CodeGenFunction &CGF,
     if (!Field->getType().getNonReferenceType()->isGPUArrayType()) continue;
 
     MemberExpr ArrRef{&CallableRef, false, SourceLocation{}, Field,
-                      Field->getBeginLoc(), Field->getType(), VK_LValue,
-                      OK_Ordinary};
+                      Field->getBeginLoc(),
+                      Field->getType().getNonReferenceType(),
+                      VK_LValue, OK_Ordinary};
     auto Array = Field->getType().getNonReferenceType()->getAsCXXRecordDecl();
     auto AddFn = *std::find_if(Array->method_begin(),
                                Array->method_end(),
