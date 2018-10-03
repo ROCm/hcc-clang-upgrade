@@ -1380,30 +1380,6 @@ static void maybeEmitHCArrayCapturePropagation(CodeGenFunction &CGF,
   }
 }
 
-static Stmt *maybeEmitKernargAlignof(CodeGenFunction &CGF,
-                                     const FunctionDecl *FD, Stmt *Body) {
-  if (!FD->hasAttr<AnnotateAttr>()) return Body;
-
-  static constexpr const char HCCKernargAlignOf[]{"__HCC_KERNARG_ALIGNOF__"};
-  if (FD->getAttr<AnnotateAttr>()->getAnnotation() != HCCKernargAlignOf) {
-    return Body;
-  }
-
-  auto Ty = FD->getTemplateSpecializationArgs()->get(0u).getAsType();
-
-  llvm::Type* RetTy = convertTypeForMemory(CGF.CGM, FD->getReturnType());
-  llvm::Type* LLVMTy = convertTypeForMemory(CGF.CGM, Ty);
-  llvm::APInt Align{CGF.CGM.getDataLayout().getTypeSizeInBits(RetTy),
-                    CGF.CGM.getDataLayout().getABITypeAlignment(LLVMTy)};
-
-  auto RetVal = IntegerLiteral::Create(FD->getASTContext(), Align,
-                                       FD->getReturnType(),
-                                       Body->getBeginLoc());
-
-  return
-    new (FD->getASTContext()) ReturnStmt{Body->getBeginLoc(), RetVal, nullptr};
-}
-
 void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
                                    const CGFunctionInfo &FnInfo) {
   const FunctionDecl *FD = cast<FunctionDecl>(GD.getDecl());
@@ -1439,9 +1415,6 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Loc = SpecDecl->getLocation();
 
   Stmt *Body = FD->getBody();
-  if (getLangOpts().CPlusPlusAMP) {
-    Body = maybeEmitKernargAlignof(*this, FD, Body);
-  }
 
   // Initialize helper which will detect jumps which can cause invalid lifetime
   // markers.
