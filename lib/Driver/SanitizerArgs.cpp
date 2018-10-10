@@ -223,7 +223,7 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
   const SanitizerMask Supported = setGroupBits(TC.getSupportedSanitizers());
 
   if (TC.getTriple().getOS() == llvm::Triple::OSType::AMDHSA) return;
-  
+
   CfiCrossDso = Args.hasFlag(options::OPT_fsanitize_cfi_cross_dso,
                              options::OPT_fno_sanitize_cfi_cross_dso, false);
 
