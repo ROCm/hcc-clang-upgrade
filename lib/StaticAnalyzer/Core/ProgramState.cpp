@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/StaticAnalyzer/Core/PathSensitive/AnalysisManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
@@ -66,6 +67,13 @@ ProgramState::ProgramState(const ProgramState &RHS)
 ProgramState::~ProgramState() {
   if (store)
     stateMgr->getStoreManager().decrementReferenceCount(store);
+}
+
+int64_t ProgramState::getID() const {
+  Optional<int64_t> Out = getStateManager().Alloc.identifyObject(this);
+  assert(Out && "Wrong allocator used");
+  assert(*Out % alignof(ProgramState) == 0 && "Wrong alignment information");
+  return *Out / alignof(ProgramState);
 }
 
 ProgramStateManager::ProgramStateManager(ASTContext &Ctx,
@@ -214,7 +222,7 @@ ProgramState::invalidateRegionsImpl(ValueList Values,
     if (CausedByPointerEscape) {
       newState = Eng->notifyCheckersOfPointerEscape(newState, IS,
                                                     TopLevelInvalidated,
-                                                    Invalidated, Call,
+                                                    Call,
                                                     *ITraits);
     }
 
@@ -448,14 +456,16 @@ void ProgramState::setStore(const StoreRef &newStore) {
 //  State pretty-printing.
 //===----------------------------------------------------------------------===//
 
-void ProgramState::print(raw_ostream &Out, const char *NL, const char *Sep,
+void ProgramState::print(raw_ostream &Out,
+                         const char *NL, const char *Sep,
                          const LocationContext *LC) const {
   // Print the store.
   ProgramStateManager &Mgr = getStateManager();
-  Mgr.getStoreManager().print(getStore(), Out, NL, Sep);
+  const ASTContext &Context = getStateManager().getContext();
+  Mgr.getStoreManager().print(getStore(), Out, NL);
 
   // Print out the environment.
-  Env.print(Out, NL, Sep, LC);
+  Env.print(Out, NL, Sep, Context, LC);
 
   // Print out the constraints.
   Mgr.getConstraintManager().print(this, Out, NL, Sep);
@@ -464,13 +474,14 @@ void ProgramState::print(raw_ostream &Out, const char *NL, const char *Sep,
   printDynamicTypeInfo(this, Out, NL, Sep);
 
   // Print out tainted symbols.
-  printTaint(Out, NL, Sep);
+  printTaint(Out, NL);
 
   // Print checker-specific data.
   Mgr.getOwningEngine()->printState(Out, this, NL, Sep, LC);
 }
 
-void ProgramState::printDOT(raw_ostream &Out, const LocationContext *LC) const {
+void ProgramState::printDOT(raw_ostream &Out,
+                            const LocationContext *LC) const {
   print(Out, "\\l", "\\|", LC);
 }
 
@@ -479,7 +490,7 @@ LLVM_DUMP_METHOD void ProgramState::dump() const {
 }
 
 void ProgramState::printTaint(raw_ostream &Out,
-                              const char *NL, const char *Sep) const {
+                              const char *NL) const {
   TaintMapImpl TM = get<TaintMap>();
 
   if (!TM.isEmpty())
@@ -492,6 +503,10 @@ void ProgramState::printTaint(raw_ostream &Out,
 
 void ProgramState::dumpTaint() const {
   printTaint(llvm::errs());
+}
+
+AnalysisManager& ProgramState::getAnalysisManager() const {
+  return stateMgr->getOwningEngine()->getAnalysisManager();
 }
 
 //===----------------------------------------------------------------------===//

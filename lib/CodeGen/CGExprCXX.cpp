@@ -383,7 +383,7 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
       std::tie(VTable, RD) =
           CGM.getCXXABI().LoadVTablePtr(*this, This.getAddress(),
                                         MD->getParent());
-      EmitVTablePtrCheckForCall(RD, VTable, CFITCK_NVCall, CE->getLocStart());
+      EmitVTablePtrCheckForCall(RD, VTable, CFITCK_NVCall, CE->getBeginLoc());
     }
 
     if (getLangOpts().AppleKext && MD->isVirtual() && HasQualifier)
@@ -607,7 +607,8 @@ CodeGenFunction::EmitCXXConstructExpr(const CXXConstructExpr *E,
 
   if (const ArrayType *arrayType
         = getContext().getAsArrayType(E->getType())) {
-    EmitCXXAggrConstructorCall(CD, arrayType, Dest.getAddress(), E);
+    EmitCXXAggrConstructorCall(CD, arrayType, Dest.getAddress(), E,
+                               Dest.isSanitizerChecked());
   } else {
     CXXCtorType Type = Ctor_Complete;
     bool ForVirtualBase = false;
@@ -634,7 +635,8 @@ CodeGenFunction::EmitCXXConstructExpr(const CXXConstructExpr *E,
 
     // Call the constructor.
     EmitCXXConstructorCall(CD, Type, ForVirtualBase, Delegating,
-                           Dest.getAddress(), E, Dest.mayOverlap());
+                           Dest.getAddress(), E, Dest.mayOverlap(),
+                           Dest.isSanitizerChecked());
   }
 }
 
@@ -954,7 +956,8 @@ static void StoreAnyExprIntoOneUnit(CodeGenFunction &CGF, const Expr *Init,
                               AggValueSlot::IsDestructed,
                               AggValueSlot::DoesNotNeedGCBarriers,
                               AggValueSlot::IsNotAliased,
-                              MayOverlap);
+                              MayOverlap, AggValueSlot::IsNotZeroed,
+                              AggValueSlot::IsSanitizerChecked);
     CGF.EmitAggExpr(Init, Slot);
     return;
   }
@@ -1024,7 +1027,9 @@ void CodeGenFunction::EmitNewArrayInitializer(
                                 AggValueSlot::IsDestructed,
                                 AggValueSlot::DoesNotNeedGCBarriers,
                                 AggValueSlot::IsNotAliased,
-                                AggValueSlot::DoesNotOverlap);
+                                AggValueSlot::DoesNotOverlap,
+                                AggValueSlot::IsNotZeroed,
+                                AggValueSlot::IsSanitizerChecked);
       EmitAggExpr(ILE->getInit(0), Slot);
 
       // Move past these elements.
@@ -1154,6 +1159,7 @@ void CodeGenFunction::EmitNewArrayInitializer(
           NumElements,
           llvm::ConstantInt::get(NumElements->getType(), InitListElements));
     EmitCXXAggrConstructorCall(Ctor, NumElements, CurPtr, CCE,
+                               /*NewPointerIsChecked*/true,
                                CCE->requiresZeroInitialization());
     return;
   }
@@ -1705,6 +1711,12 @@ llvm::Value *CodeGenFunction::EmitCXXNewExpr(const CXXNewExpr *E) {
     result = Address(Builder.CreateLaunderInvariantGroup(result.getPointer()),
                      result.getAlignment());
 
+  // Emit sanitizer checks for pointer value now, so that in the case of an
+  // array it was checked only once and not at each constructor call.
+  EmitTypeCheck(CodeGenFunction::TCK_ConstructorCall,
+      E->getAllocatedTypeSourceInfo()->getTypeLoc().getBeginLoc(),
+      result.getPointer(), allocType);
+
   EmitNewInitializer(*this, E, allocType, elementTy, result, numElements,
                      allocSizeWithoutCookie);
   if (E->isArray()) {
@@ -2110,7 +2122,8 @@ static llvm::Value *EmitTypeidFromVTable(CodeGenFunction &CGF, const Expr *E,
 }
 
 llvm::Value *CodeGenFunction::EmitCXXTypeidExpr(const CXXTypeidExpr *E) {
-  llvm::Type *StdTypeInfoPtrTy = getTypes().getPointerTypeTo(E->getType());
+  llvm::Type *StdTypeInfoPtrTy =
+    ConvertType(E->getType())->getPointerTo();
 
   if (E->isTypeOperand()) {
     llvm::Constant *TypeInfo =

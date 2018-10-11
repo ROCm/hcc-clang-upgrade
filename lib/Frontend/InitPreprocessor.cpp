@@ -573,7 +573,7 @@ static void InitializeCPlusPlusFeatureTestMacros(const LangOptions &LangOpts,
     Builder.defineMacro("__cpp_guaranteed_copy_elision", "201606L");
     Builder.defineMacro("__cpp_nontype_template_parameter_auto", "201606L");
   }
-  if (LangOpts.AlignedAllocation)
+  if (LangOpts.AlignedAllocation && !LangOpts.AlignedAllocationUnavailable)
     Builder.defineMacro("__cpp_aligned_new", "201606L");
   if (LangOpts.RelaxedTemplateTemplateArgs)
     Builder.defineMacro("__cpp_template_template_args", "201611L");
@@ -1161,7 +1161,7 @@ void clang::InitializePreprocessor(
   if (InitOpts.UsePredefines) {
     // FIXME: This will create multiple definitions for most of the predefined
     // macros. This is not the right way to handle this.
-    if ((LangOpts.CUDA || LangOpts.CPlusPlusAMP) && PP.getAuxTargetInfo())
+    if ((LangOpts.CUDA || LangOpts.OpenMPIsDevice || LangOpts.CPlusPlusAMP) && PP.getAuxTargetInfo())
       InitializePredefinedMacros(*PP.getAuxTargetInfo(), LangOpts, FEOpts,
                                  Builder);
 

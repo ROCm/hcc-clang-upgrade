@@ -530,7 +530,6 @@
 
 // RUN: %clangxx -fsanitize=address %s -### -o %t.o 2>&1 \
 // RUN:     -mmacosx-version-min=10.6 \
-// RUN:     -resource-dir=%S/Inputs/resource_dir \
 // RUN:     -target x86_64-apple-darwin13.4.0 -fuse-ld=ld -stdlib=platform \
 // RUN:     --sysroot=%S/Inputs/basic_linux_tree \
 // RUN:   | FileCheck --check-prefix=CHECK-ASAN-DARWIN106-CXX %s
@@ -540,7 +539,6 @@
 
 // RUN: %clangxx -fsanitize=leak %s -### -o %t.o 2>&1 \
 // RUN:     -mmacosx-version-min=10.6 \
-// RUN:     -resource-dir=%S/Inputs/resource_dir \
 // RUN:     -target x86_64-apple-darwin13.4.0 -fuse-ld=ld -stdlib=platform \
 // RUN:     --sysroot=%S/Inputs/basic_linux_tree \
 // RUN:   | FileCheck --check-prefix=CHECK-LSAN-DARWIN106-CXX %s
@@ -577,6 +575,9 @@
 // RUN: %clang -fsanitize=shadow-call-stack %s -### -o %t.o 2>&1 \
 // RUN:     -target arm64-unknown-ios -fuse-ld=ld \
 // RUN:   | FileCheck --check-prefix=CHECK-SHADOWCALLSTACK-LINUX-AARCH64-X18 %s
+// RUN: %clang -fsanitize=shadow-call-stack %s -### -o %t.o 2>&1 \
+// RUN:     -target aarch64-unknown-linux-android -fuse-ld=ld \
+// RUN:   | FileCheck --check-prefix=CHECK-SHADOWCALLSTACK-LINUX-AARCH64-X18 %s
 // CHECK-SHADOWCALLSTACK-LINUX-AARCH64-X18-NOT: error:
 
 // RUN: %clang -fsanitize=shadow-call-stack %s -### -o %t.o 2>&1 \
@@ -600,7 +601,6 @@
 
 // RUN: %clang -fsanitize=cfi -fsanitize-stats %s -### -o %t.o 2>&1 \
 // RUN:     -target x86_64-apple-darwin -fuse-ld=ld \
-// RUN:     -resource-dir=%S/Inputs/resource_dir \
 // RUN:     --sysroot=%S/Inputs/basic_linux_tree \
 // RUN:   | FileCheck --check-prefix=CHECK-CFI-STATS-DARWIN %s
 // CHECK-CFI-STATS-DARWIN: "{{.*}}ld{{(.exe)?}}"

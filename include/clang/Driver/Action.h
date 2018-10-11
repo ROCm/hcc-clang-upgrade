@@ -59,6 +59,7 @@ public:
     OffloadClass,
     PreprocessJobClass,
     PrecompileJobClass,
+    HeaderModulePrecompileJobClass,
     AnalyzeJobClass,
     MigrateJobClass,
     CompileJobClass,
@@ -88,8 +89,8 @@ public:
     // The device offloading tool chains - one bit for each programming model.
     OFK_Cuda = 0x02,
     OFK_OpenMP = 0x04,
-    OFK_HCC  = 0x05,
     OFK_HIP = 0x08,
+    OFK_HCC = 0x16,
   };
 
   static const char *getClassName(ActionClass AC);
@@ -406,12 +407,36 @@ public:
 class PrecompileJobAction : public JobAction {
   void anchor() override;
 
+protected:
+  PrecompileJobAction(ActionClass Kind, Action *Input, types::ID OutputType);
+
 public:
   PrecompileJobAction(Action *Input, types::ID OutputType);
 
   static bool classof(const Action *A) {
-    return A->getKind() == PrecompileJobClass;
+    return A->getKind() == PrecompileJobClass ||
+           A->getKind() == HeaderModulePrecompileJobClass;
   }
+};
+
+class HeaderModulePrecompileJobAction : public PrecompileJobAction {
+  void anchor() override;
+
+  const char *ModuleName;
+
+public:
+  HeaderModulePrecompileJobAction(Action *Input, types::ID OutputType,
+                                  const char *ModuleName);
+
+  static bool classof(const Action *A) {
+    return A->getKind() == HeaderModulePrecompileJobClass;
+  }
+
+  void addModuleHeaderInput(Action *Input) {
+    getInputs().push_back(Input);
+  }
+
+  const char *getModuleName() const { return ModuleName; }
 };
 
 class AnalyzeJobAction : public JobAction {

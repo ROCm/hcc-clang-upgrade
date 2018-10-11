@@ -29,6 +29,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/JamCRC.h"
+#include "llvm/Support/xxhash.h"
 #include "llvm/Support/MD5.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -127,10 +128,10 @@ class MicrosoftMangleContextImpl : public MicrosoftMangleContext {
   llvm::DenseMap<const CXXRecordDecl *, unsigned> LambdaIds;
   llvm::DenseMap<const NamedDecl *, unsigned> SEHFilterIds;
   llvm::DenseMap<const NamedDecl *, unsigned> SEHFinallyIds;
+  SmallString<16> AnonymousNamespaceHash;
 
 public:
-  MicrosoftMangleContextImpl(ASTContext &Context, DiagnosticsEngine &Diags)
-      : MicrosoftMangleContext(Context, Diags) {}
+  MicrosoftMangleContextImpl(ASTContext &Context, DiagnosticsEngine &Diags);
   bool shouldMangleCXXName(const NamedDecl *D) override;
   bool shouldMangleStringLiteral(const StringLiteral *SL) override;
   void mangleCXXName(const NamedDecl *D, raw_ostream &Out) override;
@@ -236,6 +237,12 @@ public:
     std::pair<llvm::DenseMap<const CXXRecordDecl *, unsigned>::iterator, bool>
         Result = LambdaIds.insert(std::make_pair(RD, LambdaIds.size()));
     return Result.first->second;
+  }
+
+  /// Return a character sequence that is (somewhat) unique to the TU suitable
+  /// for mangling anonymous namespaces.
+  StringRef getAnonymousNamespaceHash() const {
+    return AnonymousNamespaceHash;
   }
 
 private:
@@ -368,7 +375,37 @@ private:
   void mangleObjCProtocol(const ObjCProtocolDecl *PD);
   void mangleObjCLifetime(const QualType T, Qualifiers Quals,
                           SourceRange Range);
+  void mangleObjCKindOfType(const ObjCObjectType *T, Qualifiers Quals,
+                            SourceRange Range);
 };
+}
+
+MicrosoftMangleContextImpl::MicrosoftMangleContextImpl(ASTContext &Context,
+                                                       DiagnosticsEngine &Diags)
+    : MicrosoftMangleContext(Context, Diags) {
+  // To mangle anonymous namespaces, hash the path to the main source file. The
+  // path should be whatever (probably relative) path was passed on the command
+  // line. The goal is for the compiler to produce the same output regardless of
+  // working directory, so use the uncanonicalized relative path.
+  //
+  // It's important to make the mangled names unique because, when CodeView
+  // debug info is in use, the debugger uses mangled type names to distinguish
+  // between otherwise identically named types in anonymous namespaces.
+  //
+  // These symbols are always internal, so there is no need for the hash to
+  // match what MSVC produces. For the same reason, clang is free to change the
+  // hash at any time without breaking compatibility with old versions of clang.
+  // The generated names are intended to look similar to what MSVC generates,
+  // which are something like "?A0x01234567@".
+  SourceManager &SM = Context.getSourceManager();
+  if (const FileEntry *FE = SM.getFileEntryForID(SM.getMainFileID())) {
+    // Truncate the hash so we get 8 characters of hexadecimal.
+    uint32_t TruncatedHash = uint32_t(xxHash64(FE->getName()));
+    AnonymousNamespaceHash = llvm::utohexstr(TruncatedHash);
+  } else {
+    // If we don't have a path to the main file, we'll just use 0.
+    AnonymousNamespaceHash = "0";
+  }
 }
 
 bool MicrosoftMangleContextImpl::shouldMangleCXXName(const NamedDecl *D) {
@@ -760,7 +797,7 @@ void MicrosoftCXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
     //   type [ -> template-parameters]
     //      \-> namespace[s]
     // What we do is we create a new mangler, mangle the same type (without
-    // a namespace suffix) to a string using the extra mangler and then use 
+    // a namespace suffix) to a string using the extra mangler and then use
     // the mangled type name as a key to check the mangling of different types
     // for aliasing.
 
@@ -785,7 +822,7 @@ void MicrosoftCXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
 
       if (const NamespaceDecl *NS = dyn_cast<NamespaceDecl>(ND)) {
         if (NS->isAnonymousNamespace()) {
-          Out << "?A@";
+          Out << "?A0x" << Context.getAnonymousNamespaceHash() << '@';
           break;
         }
       }
@@ -905,8 +942,14 @@ void MicrosoftCXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
 
     case DeclarationName::ObjCZeroArgSelector:
     case DeclarationName::ObjCOneArgSelector:
-    case DeclarationName::ObjCMultiArgSelector:
-      llvm_unreachable("Can't mangle Objective-C selector names here!");
+    case DeclarationName::ObjCMultiArgSelector: {
+      // This is reachable only when constructing an outlined SEH finally
+      // block.  Nothing depends on this mangling and it's used only with
+      // functinos with internal linkage.
+      llvm::SmallString<64> Name;
+      mangleSourceName(Name.str());
+      break;
+    }
 
     case DeclarationName::CXXConstructorName:
       if (isStructorDecl(ND)) {
@@ -1343,9 +1386,16 @@ void MicrosoftCXXNameMangler::mangleTemplateArgs(
   assert(TPL->size() == TemplateArgs.size() &&
          "size mismatch between args and parms!");
 
-  unsigned Idx = 0;
-  for (const TemplateArgument &TA : TemplateArgs.asArray())
-    mangleTemplateArg(TD, TA, TPL->getParam(Idx++));
+  for (size_t i = 0; i < TemplateArgs.size(); ++i) {
+    const TemplateArgument &TA = TemplateArgs[i];
+
+    // Separate consecutive packs by $$Z.
+    if (i > 0 && TA.getKind() == TemplateArgument::Pack &&
+        TemplateArgs[i - 1].getKind() == TemplateArgument::Pack)
+      Out << "$$Z";
+
+    mangleTemplateArg(TD, TA, TPL->getParam(i));
+  }
 }
 
 void MicrosoftCXXNameMangler::mangleTemplateArg(const TemplateDecl *TD,
@@ -1373,13 +1423,14 @@ void MicrosoftCXXNameMangler::mangleTemplateArg(const TemplateDecl *TD,
   case TemplateArgument::Declaration: {
     const NamedDecl *ND = TA.getAsDecl();
     if (isa<FieldDecl>(ND) || isa<IndirectFieldDecl>(ND)) {
-      mangleMemberDataPointer(
-          cast<CXXRecordDecl>(ND->getDeclContext())->getMostRecentNonInjectedDecl(),
-          cast<ValueDecl>(ND));
+      mangleMemberDataPointer(cast<CXXRecordDecl>(ND->getDeclContext())
+                                  ->getMostRecentNonInjectedDecl(),
+                              cast<ValueDecl>(ND));
     } else if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(ND)) {
       const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(FD);
       if (MD && MD->isInstance()) {
-        mangleMemberFunctionPointer(MD->getParent()->getMostRecentNonInjectedDecl(), MD);
+        mangleMemberFunctionPointer(
+            MD->getParent()->getMostRecentNonInjectedDecl(), MD);
       } else {
         Out << "$1?";
         mangleName(FD);
@@ -1500,6 +1551,23 @@ void MicrosoftCXXNameMangler::mangleObjCLifetime(const QualType Type,
   Extra.manglePointerCVQualifiers(Quals);
   Extra.manglePointerExtQualifiers(Quals, Type);
   Extra.mangleType(Type, Range);
+
+  mangleArtificalTagType(TTK_Struct, TemplateMangling, {"__ObjC"});
+}
+
+void MicrosoftCXXNameMangler::mangleObjCKindOfType(const ObjCObjectType *T,
+                                                   Qualifiers Quals,
+                                                   SourceRange Range) {
+  llvm::SmallString<64> TemplateMangling;
+  llvm::raw_svector_ostream Stream(TemplateMangling);
+  MicrosoftCXXNameMangler Extra(Context, Stream);
+
+  Stream << "?$";
+  Extra.mangleSourceName("KindOf");
+  Extra.mangleType(QualType(T, 0)
+                       .stripObjCKindOfType(getASTContext())
+                       ->getAs<ObjCObjectType>(),
+                   Quals, Range);
 
   mangleArtificalTagType(TTK_Struct, TemplateMangling, {"__ObjC"});
 }
@@ -2285,7 +2353,8 @@ void MicrosoftCXXNameMangler::mangleType(const TagDecl *TD) {
 
 // If you add a call to this, consider updating isArtificialTagType() too.
 void MicrosoftCXXNameMangler::mangleArtificalTagType(
-    TagTypeKind TK, StringRef UnqualifiedName, ArrayRef<StringRef> NestedNames) {
+    TagTypeKind TK, StringRef UnqualifiedName,
+    ArrayRef<StringRef> NestedNames) {
   // <name> ::= <unscoped-name> {[<named-scope>]+ | [<nested-name>]}? @
   mangleTagTypeKind(TK);
 
@@ -2372,8 +2441,8 @@ void MicrosoftCXXNameMangler::mangleArrayType(const ArrayType *T) {
 // <type>                   ::= <pointer-to-member-type>
 // <pointer-to-member-type> ::= <pointer-cvr-qualifiers> <cvr-qualifiers>
 //                                                          <class name> <type>
-void MicrosoftCXXNameMangler::mangleType(const MemberPointerType *T, Qualifiers Quals,
-                                         SourceRange Range) {
+void MicrosoftCXXNameMangler::mangleType(const MemberPointerType *T,
+                                         Qualifiers Quals, SourceRange Range) {
   QualType PointeeType = T->getPointeeType();
   manglePointerCVQualifiers(Quals);
   manglePointerExtQualifiers(Quals, PointeeType);
@@ -2573,9 +2642,12 @@ void MicrosoftCXXNameMangler::mangleType(const ObjCInterfaceType *T, Qualifiers,
   mangleName(T->getDecl());
 }
 
-void MicrosoftCXXNameMangler::mangleType(const ObjCObjectType *T, Qualifiers,
-                                         SourceRange Range) {
-  if (T->qual_empty())
+void MicrosoftCXXNameMangler::mangleType(const ObjCObjectType *T,
+                                         Qualifiers Quals, SourceRange Range) {
+  if (T->isKindOfType())
+    return mangleObjCKindOfType(T, Quals, Range);
+
+  if (T->qual_empty() && !T->isSpecialized())
     return mangleType(T->getBaseType(), Range, QMM_Drop);
 
   ArgBackRefMap OuterArgsContext;
@@ -2596,6 +2668,11 @@ void MicrosoftCXXNameMangler::mangleType(const ObjCObjectType *T, Qualifiers,
 
   for (const auto &Q : T->quals())
     mangleObjCProtocol(Q);
+
+  if (T->isSpecialized())
+    for (const auto &TA : T->getTypeArgs())
+      mangleType(TA, Range, QMM_Drop);
+
   Out << '@';
 
   Out << '@';
@@ -3173,10 +3250,13 @@ void MicrosoftMangleContextImpl::mangleInitFiniStub(const VarDecl *D,
   msvc_hashing_ostream MHO(Out);
   MicrosoftCXXNameMangler Mangler(*this, MHO);
   Mangler.getStream() << "??__" << CharCode;
-  Mangler.mangleName(D);
   if (D->isStaticDataMember()) {
+    Mangler.getStream() << '?';
+    Mangler.mangleName(D);
     Mangler.mangleVariableEncoding(D);
-    Mangler.getStream() << '@';
+    Mangler.getStream() << "@@";
+  } else {
+    Mangler.mangleName(D);
   }
   // This is the function class mangling.  These stubs are global, non-variadic,
   // cdecl functions that return void and take no args.

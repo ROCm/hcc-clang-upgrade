@@ -453,7 +453,7 @@ static ReadySuspendResumeResult buildCoawaitCalls(Sema &S, VarDecl *CoroPromise,
     // to bool.
     ExprResult Conv = S.PerformContextuallyConvertToBool(AwaitReady);
     if (Conv.isInvalid()) {
-      S.Diag(AwaitReady->getDirectCallee()->getLocStart(),
+      S.Diag(AwaitReady->getDirectCallee()->getBeginLoc(),
              diag::note_await_ready_no_bool_conversion);
       S.Diag(Loc, diag::note_coroutine_promise_call_implicitly_required)
           << AwaitReady->getDirectCallee() << E->getSourceRange();
@@ -839,6 +839,19 @@ StmtResult Sema::BuildCoreturnStmt(SourceLocation Loc, Expr *E,
     ExprResult R = CheckPlaceholderExpr(E);
     if (R.isInvalid()) return StmtError();
     E = R.get();
+  }
+
+  // Move the return value if we can
+  if (E) {
+    auto NRVOCandidate = this->getCopyElisionCandidate(E->getType(), E, CES_AsIfByStdMove);
+    if (NRVOCandidate) {
+      InitializedEntity Entity =
+          InitializedEntity::InitializeResult(Loc, E->getType(), NRVOCandidate);
+      ExprResult MoveResult = this->PerformMoveOrCopyInitialization(
+          Entity, NRVOCandidate, E->getType(), E);
+      if (MoveResult.get())
+        E = MoveResult.get();
+    }
   }
 
   // FIXME: If the operand is a reference to a variable that's about to go out
@@ -1460,7 +1473,7 @@ static Expr *castForMoving(Sema &S, Expr *E, QualType T = QualType()) {
     T = E->getType();
   QualType TargetType = S.BuildReferenceType(
       T, /*SpelledAsLValue*/ false, SourceLocation(), DeclarationName());
-  SourceLocation ExprLoc = E->getLocStart();
+  SourceLocation ExprLoc = E->getBeginLoc();
   TypeSourceInfo *TargetLoc =
       S.Context.getTrivialTypeSourceInfo(TargetType, ExprLoc);
 

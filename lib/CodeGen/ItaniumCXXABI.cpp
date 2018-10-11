@@ -634,7 +634,7 @@ CGCallee ItaniumCXXABI::EmitLoadOfMemberFunctionPointer(
   if (ShouldEmitCFICheck) {
     CodeGenFunction::SanitizerScope SanScope(&CGF);
 
-    CheckSourceLocation = CGF.EmitCheckSourceLocation(E->getLocStart());
+    CheckSourceLocation = CGF.EmitCheckSourceLocation(E->getBeginLoc());
     CheckTypeDesc = CGF.EmitCheckTypeDescriptor(QualType(MPT, 0));
     llvm::Constant *StaticData[] = {
         llvm::ConstantInt::get(CGF.Int8Ty, CodeGenFunction::CFITCK_VMFCall),
@@ -1599,12 +1599,6 @@ void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
   // Set the right visibility.
   CGM.setGVProperties(VTable, RD);
 
-  // Use pointer alignment for the vtable. Otherwise we would align them based
-  // on the size of the initializer which doesn't make sense as only single
-  // values are read.
-  unsigned PAlign = CGM.getTarget().getPointerAlign(0);
-  VTable->setAlignment(getContext().toCharUnitsFromBits(PAlign).getQuantity());
-
   // If this is the magic class __cxxabiv1::__fundamental_type_info,
   // we will emit the typeinfo for the fundamental types. This is the
   // same behaviour as GCC.
@@ -1704,8 +1698,14 @@ llvm::GlobalVariable *ItaniumCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
       CGM.getItaniumVTableContext().getVTableLayout(RD);
   llvm::Type *VTableType = CGM.getVTables().getVTableType(VTLayout);
 
+  // Use pointer alignment for the vtable. Otherwise we would align them based
+  // on the size of the initializer which doesn't make sense as only single
+  // values are read.
+  unsigned PAlign = CGM.getTarget().getPointerAlign(0);
+
   VTable = CGM.CreateOrReplaceCXXRuntimeVariable(
-      Name, VTableType, llvm::GlobalValue::ExternalLinkage);
+      Name, VTableType, llvm::GlobalValue::ExternalLinkage,
+      getContext().toCharUnitsFromBits(PAlign).getQuantity());
   VTable->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
 
   CGM.setGVProperties(VTable, RD);
@@ -2343,6 +2343,9 @@ void ItaniumCXXABI::registerGlobalDtor(CodeGenFunction &CGF,
                                        const VarDecl &D,
                                        llvm::Constant *dtor,
                                        llvm::Constant *addr) {
+  if (D.isNoDestroy(CGM.getContext()))
+    return;
+
   // Use __cxa_atexit if available.
   if (CGM.getCodeGenOpts().CXAAtExit)
     return emitGlobalDtorWithCXAAtExit(CGF, dtor, addr, D.getTLSKind());
@@ -2723,9 +2726,10 @@ llvm::GlobalVariable *ItaniumRTTIBuilder::GetAddrOfTypeName(
   // get the mangled name of the type.
   llvm::Constant *Init = llvm::ConstantDataArray::getString(VMContext,
                                                             Name.substr(4));
+  auto Align = CGM.getContext().getTypeAlignInChars(CGM.getContext().CharTy);
 
-  llvm::GlobalVariable *GV =
-    CGM.CreateOrReplaceCXXRuntimeVariable(Name, Init->getType(), Linkage);
+  llvm::GlobalVariable *GV = CGM.CreateOrReplaceCXXRuntimeVariable(
+      Name, Init->getType(), Linkage, Align.getQuantity());
 
   GV->setInitializer(Init);
 
@@ -3364,6 +3368,10 @@ llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(
   if (CGM.supportsCOMDAT() && GV->isWeakForLinker())
     GV->setComdat(M.getOrInsertComdat(GV->getName()));
 
+  CharUnits Align =
+      CGM.getContext().toCharUnitsFromBits(CGM.getTarget().getPointerAlign(0));
+  GV->setAlignment(Align.getQuantity());
+
   // The Itanium ABI specifies that type_info objects must be globally
   // unique, with one exception: if the type is an incomplete class
   // type or a (possibly indirect) pointer to one.  That exception
@@ -3745,22 +3753,12 @@ static StructorCodegen getCodegenToUse(CodeGenModule &CGM,
   }
   llvm::GlobalValue::LinkageTypes Linkage = CGM.getFunctionLinkage(AliasDecl);
 
-  // All discardable structors can be RAUWed, but we don't want to do that in
-  // unoptimized code, as that makes complete structor symbol disappear
-  // completely, which degrades debugging experience.
-  // Symbols with private linkage can be safely aliased, so we special case them
-  // here.
-  if (llvm::GlobalValue::isLocalLinkage(Linkage))
-    return CGM.getCodeGenOpts().OptimizationLevel > 0 ? StructorCodegen::RAUW
-                                                      : StructorCodegen::Alias;
+  if (llvm::GlobalValue::isDiscardableIfUnused(Linkage))
+    return StructorCodegen::RAUW;
 
-  // Linkonce structors cannot be aliased nor placed in a comdat, so these need
-  // to be emitted separately.
   // FIXME: Should we allow available_externally aliases?
-  if (llvm::GlobalValue::isDiscardableIfUnused(Linkage) ||
-      !llvm::GlobalAlias::isValidLinkage(Linkage))
-    return CGM.getCodeGenOpts().OptimizationLevel > 0 ? StructorCodegen::RAUW
-                                                      : StructorCodegen::Emit;
+  if (!llvm::GlobalAlias::isValidLinkage(Linkage))
+    return StructorCodegen::RAUW;
 
   if (llvm::GlobalValue::isWeakForLinker(Linkage)) {
     // Only ELF and wasm support COMDATs with arbitrary names (C5/D5).
@@ -4156,7 +4154,7 @@ void ItaniumCXXABI::emitBeginCatch(CodeGenFunction &CGF,
 
   // Emit the local.
   CodeGenFunction::AutoVarEmission var = CGF.EmitAutoVarAlloca(*CatchParam);
-  InitCatchParam(CGF, *CatchParam, var.getObjectAddress(CGF), S->getLocStart());
+  InitCatchParam(CGF, *CatchParam, var.getObjectAddress(CGF), S->getBeginLoc());
   CGF.EmitAutoVarCleanups(var);
 }
 
