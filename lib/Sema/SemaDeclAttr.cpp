@@ -6234,9 +6234,9 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   // Ignore C++11 attributes on declarator chunks: they appertain to the type
   // instead.
   if (AL.isCXX11Attribute() && !IncludeCXX11Attributes &&
-      AL.getKind() != AttributeList::AT_AMDGPUWavesPerEU &&
-      AL.getKind() != AttributeList::AT_AMDGPUFlatWorkGroupSize &&
-      AL.getKind() != AttributeList::AT_AMDGPUMaxWorkGroupDim)
+      AL.getKind() != ParsedAttr::AT_AMDGPUWavesPerEU &&
+      AL.getKind() != ParsedAttr::AT_AMDGPUFlatWorkGroupSize &&
+      AL.getKind() != ParsedAttr::AT_AMDGPUMaxWorkGroupDim)
     return;
 
   // Unknown attributes are automatically warned on. Target-specific attributes
@@ -6419,7 +6419,7 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case ParsedAttr::AT_CUDAGlobal:
     handleGlobalAttr(S, D, AL);
     break;
-  case AttributeList::AT_CUDADevice:
+  case ParsedAttr::AT_CUDADevice:
     handleSimpleAttributeWithExclusions<CUDADeviceAttr, CUDAGlobalAttr>(S, D,
                                                                         AL);
     break;
@@ -6498,7 +6498,7 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case ParsedAttr::AT_CUDAShared:
     handleSharedAttr(S, D, AL);
     break;
-  case AttributeList::AT_VecReturn:
+  case ParsedAttr::AT_VecReturn:
     handleVecReturnAttr(S, D, AL);
     break;
   case ParsedAttr::AT_ObjCOwnership:
@@ -6947,7 +6947,7 @@ void Sema::ProcessDeclAttributeList(Scope *S, Decl *D,
     } else if (const auto *A = D->getAttr<OpenCLIntelReqdSubGroupSizeAttr>()) {
       Diag(D->getLocation(), diag::err_opencl_kernel_attr) << A;
       D->setInvalidDecl();
-    } else if (!D->hasAttr<CUDAGlobalAttr>() && !D->hasAttr<CXXAMPRestrictAMPAttr>()) {
+    } else if (!D->hasAttr<CUDAGlobalAttr>()) {
       if (const auto *A = D->getAttr<AMDGPUFlatWorkGroupSizeAttr>()) {
         Diag(D->getLocation(), diag::err_attribute_wrong_decl_type)
             << A << ExpectedKernelFunction;

@@ -1287,23 +1287,6 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                       /*DeclsInPrototype=*/None, DeclLoc, DeclEndLoc, D,
                       TrailingReturnType),
                   std::move(Attr), DeclEndLoc);
-  }  else if (Tok.is(tok::l_brace)) {
-    // Next is compound-statement.
-    // Parse C++AMP restrict specifier though the lambda expression has no params, so that
-    // context inside lambda compound-statement is distinguished from cpu codes or amp codes.
-    // And the lambda's calloperator will be attached with the same restrictions as its parent
-    // function's if any. Such lambda expression is as follows,
-    //   [] {
-    //     // The compound-statement
-    //   };
-    if (getLangOpts().CPlusPlusAMP) {
-      // Place restriction after r_square
-      SourceLocation LambdaEndLoc = Intro.Range.getEnd();
-      ParsedAttributes Attr(AttrFactory);
-      ParseRestrictionSpecification(D, Attr, LambdaEndLoc);
-      D.getAttributes().addAll(Attr.begin(), Attr.end());
-      D.getAttributePool().takeAllFrom(Attr.getPool());
-    }
   }
 
   // FIXME: Rename BlockScope -> ClosureScope if we decide to continue using

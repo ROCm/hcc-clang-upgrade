@@ -4983,7 +4983,7 @@ void HandleReferenceFieldInHCCallable_() {
       Master->getASTContext(),
       TTK_Class,
       Master->getDeclContext(),
-      Master->getLocStart(),
+      Master->getBeginLoc(),
       Master->getLocation(),
       Master,
       llvm::makeArrayRef(Arg),
@@ -4992,11 +4992,11 @@ void HandleReferenceFieldInHCCallable_() {
     Master->AddSpecialization(Spec, IPos);
 
     Sema_.InstantiateClassTemplateSpecialization(
-      Master->getLocStart(),
+      Master->getBeginLoc(),
       Spec,
       TSK_ExplicitInstantiationDefinition);
     Sema_.InstantiateClassTemplateSpecializationMembers(
-      Master->getLocStart(),
+      Master->getBeginLoc(),
       Spec,
       TSK_ExplicitInstantiationDefinition);
   });
