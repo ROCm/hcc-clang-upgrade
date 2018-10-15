@@ -373,17 +373,31 @@ private:
   llvm::Function *createParallelDataSharingWrapper(
       llvm::Function *OutlinedParallelFn, const OMPExecutableDirective &D);
 
+  /// The data for the single globalized variable.
+  struct MappedVarData {
+    /// Corresponding field in the global record.
+    const FieldDecl *FD = nullptr;
+    /// Corresponding address.
+    Address PrivateAddr = Address::invalid();
+    /// true, if only one element is required (for latprivates in SPMD mode),
+    /// false, if need to create based on the warp-size.
+    bool IsOnePerTeam = false;
+    MappedVarData() = delete;
+    MappedVarData(const FieldDecl *FD, bool IsOnePerTeam = false)
+        : FD(FD), IsOnePerTeam(IsOnePerTeam) {}
+  };
   /// The map of local variables to their addresses in the global memory.
-  using DeclToAddrMapTy = llvm::MapVector<const Decl *,
-      std::pair<const FieldDecl *, Address>>;
+  using DeclToAddrMapTy = llvm::MapVector<const Decl *, MappedVarData>;
   /// Set of the parameters passed by value escaping OpenMP context.
   using EscapedParamsTy = llvm::SmallPtrSet<const Decl *, 4>;
   struct FunctionData {
     DeclToAddrMapTy LocalVarData;
+    llvm::Optional<DeclToAddrMapTy> SecondaryLocalVarData = llvm::None;
     EscapedParamsTy EscapedParameters;
     llvm::SmallVector<const ValueDecl*, 4> EscapedVariableLengthDecls;
     llvm::SmallVector<llvm::Value *, 4> EscapedVariableLengthDeclsAddrs;
     const RecordDecl *GlobalRecord = nullptr;
+    llvm::Optional<const RecordDecl *> SecondaryGlobalRecord = llvm::None;
     llvm::Value *GlobalRecordAddr = nullptr;
     llvm::Value *IsInSPMDModeFlag = nullptr;
     std::unique_ptr<CodeGenFunction::OMPMapVars> MappedParams;
