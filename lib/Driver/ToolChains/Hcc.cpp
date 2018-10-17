@@ -127,8 +127,11 @@ void HCC::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
     else if (JA.ContainsActions(Action::AssembleJobClass, types::TY_HC_KERNEL))
       assembler = "hc-kernel-assemble";
     else if (JA.ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP) ||
-      JA.ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP_CPU))
+      JA.ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP_CPU)) {
       assembler = "clamp-assemble";
+      // embed the device IR into the .kernel_ir section
+      CmdArgs.push_back(".kernel_ir");
+    }
     else {
       assert(!assembler.empty() && "Unsupported assembler.");
       return;
