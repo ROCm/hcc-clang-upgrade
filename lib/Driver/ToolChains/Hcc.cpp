@@ -97,51 +97,7 @@ void HCCInstallationDetector::print(raw_ostream &OS) const {
   if (IsValid)
     OS << "Found HCC installation: " << IncPath << "\n";
 }
-
-void HCC::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
-                                    const InputInfo &Output,
-                                    const InputInfoList &Inputs,
-                                    const ArgList &Args,
-                                    const char *LinkingOutput) const {
-  assert(Inputs.size() == 1 && "Unable to handle multiple inputs.");
-
-  ArgStringList CmdArgs;
-  for (InputInfoList::const_iterator
-         it = Inputs.begin(), ie = Inputs.end(); it != ie; ++it) {
-    const InputInfo &II = *it;
-    if (II.isFilename())
-      CmdArgs.push_back(II.getFilename());
-    else
-      II.getInputArg().renderAsInput(Args, CmdArgs);
-  }
-
-  if (Output.isFilename())
-    CmdArgs.push_back(Output.getFilename());
-  else
-    Output.getInputArg().renderAsInput(Args, CmdArgs);
-
-  if (JA.getKind() == Action::AssembleJobClass) {
-    std::string assembler;
-    if (JA.ContainsActions(Action::AssembleJobClass, types::TY_HC_HOST))
-      assembler = "hc-host-assemble";
-    else if (JA.ContainsActions(Action::AssembleJobClass, types::TY_HC_KERNEL))
-      assembler = "hc-kernel-assemble";
-    else if (JA.ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP) ||
-      JA.ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP_CPU)) {
-      assembler = "clamp-assemble";
-      // embed the device IR into the .kernel_ir section
-      CmdArgs.push_back(".kernel_ir");
-    }
-    else {
-      assert(!assembler.empty() && "Unsupported assembler.");
-      return;
-    }
-    const char *Exec = Args.MakeArgString(
-      getToolChain().GetProgramPath(assembler.c_str()));
-    C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
-  }
-}
-
+    
 namespace
 {
     struct Process_deleter {
@@ -313,6 +269,57 @@ namespace
         }
     }
 }
+
+void HCC::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
+                                    const InputInfo &Output,
+                                    const InputInfoList &Inputs,
+                                    const ArgList &Args,
+                                    const char *LinkingOutput) const {
+  assert(Inputs.size() == 1 && "Unable to handle multiple inputs.");
+
+  ArgStringList CmdArgs;
+  for (InputInfoList::const_iterator
+         it = Inputs.begin(), ie = Inputs.end(); it != ie; ++it) {
+    const InputInfo &II = *it;
+    if (II.isFilename())
+      CmdArgs.push_back(II.getFilename());
+    else
+      II.getInputArg().renderAsInput(Args, CmdArgs);
+  }
+
+  if (Output.isFilename())
+    CmdArgs.push_back(Output.getFilename());
+  else
+    Output.getInputArg().renderAsInput(Args, CmdArgs);
+
+  if (JA.getKind() == Action::AssembleJobClass) {
+    std::string assembler;
+    if (JA.ContainsActions(Action::AssembleJobClass, types::TY_HC_HOST))
+      assembler = "hc-host-assemble";
+    else if (JA.ContainsActions(Action::AssembleJobClass, types::TY_HC_KERNEL)) {
+      assembler = "hc-kernel-assemble";
+      if (!Args.hasFlag(options::OPT_fgpu_rdc, options::OPT_fno_gpu_rdc, true)) {
+        CmdArgs.push_back("--early_finalize");
+        // add the amdgpu target args
+        construct_amdgpu_target_cmdargs(C, getToolChain(), Args, CmdArgs);
+      }
+    }
+    else if (JA.ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP) ||
+      JA.ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP_CPU)) {
+      assembler = "clamp-assemble";
+      // embed the device IR into the .kernel_ir section
+      CmdArgs.push_back(".kernel_ir");
+    }
+    else {
+      assert(!assembler.empty() && "Unsupported assembler.");
+      return;
+    }
+    const char *Exec = Args.MakeArgString(
+      getToolChain().GetProgramPath(assembler.c_str()));
+    C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
+  }
+}
+
 
 #ifndef HCC_TOOLCHAIN_RHEL
   #define HCC_TOOLCHAIN_RHEL false
