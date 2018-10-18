@@ -2252,7 +2252,7 @@ llvm::Value *CodeGenFunction::EmitDynamicCast(Address ThisAddr,
 }
 
 class ReferenceFieldInitialiser {
-  inline static constexpr const char HCCallable[]{"__HC_CALLABLE__"};
+  inline static constexpr const char ROCccCallable[]{"__ROCCC_CALLABLE__"};
 
   CXXRecordDecl const *Callable_;
   FieldDecl const *Field_;
@@ -2274,10 +2274,10 @@ class ReferenceFieldInitialiser {
     return Ns->getName().find(ROCcc_outer) != StringRef::npos;
   }
 
-  bool IsHCCallable_() const {
+  bool IsROCccCallable_() const {
     return Callable_->hasAttr<AnnotateAttr>() &&
       Callable_->getAttr<AnnotateAttr>()
-        ->getAnnotation().find(HCCallable) != StringRef::npos;
+        ->getAnnotation().find(ROCccCallable) != StringRef::npos;
   }
 
   CXXMethodDecl *GetMakerFn_() const {
@@ -2360,7 +2360,7 @@ public:
   {}
 
   Expr *operator()() const {
-    if (!IsHCCallable_()) return Init_;
+    if (!IsROCccCallable_()) return Init_;
     if (!Field_->getType()->isReferenceType()) return Init_;
 
     return InitialiseReferenceField_();

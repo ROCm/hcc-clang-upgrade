@@ -6905,6 +6905,23 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   }
 }
 
+static bool IsROCCCKernel(Sema &S, const Decl *D)
+{
+  if (!D) return false;
+  if (!S.getLangOpts().CPlusPlusAMP) return false;
+
+  if (auto FD = dyn_cast<FunctionDecl>(D)) {
+    if (!FD->hasAttr<AnnotateAttr>()) return false;
+
+    static constexpr const char ROCCCKernel[]{"__ROCCC_KERNEL__"};
+    if (FD->getAttr<AnnotateAttr>()->getAnnotation() == ROCCCKernel) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /// ProcessDeclAttributeList - Apply all the decl attributes in the specified
 /// attribute list to the specified decl, ignoring any type attributes.
 void Sema::ProcessDeclAttributeList(Scope *S, Decl *D,
@@ -6947,7 +6964,7 @@ void Sema::ProcessDeclAttributeList(Scope *S, Decl *D,
     } else if (const auto *A = D->getAttr<OpenCLIntelReqdSubGroupSizeAttr>()) {
       Diag(D->getLocation(), diag::err_opencl_kernel_attr) << A;
       D->setInvalidDecl();
-    } else if (!D->hasAttr<CUDAGlobalAttr>()) {
+    } else if (!D->hasAttr<CUDAGlobalAttr>() && !IsROCCCKernel(*this, D)) {
       if (const auto *A = D->getAttr<AMDGPUFlatWorkGroupSizeAttr>()) {
         Diag(D->getLocation(), diag::err_attribute_wrong_decl_type)
             << A << ExpectedKernelFunction;

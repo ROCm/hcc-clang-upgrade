@@ -4888,7 +4888,8 @@ Sema::ConvertArgumentsForCall(CallExpr *Call, Expr *Fn,
 }
 
 class CallableWithReferenceFieldsHandler {
-  inline static constexpr const char HCCallable_[]{"__HC_CALLABLE__"};
+  inline static constexpr const char ROCccCallable_[]{"__ROCCC_CALLABLE__"};
+  inline static constexpr const char ROCccPFE_[]{"__ROCCC_PFE__"};
 
   CXXRecordDecl *Callable_{};
   FunctionDecl *FDecl_{};
@@ -4910,7 +4911,7 @@ class CallableWithReferenceFieldsHandler {
     return Ns->getName().find(ROCcc_outer) != StringRef::npos;
   }
 
-  ClassTemplateDecl *GetUbiquitousReferenceMakerHC_() {
+  ClassTemplateDecl *GetUbiquitousReferenceMakerROCcc_() {
     const auto It = std::find_if(
       Sema_.Context.getTypes().begin(),
       Sema_.Context.getTypes().end(),
@@ -4932,18 +4933,16 @@ class CallableWithReferenceFieldsHandler {
   }
 
   bool IsPFECall_() {
-    static constexpr const char PFE[]{"parallel_for_each"};
-
     if (!FDecl_) return false;
-    if (!IsInROCccNamespace_(FDecl_)) return false;
+    if (!FDecl_->hasAttr<AnnotateAttr>()) return false;
 
-    return FDecl_->getNameAsString().find(PFE) != StringRef::npos;
+    return FDecl_->getAttr<AnnotateAttr>()->getAnnotation() == ROCccPFE_;
   }
 
   bool IsPFECallable_() {
     return Callable_->hasAttr<AnnotateAttr>() &&
       Callable_->getAttr<AnnotateAttr>()
-        ->getAnnotation().find(HCCallable_) != StringRef::npos;
+        ->getAnnotation().find(ROCccCallable_) != StringRef::npos;
   }
 
   SmallVector<TemplateArgument, 4> MakeTemplateArgsForRefFields_() {
@@ -4959,15 +4958,15 @@ class CallableWithReferenceFieldsHandler {
     return Ret;
   }
 
-void HandleReferenceFieldInHCCallable_() {
+void HandleReferenceFieldInROCccCallable_() {
   SmallVector<TemplateArgument, 4> Tmp = MakeTemplateArgsForRefFields_();
 
   if (Tmp.empty()) return;
 
   Callable_->addAttr(new (Sema_.Context) AnnotateAttr{
-    Callable_->getSourceRange(), Sema_.Context, HCCallable_, 0u});
+    Callable_->getSourceRange(), Sema_.Context, ROCccCallable_, 0u});
 
-  ClassTemplateDecl *Master = GetUbiquitousReferenceMakerHC_();
+  ClassTemplateDecl *Master = GetUbiquitousReferenceMakerROCcc_();
 
   assert(
     Master && "roccc::detail::Ubiquitous_reference_maker must be in scope!");
@@ -5015,7 +5014,7 @@ public:
 
     if (IsPFECallable_()) return;
 
-    HandleReferenceFieldInHCCallable_();
+    HandleReferenceFieldInROCccCallable_();
   }
 };
 
