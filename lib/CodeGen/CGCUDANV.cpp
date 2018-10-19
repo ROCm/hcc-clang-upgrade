@@ -137,7 +137,7 @@ CGNVCUDARuntime::addUnderscoredPrefixToName(StringRef FuncName) const {
 CGNVCUDARuntime::CGNVCUDARuntime(CodeGenModule &CGM)
     : CGCUDARuntime(CGM), Context(CGM.getLLVMContext()),
       TheModule(CGM.getModule()),
-      RelocatableDeviceCode(CGM.getLangOpts().CUDARelocatableDeviceCode) {
+      RelocatableDeviceCode(CGM.getLangOpts().GPURelocatableDeviceCode) {
   CodeGen::CodeGenTypes &Types = CGM.getTypes();
   ASTContext &Ctx = CGM.getContext();
 

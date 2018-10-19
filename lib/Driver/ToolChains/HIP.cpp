@@ -236,9 +236,9 @@ void HIPToolChain::addClangTargetOptions(
                          options::OPT_fno_cuda_approx_transcendentals, false))
     CC1Args.push_back("-fcuda-approx-transcendentals");
 
-  if (DriverArgs.hasFlag(options::OPT_fcuda_rdc, options::OPT_fno_cuda_rdc,
+  if (DriverArgs.hasFlag(options::OPT_fgpu_rdc, options::OPT_fno_gpu_rdc,
                          false))
-    CC1Args.push_back("-fcuda-rdc");
+    CC1Args.push_back("-fgpu-rdc");
 }
 
 llvm::opt::DerivedArgList *
