@@ -6669,6 +6669,43 @@ Value *CodeGenFunction::EmitAArch64BuiltinExpr(unsigned BuiltinID,
     return EmitSpecialRegisterBuiltin(*this, E, RegisterType, ValueType, IsRead);
   }
 
+  if (BuiltinID == AArch64::BI_ReadStatusReg ||
+      BuiltinID == AArch64::BI_WriteStatusReg) {
+    LLVMContext &Context = CGM.getLLVMContext();
+
+    unsigned SysReg =
+      E->getArg(0)->EvaluateKnownConstInt(getContext()).getZExtValue();
+
+    std::string SysRegStr;
+    llvm::raw_string_ostream(SysRegStr) <<
+                       ((1 << 1) | ((SysReg >> 14) & 1))  << ":" <<
+                       ((SysReg >> 11) & 7)               << ":" <<
+                       ((SysReg >> 7)  & 15)              << ":" <<
+                       ((SysReg >> 3)  & 15)              << ":" <<
+                       ( SysReg        & 7);
+
+    llvm::Metadata *Ops[] = { llvm::MDString::get(Context, SysRegStr) };
+    llvm::MDNode *RegName = llvm::MDNode::get(Context, Ops);
+    llvm::Value *Metadata = llvm::MetadataAsValue::get(Context, RegName);
+
+    llvm::Type *RegisterType = Int64Ty;
+    llvm::Type *ValueType = Int32Ty;
+    llvm::Type *Types[] = { RegisterType };
+
+    if (BuiltinID == AArch64::BI_ReadStatusReg) {
+      llvm::Value *F = CGM.getIntrinsic(llvm::Intrinsic::read_register, Types);
+      llvm::Value *Call = Builder.CreateCall(F, Metadata);
+
+      return Builder.CreateTrunc(Call, ValueType);
+    }
+
+    llvm::Value *F = CGM.getIntrinsic(llvm::Intrinsic::write_register, Types);
+    llvm::Value *ArgValue = EmitScalarExpr(E->getArg(1));
+    ArgValue = Builder.CreateZExt(ArgValue, RegisterType);
+
+    return Builder.CreateCall(F, { Metadata, ArgValue });
+  }
+
   // Find out if any arguments are required to be integer constant
   // expressions.
   unsigned ICEArguments = 0;
@@ -11349,12 +11386,16 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
 
   case AMDGPU::BI__builtin_amdgcn_ds_swizzle:
     return emitBinaryBuiltin(*this, E, Intrinsic::amdgcn_ds_swizzle);
-  case AMDGPU::BI__builtin_amdgcn_mov_dpp: {
-    llvm::SmallVector<llvm::Value *, 5> Args;
-    for (unsigned I = 0; I != 5; ++I)
+  case AMDGPU::BI__builtin_amdgcn_mov_dpp:
+  case AMDGPU::BI__builtin_amdgcn_update_dpp: {
+    llvm::SmallVector<llvm::Value *, 6> Args;
+    for (unsigned I = 0; I != E->getNumArgs(); ++I)
       Args.push_back(EmitScalarExpr(E->getArg(I)));
-    Value *F = CGM.getIntrinsic(Intrinsic::amdgcn_mov_dpp,
-                                    Args[0]->getType());
+    assert(Args.size() == 5 || Args.size() == 6);
+    if (Args.size() == 5)
+      Args.insert(Args.begin(), llvm::UndefValue::get(Args[0]->getType()));
+    Value *F =
+        CGM.getIntrinsic(Intrinsic::amdgcn_update_dpp, Args[0]->getType());
     return Builder.CreateCall(F, Args);
   }
   case AMDGPU::BI__builtin_amdgcn_div_fixup:

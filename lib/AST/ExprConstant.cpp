@@ -9556,6 +9556,7 @@ bool IntExprEvaluator::VisitCastExpr(const CastExpr *E) {
   case CK_NonAtomicToAtomic:
   case CK_AddressSpaceConversion:
   case CK_IntToOCLSampler:
+  case CK_FixedPointCast:
     llvm_unreachable("invalid cast kind for integral value");
 
   case CK_BitCast:
@@ -10090,6 +10091,7 @@ bool ComplexExprEvaluator::VisitCastExpr(const CastExpr *E) {
   case CK_NonAtomicToAtomic:
   case CK_AddressSpaceConversion:
   case CK_IntToOCLSampler:
+  case CK_FixedPointCast:
     llvm_unreachable("invalid cast kind for complex value");
 
   case CK_LValueToRValue:
@@ -10842,6 +10844,19 @@ APSInt Expr::EvaluateKnownConstInt(const ASTContext &Ctx,
   EvalResult EvalResult;
   EvalResult.Diag = Diag;
   bool Result = EvaluateAsRValue(EvalResult, Ctx);
+  (void)Result;
+  assert(Result && "Could not evaluate expression");
+  assert(EvalResult.Val.isInt() && "Expression did not evaluate to integer");
+
+  return EvalResult.Val.getInt();
+}
+
+APSInt Expr::EvaluateKnownConstIntCheckOverflow(
+    const ASTContext &Ctx, SmallVectorImpl<PartialDiagnosticAt> *Diag) const {
+  EvalResult EvalResult;
+  EvalResult.Diag = Diag;
+  EvalInfo Info(Ctx, EvalResult, EvalInfo::EM_EvaluateForOverflow);
+  bool Result = ::EvaluateAsRValue(Info, this, EvalResult.Val);
   (void)Result;
   assert(Result && "Could not evaluate expression");
   assert(EvalResult.Val.isInt() && "Expression did not evaluate to integer");
