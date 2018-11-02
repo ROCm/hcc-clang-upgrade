@@ -1581,8 +1581,10 @@ static QualType adjustFunctionTypeForInstantiation(ASTContext &Context,
 static void MarkByValueRecordsPassedToHIPGlobalFN(FunctionDecl *FDecl)
 { // TODO: this is a temporary kludge; a preferable solution shall be provided
   //       in the future, which shall eschew FE involvement.
+  static constexpr const char HIPLaunch[]{"hipLaunchKernelGGL"};
+
   if (!FDecl) return;
-  if (FDecl->getName() != "hipLaunchKernelGGL") return;
+  if (FDecl->getNameAsString().find(HIPLaunch) == std::string::npos) return;
 
   for (auto &&Parameter : FDecl->parameters()) {
     if (Parameter->getOriginalType()->isPointerType()) continue;
