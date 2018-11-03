@@ -7797,11 +7797,15 @@ void AMDGPUTargetCodeGenInfo::setTargetAttributes(
 
   const auto *FlatWGS = FD->getAttr<AMDGPUFlatWorkGroupSizeAttr>();
   if (ReqdWGS || FlatWGS) {
-    llvm::APSInt min = getConstexprInt(FlatWGS->getMin(), FD->getASTContext());
-    llvm::APSInt max = getConstexprInt(FlatWGS->getMax(), FD->getASTContext());
+    unsigned Min = 0, Max = 0;
+    if (FlatWGS != nullptr) {
+      llvm::APSInt min = getConstexprInt(FlatWGS->getMin(), FD->getASTContext());
+      llvm::APSInt max = getConstexprInt(FlatWGS->getMax(), FD->getASTContext());
 
-    unsigned Min = min.getZExtValue();
-    unsigned Max = std::max(min, max).getZExtValue();
+      Min = min.getZExtValue();
+      Max = std::max(min, max).getZExtValue();
+    }
+
     if (ReqdWGS && Min == 0 && Max == 0)
       Min = Max = ReqdWGS->getXDim() * ReqdWGS->getYDim() * ReqdWGS->getZDim();
 
