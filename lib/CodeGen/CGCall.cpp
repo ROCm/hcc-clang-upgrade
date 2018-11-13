@@ -748,8 +748,8 @@ CodeGenTypes::arrangeLLVMFunctionInfo(CanQualType resultType,
                                       FunctionType::ExtInfo info,
                      ArrayRef<FunctionProtoType::ExtParameterInfo> paramInfos,
                                       RequiredArgs required) {
-  assert(std::all_of(argTypes.begin(), argTypes.end(),
-                     [](CanQualType T) { return T.isCanonicalAsParam(); }));
+  assert(llvm::all_of(argTypes,
+                      [](CanQualType T) { return T.isCanonicalAsParam(); }));
 
   // Lookup or create unique function info.
   llvm::FoldingSetNodeID ID;
@@ -1259,8 +1259,8 @@ static llvm::Value *CreateCoercedLoad(Address Src, llvm::Type *Ty,
 
   // Otherwise do coercion through memory. This is stupid, but simple.
   Address Tmp = CreateTempAllocaForCoercion(CGF, Ty, Src.getAlignment());
-  Address Casted = CGF.Builder.CreateBitCast(Tmp, CGF.AllocaInt8PtrTy);
-  Address SrcCasted = CGF.Builder.CreateBitCast(Src, CGF.AllocaInt8PtrTy);
+  Address Casted = CGF.Builder.CreateElementBitCast(Tmp,CGF.Int8Ty);
+  Address SrcCasted = CGF.Builder.CreateElementBitCast(Src,CGF.Int8Ty);
   CGF.Builder.CreateMemCpy(Casted, SrcCasted,
       llvm::ConstantInt::get(CGF.IntPtrTy, SrcSize),
       false);
@@ -1341,8 +1341,8 @@ static void CreateCoercedStore(llvm::Value *Src,
     // to that information.
     Address Tmp = CreateTempAllocaForCoercion(CGF, SrcTy, Dst.getAlignment());
     CGF.Builder.CreateStore(Src, Tmp);
-    Address Casted = CGF.Builder.CreateBitCast(Tmp, CGF.AllocaInt8PtrTy);
-    Address DstCasted = CGF.Builder.CreateBitCast(Dst, CGF.AllocaInt8PtrTy);
+    Address Casted = CGF.Builder.CreateElementBitCast(Tmp,CGF.Int8Ty);
+    Address DstCasted = CGF.Builder.CreateElementBitCast(Dst,CGF.Int8Ty);
     CGF.Builder.CreateMemCpy(DstCasted, Casted,
         llvm::ConstantInt::get(CGF.IntPtrTy, DstSize),
         false);
@@ -4274,6 +4274,13 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   }
 #endif
 
+  // Update the largest vector width if any arguments have vector types.
+  for (unsigned i = 0; i < IRCallArgs.size(); ++i) {
+    if (auto *VT = dyn_cast<llvm::VectorType>(IRCallArgs[i]->getType()))
+      LargestVectorWidth = std::max(LargestVectorWidth,
+                                    VT->getPrimitiveSizeInBits());
+  }
+
   // Compute the calling convention and attributes.
   unsigned CallingConv;
   llvm::AttributeList Attrs;
@@ -4356,6 +4363,11 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
   if (!CI->getType()->isVoidTy())
     CI->setName("call");
+
+  // Update largest vector width from the return type.
+  if (auto *VT = dyn_cast<llvm::VectorType>(CI->getType()))
+    LargestVectorWidth = std::max(LargestVectorWidth,
+                                  VT->getPrimitiveSizeInBits());
 
   // Insert instrumentation or attach profile metadata at indirect call sites.
   // For more details, see the comment before the definition of

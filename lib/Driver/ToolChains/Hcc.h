@@ -27,7 +27,7 @@ private:
   std::string LibPath;
 
   std::vector<const char *> SystemLibs = {"-ldl", "-lm", "-lpthread"};
-  std::vector<const char *> RuntimeLibs = {"-lhc_am", "-lmcwamp"};
+  std::vector<const char *> RuntimeLibs;// = {"-lmcwamp"};
 
 public:
   HCCInstallationDetector(const Driver &D, const llvm::opt::ArgList &Args);

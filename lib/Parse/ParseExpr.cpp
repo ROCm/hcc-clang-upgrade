@@ -321,7 +321,7 @@ Parser::ParseRHSOfBinaryExpression(ExprResult LHS, prec::Level MinPrec) {
     // as an identifier in ParseObjCMessageExpressionBody. i.e., we support:
     //   [foo meth:0 and:0];
     //   [foo not_eq];
-    if (getLangOpts().ObjC1 && getLangOpts().CPlusPlus &&
+    if (getLangOpts().ObjC && getLangOpts().CPlusPlus &&
         Tok.isOneOf(tok::colon, tok::r_square) &&
         OpToken.getIdentifierInfo() != nullptr) {
       PP.EnterToken(Tok);
@@ -958,7 +958,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
     SourceLocation ILoc = ConsumeToken();
 
     // Support 'Class.property' and 'super.property' notation.
-    if (getLangOpts().ObjC1 && Tok.is(tok::period) &&
+    if (getLangOpts().ObjC && Tok.is(tok::period) &&
         (Actions.getTypeName(II, ILoc, getCurScope()) ||
          // Allow the base to be 'super' if in an objc-method.
          (&II == Ident_super && getCurScope()->isInObjcMethodScope()))) {
@@ -988,7 +988,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
     // the token sequence is ill-formed. However, if there's a ':' or ']' after
     // that identifier, this is probably a message send with a missing open
     // bracket. Treat it as such.
-    if (getLangOpts().ObjC1 && &II == Ident_super && !InMessageExpression &&
+    if (getLangOpts().ObjC && &II == Ident_super && !InMessageExpression &&
         getCurScope()->isInObjcMethodScope() &&
         ((Tok.is(tok::identifier) &&
          (NextToken().is(tok::colon) || NextToken().is(tok::r_square))) ||
@@ -1003,7 +1003,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
     // send that's missing the opening '['. Recovery
     // appropriately. Also take this path if we're performing code
     // completion after an Objective-C class name.
-    if (getLangOpts().ObjC1 &&
+    if (getLangOpts().ObjC &&
         ((Tok.is(tok::identifier) && !InMessageExpression) ||
          Tok.is(tok::code_completion))) {
       const Token& Next = NextToken();
@@ -1176,7 +1176,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
   case tok::kw__Alignof:   // unary-expression: '_Alignof' '(' type-name ')'
     if (!getLangOpts().C11)
       Diag(Tok, diag::ext_c11_alignment) << Tok.getName();
-    // fallthrough
+    LLVM_FALLTHROUGH;
   case tok::kw_alignof:    // unary-expression: 'alignof' '(' type-id ')'
   case tok::kw___alignof:  // unary-expression: '__alignof' unary-expression
                            // unary-expression: '__alignof' '(' type-name ')'
@@ -1242,7 +1242,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
                                            Ty.get(), nullptr);
       break;
     }
-    // Fall through
+    LLVM_FALLTHROUGH;
 
   case tok::annot_decltype:
   case tok::kw_char:
@@ -1431,7 +1431,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
   case tok::kw___attribute:  // HCC hack to allow __attribute__ in front of a lambda introducer
   case tok::l_square:
     if (getLangOpts().CPlusPlus11) {
-      if (getLangOpts().ObjC1) {
+      if (getLangOpts().ObjC) {
         // C++11 lambda expressions and Objective-C message sends both start with a
         // square bracket.  There are three possibilities here:
         // we have a valid lambda expression, we have an invalid lambda
@@ -1445,11 +1445,11 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
       Res = ParseLambdaExpression();
       break;
     }
-    if (getLangOpts().ObjC1) {
+    if (getLangOpts().ObjC) {
       Res = ParseObjCMessageExpression();
       break;
     }
-    // FALL THROUGH.
+    LLVM_FALLTHROUGH;
   default:
     NotCastExpr = true;
     return ExprError();
@@ -1513,7 +1513,7 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
       // If we see identifier: after an expression, and we're not already in a
       // message send, then this is probably a message send with a missing
       // opening bracket '['.
-      if (getLangOpts().ObjC1 && !InMessageExpression &&
+      if (getLangOpts().ObjC && !InMessageExpression &&
           (NextToken().is(tok::colon) || NextToken().is(tok::r_square))) {
         LHS = ParseObjCMessageExpressionBody(SourceLocation(), SourceLocation(),
                                              nullptr, LHS.get());
@@ -1531,7 +1531,7 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
       // actually another message send.  In this case, do some look-ahead to see
       // if the contents of the square brackets are obviously not a valid
       // expression and recover by pretending there is no suffix.
-      if (getLangOpts().ObjC1 && Tok.isAtStartOfLine() &&
+      if (getLangOpts().ObjC && Tok.isAtStartOfLine() &&
           isSimpleObjCMessageExpression())
         return LHS;
 
@@ -1795,7 +1795,7 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
       // FIXME: Add support for explicit call of template constructor.
       SourceLocation TemplateKWLoc;
       UnqualifiedId Name;
-      if (getLangOpts().ObjC2 && OpKind == tok::period &&
+      if (getLangOpts().ObjC && OpKind == tok::period &&
           Tok.is(tok::kw_class)) {
         // Objective-C++:
         //   After a '.' in a member access expression, treat the keyword
@@ -1811,7 +1811,8 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
                                     /*EnteringContext=*/false,
                                     /*AllowDestructorName=*/true,
                                     /*AllowConstructorName=*/
-                                      getLangOpts().MicrosoftExt,
+                                    getLangOpts().MicrosoftExt &&
+                                        SS.isNotEmpty(),
                                     /*AllowDeductionGuide=*/false,
                                     ObjectType, &TemplateKWLoc, Name)) {
         (void)Actions.CorrectDelayedTyposInExpr(LHS);
@@ -2024,8 +2025,10 @@ ExprResult Parser::ParseUnaryExprOrTypeTraitExpression() {
                                                           CastRange);
 
   UnaryExprOrTypeTrait ExprKind = UETT_SizeOf;
-  if (OpTok.isOneOf(tok::kw_alignof, tok::kw___alignof, tok::kw__Alignof))
+  if (OpTok.isOneOf(tok::kw_alignof, tok::kw__Alignof))
     ExprKind = UETT_AlignOf;
+  else if (OpTok.is(tok::kw___alignof))
+    ExprKind = UETT_PreferredAlignOf;
   else if (OpTok.is(tok::kw_vec_step))
     ExprKind = UETT_VecStep;
   else if (OpTok.is(tok::kw___builtin_omp_required_simd_align))
@@ -2338,7 +2341,7 @@ Parser::ParseParenExpression(ParenParseOption &ExprType, bool stopIfCastExpr,
   }
 
   // Diagnose use of bridge casts in non-arc mode.
-  bool BridgeCast = (getLangOpts().ObjC2 &&
+  bool BridgeCast = (getLangOpts().ObjC &&
                      Tok.isOneOf(tok::kw___bridge,
                                  tok::kw___bridge_transfer,
                                  tok::kw___bridge_retained,
@@ -2448,7 +2451,7 @@ Parser::ParseParenExpression(ParenParseOption &ExprType, bool stopIfCastExpr,
     // this is probably an Objective-C message send where the leading '[' is
     // missing. Recover as if that were the case.
     if (!DeclaratorInfo.isInvalidType() && Tok.is(tok::identifier) &&
-        !InMessageExpression && getLangOpts().ObjC1 &&
+        !InMessageExpression && getLangOpts().ObjC &&
         (NextToken().is(tok::colon) || NextToken().is(tok::r_square))) {
       TypeResult Ty;
       {
@@ -2534,7 +2537,7 @@ Parser::ParseParenExpression(ParenParseOption &ExprType, bool stopIfCastExpr,
         }
 
         // Reject the cast of super idiom in ObjC.
-        if (Tok.is(tok::identifier) && getLangOpts().ObjC1 &&
+        if (Tok.is(tok::identifier) && getLangOpts().ObjC &&
             Tok.getIdentifierInfo() == Ident_super &&
             getCurScope()->isInObjcMethodScope() &&
             GetLookAheadToken(1).isNot(tok::period)) {

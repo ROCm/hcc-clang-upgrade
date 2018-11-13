@@ -5635,23 +5635,18 @@ static void handleAMDGPUFlatWorkGroupSizeAttr(Sema &S, Decl *D,
       return;
   }
 
-  if (Min == 0 && Max != 0) {
-    S.Diag(AL.getLoc(), diag::err_attribute_argument_invalid) << AL << 0;
-    return;
+  if (MinExpr->isEvaluatable(S.Context) && MaxExpr->isEvaluatable(S.Context)) {
+    if (Min == 0 && Max != 0) {
+      S.Diag(AL.getLoc(), diag::err_attribute_argument_invalid) << AL << 0;
+      return;
+    }
+    if (Min > Max) {
+      S.Diag(AL.getLoc(), diag::err_attribute_argument_invalid) << AL << 1;
+      return;
+    }
   }
 
-  if (AL.getNumArgs() > 1 && Min > Max) {
-    S.Diag(AL.getLoc(), diag::err_attribute_argument_invalid)
-      << AL << 1;
-    return;
-  }
-
-  if (Min > Max) {
-    S.Diag(AL.getLoc(), diag::err_attribute_argument_invalid) << AL << 1;
-    return;
-  }
-
-  AMDGPUISAVersionChecker VC(S);
+ AMDGPUISAVersionChecker VC(S);
   StringRef ISA;
   if (VC.checkAMDGPUISAVersion(AL, 2, ISA))
     D->addAttr(::new (S.Context)
@@ -5669,9 +5664,9 @@ static void handleAMDGPUWavesPerEUAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
       !checkUInt32Argument(S, AL, MinExpr, Min))
     return;
 
-  uint32_t Max = Min;
-  Expr *MaxExpr = MinExpr;
-  if (AL.getNumArgs() > 1) {
+  Expr *MaxExpr = nullptr;
+  uint32_t Max = 0;
+  if (AL.getNumArgs() == 2) {
     MaxExpr = AL.getArgAsExpr(1);
     if (MaxExpr->isEvaluatable(S.Context) &&
         !checkUInt32Argument(S, AL, MaxExpr, Max))
@@ -6012,10 +6007,8 @@ static void handleDeprecatedAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
            !S.checkStringLiteralArgumentAttr(AL, 1, Replacement))
     return;
 
-  if (!S.getLangOpts().CPlusPlus14)
-    if (AL.isCXX11Attribute() &&
-        !(AL.hasScope() && AL.getScopeName()->isStr("gnu")))
-      S.Diag(AL.getLoc(), diag::ext_cxx14_attr) << AL;
+  if (!S.getLangOpts().CPlusPlus14 && AL.isCXX11Attribute() && !AL.isGNUScope())
+    S.Diag(AL.getLoc(), diag::ext_cxx14_attr) << AL;
 
   D->addAttr(::new (S.Context)
                  DeprecatedAttr(AL.getRange(), S.Context, Str, Replacement,
@@ -6948,7 +6941,9 @@ void Sema::ProcessDeclAttributeList(Scope *S, Decl *D,
   // good to have a way to specify "these attributes must appear as a group",
   // for these. Additionally, it would be good to have a way to specify "these
   // attribute must never appear as a group" for attributes like cold and hot.
-  if (!D->hasAttr<OpenCLKernelAttr>()) {
+  if (!D->hasAttr<OpenCLKernelAttr>() &&
+      (!D->hasAttr<AnnotateAttr>() ||
+       D->getAttr<AnnotateAttr>()->getAnnotation().find("__ROCCC_KERNEL__") == StringRef::npos)) {
     // These attributes cannot be applied to a non-kernel function.
     if (const auto *A = D->getAttr<ReqdWorkGroupSizeAttr>()) {
       // FIXME: This emits a different error message than
@@ -7974,7 +7969,7 @@ public:
 
   bool VisitObjCAvailabilityCheckExpr(ObjCAvailabilityCheckExpr *E) {
     SemaRef.Diag(E->getBeginLoc(), diag::warn_at_available_unchecked_use)
-        << (!SemaRef.getLangOpts().ObjC1);
+        << (!SemaRef.getLangOpts().ObjC);
     return true;
   }
 
@@ -8029,8 +8024,8 @@ void DiagnoseUnguardedAvailability::DiagnoseDeclAvailability(
     auto FixitDiag =
         SemaRef.Diag(Range.getBegin(), diag::note_unguarded_available_silence)
         << Range << D
-        << (SemaRef.getLangOpts().ObjC1 ? /*@available*/ 0
-                                        : /*__builtin_available*/ 1);
+        << (SemaRef.getLangOpts().ObjC ? /*@available*/ 0
+                                       : /*__builtin_available*/ 1);
 
     // Find the statement which should be enclosed in the if @available check.
     if (StmtStack.empty())
@@ -8074,8 +8069,8 @@ void DiagnoseUnguardedAvailability::DiagnoseDeclAvailability(
     const char *ExtraIndentation = "    ";
     std::string FixItString;
     llvm::raw_string_ostream FixItOS(FixItString);
-    FixItOS << "if (" << (SemaRef.getLangOpts().ObjC1 ? "@available"
-                                                      : "__builtin_available")
+    FixItOS << "if (" << (SemaRef.getLangOpts().ObjC ? "@available"
+                                                     : "__builtin_available")
             << "("
             << AvailabilityAttr::getPlatformNameSourceSpelling(
                    SemaRef.getASTContext().getTargetInfo().getPlatformName())

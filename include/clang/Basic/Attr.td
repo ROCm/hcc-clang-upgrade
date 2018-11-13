@@ -295,7 +295,7 @@ def CPlusPlus : LangOpt<"CPlusPlus">;
 def OpenCL : LangOpt<"OpenCL">;
 def RenderScript : LangOpt<"RenderScript">;
 def CPlusPlusAMP : LangOpt<"CPlusPlusAMP">;
-def ObjC : LangOpt<"ObjC1">;
+def ObjC : LangOpt<"ObjC">;
 def BlocksSupported : LangOpt<"Blocks">;
 
 // Defines targets for target-specific attributes. Empty lists are unchecked.
@@ -859,7 +859,7 @@ def Constructor : InheritableAttr {
 }
 
 def CPUSpecific : InheritableAttr {
-  let Spellings = [Clang<"cpu_specific">];
+  let Spellings = [Clang<"cpu_specific">, Declspec<"cpu_specific">];
   let Args = [VariadicIdentifierArgument<"Cpus">];
   let Subjects = SubjectList<[Function]>;
   let Documentation = [CPUSpecificCPUDispatchDocs];
@@ -873,7 +873,7 @@ def CPUSpecific : InheritableAttr {
 }
 
 def CPUDispatch : InheritableAttr {
-  let Spellings = [Clang<"cpu_dispatch">];
+  let Spellings = [Clang<"cpu_dispatch">, Declspec<"cpu_dispatch">];
   let Args = [VariadicIdentifierArgument<"Cpus">];
   let Subjects = SubjectList<[Function]>;
   let Documentation = [CPUSpecificCPUDispatchDocs];
@@ -1433,7 +1433,7 @@ def RISCVInterrupt : InheritableAttr, TargetSpecificAttr<TargetRISCV> {
 // this should be rejected on non-kernels.
 
 def AMDGPUFlatWorkGroupSize : InheritableAttr {
-  let Spellings = [Clang<"amdgpu_flat_work_group_size">,
+  let Spellings = [Clang<"amdgpu_flat_work_group_size",0>,
                    CXX11<"","hc_flat_workgroup_size", 201511>];
   let Args = [ExprArgument<"Min">,
               ExprArgument<"Max", 1>,
@@ -1441,10 +1441,11 @@ def AMDGPUFlatWorkGroupSize : InheritableAttr {
   let Documentation = [AMDGPUFlatWorkGroupSizeDocs];
   let TemplateDependent = 1;
   let Subjects = SubjectList<[Function], ErrorDiag, "kernel functions">;
+  let TemplateDependent = 1;
 }
 
 def AMDGPUWavesPerEU : InheritableAttr {
-  let Spellings = [Clang<"amdgpu_waves_per_eu">,
+  let Spellings = [Clang<"amdgpu_waves_per_eu",0>,
                    CXX11<"", "hc_waves_per_eu", 201511>];
   let Args = [ExprArgument<"Min">,
               ExprArgument<"Max", 1>,
@@ -1452,6 +1453,7 @@ def AMDGPUWavesPerEU : InheritableAttr {
   let Documentation = [AMDGPUWavesPerEUDocs];
   let TemplateDependent = 1;
   let Subjects = SubjectList<[Function], ErrorDiag, "kernel functions">;
+  let TemplateDependent = 1;
 }
 
 def AMDGPUNumSGPR : InheritableAttr {
@@ -2706,6 +2708,17 @@ def DLLExport : InheritableAttr, TargetSpecificAttr<TargetWindows> {
   let Documentation = [DLLExportDocs];
 }
 
+def DLLExportStaticLocal : InheritableAttr, TargetSpecificAttr<TargetWindows> {
+  // This attribute is used internally only when -fno-dllexport-inlines is
+  // passed. This attribute is added to inline function of class having
+  // dllexport attribute. And if the function has static local variables, this
+  // attribute is used to whether the variables are exported or not. Also if
+  // function has local static variables, the function is dllexported too.
+  let Spellings = [];
+  let Subjects = SubjectList<[Function]>;
+  let Documentation = [Undocumented];
+}
+
 def DLLImport : InheritableAttr, TargetSpecificAttr<TargetWindows> {
   let Spellings = [Declspec<"dllimport">, GCC<"dllimport">];
   let Subjects = SubjectList<[Function, Var, CXXRecord, ObjCInterface]>;
@@ -2720,6 +2733,16 @@ public:
   void setPropagatedToBaseTemplate() { PropagatedToBaseTemplate = true; }
   bool wasPropagatedToBaseTemplate() { return PropagatedToBaseTemplate; }
   }];
+}
+
+def DLLImportStaticLocal : InheritableAttr, TargetSpecificAttr<TargetWindows> {
+  // This attribute is used internally only when -fno-dllexport-inlines is
+  // passed. This attribute is added to inline function of class having
+  // dllimport attribute. And if the function has static local variables, this
+  // attribute is used to whether the variables are imported or not.
+  let Spellings = [];
+  let Subjects = SubjectList<[Function]>;
+  let Documentation = [Undocumented];
 }
 
 def SelectAny : InheritableAttr {
