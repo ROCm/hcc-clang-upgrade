@@ -296,7 +296,7 @@ void HCC::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
     std::string assembler;
     if (JA.ContainsActions(Action::AssembleJobClass, types::TY_HC_HOST))
       assembler = "hc-host-assemble";
-    else if (JA.ContainsActions(Action::AssembleJobClass, types::TY_HC_KERNEL)) {
+    else if (Args.hasArg(options::OPT_hc_mode)) {
       assembler = "hc-kernel-assemble";
       if (!Args.hasFlag(options::OPT_fgpu_rdc, options::OPT_fno_gpu_rdc, true)) {
         CmdArgs.push_back("--early_finalize");
