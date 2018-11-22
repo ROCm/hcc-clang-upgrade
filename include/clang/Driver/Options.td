@@ -782,6 +782,12 @@ def fno_profile_instr_use : Flag<["-"], "fno-profile-instr-use">,
     HelpText<"Disable using instrumentation data for profile-guided optimization">;
 def fno_profile_use : Flag<["-"], "fno-profile-use">,
     Alias<fno_profile_instr_use>;
+def fprofile_filter_files_EQ : Joined<["-"], "fprofile-filter-files=">,
+    Group<f_Group>, Flags<[CC1Option, CoreOption]>,
+    HelpText<"Instrument only functions from files where names match any regex separated by a semi-colon">;
+def fprofile_exclude_files_EQ : Joined<["-"], "fprofile-exclude-files=">,
+    Group<f_Group>, Flags<[CC1Option, CoreOption]>,
+    HelpText<"Instrument only functions from files where names don't match all the regexes separated by a semi-colon">;
 
 def faddrsig : Flag<["-"], "faddrsig">, Group<f_Group>, Flags<[CoreOption, CC1Option]>,
   HelpText<"Emit an address-significance table">;
@@ -1616,7 +1622,7 @@ def fshort_enums : Flag<["-"], "fshort-enums">, Group<f_Group>, Flags<[CC1Option
   HelpText<"Allocate to an enum type only as many bytes as it needs for the declared range of possible values">;
 def fchar8__t : Flag<["-"], "fchar8_t">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Enable C++ builtin type char8_t">;
-def fno_char8__t : Flag<["-"], "fno-char8_t">, Group<f_Group>,
+def fno_char8__t : Flag<["-"], "fno-char8_t">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Disable C++ builtin type char8_t">;
 def fshort_wchar : Flag<["-"], "fshort-wchar">, Group<f_Group>,
   HelpText<"Force wchar_t to be a short unsigned int">;
@@ -1796,6 +1802,10 @@ def fdebug_types_section: Flag <["-"], "fdebug-types-section">, Group<f_Group>,
   Flags<[CC1Option]>, HelpText<"Place debug types in their own section (ELF Only)">;
 def fno_debug_types_section: Flag<["-"], "fno-debug-types-section">, Group<f_Group>,
   Flags<[CC1Option]>;
+def fdebug_ranges_base_address: Flag <["-"], "fdebug-ranges-base-address">, Group<f_Group>,
+  Flags<[CC1Option]>, HelpText<"Use DWARF base address selection entries in debug_ranges">;
+def fno_debug_ranges_base_address: Flag <["-"], "fno-debug-ranges-base-address">, Group<f_Group>,
+  Flags<[CC1Option]>;
 def fsplit_dwarf_inlining: Flag <["-"], "fsplit-dwarf-inlining">, Group<f_Group>,
   Flags<[CC1Option]>, HelpText<"Provide minimal debug info in the object/executable to facilitate online symbolication/stack traces in the absence of .dwo/.dwp files when using Split DWARF">;
 def fno_split_dwarf_inlining: Flag<["-"], "fno-split-dwarf-inlining">, Group<f_Group>,
@@ -1830,9 +1840,15 @@ def gdwarf_4 : Flag<["-"], "gdwarf-4">, Group<g_Group>,
   HelpText<"Generate source-level debug information with dwarf version 4">;
 def gdwarf_5 : Flag<["-"], "gdwarf-5">, Group<g_Group>,
   HelpText<"Generate source-level debug information with dwarf version 5">;
+
 def gcodeview : Flag<["-"], "gcodeview">,
   HelpText<"Generate CodeView debug information">,
   Flags<[CC1Option, CC1AsOption, CoreOption]>;
+def gcodeview_ghash : Flag<["-"], "gcodeview-ghash">,
+  HelpText<"Emit type record hashes in a .debug$H section">,
+  Flags<[CC1Option, CoreOption]>;
+def gno_codeview_ghash : Flag<["-"], "gno-codeview-ghash">, Flags<[CoreOption]>;
+
 // Equivalent to our default dwarf version. Forces usual dwarf emission when
 // CodeView is enabled.
 def gdwarf : Flag<["-"], "gdwarf">, Alias<gdwarf_4>, Flags<[CoreOption]>;
@@ -1852,6 +1868,9 @@ def gno_strict_dwarf : Flag<["-"], "gno-strict-dwarf">, Group<g_flags_Group>;
 def gcolumn_info : Flag<["-"], "gcolumn-info">, Group<g_flags_Group>, Flags<[CoreOption]>;
 def gno_column_info : Flag<["-"], "gno-column-info">, Group<g_flags_Group>, Flags<[CoreOption]>;
 def gsplit_dwarf : Flag<["-"], "gsplit-dwarf">, Group<g_flags_Group>;
+def gsplit_dwarf_EQ : Joined<["-"], "gsplit-dwarf=">, Group<g_flags_Group>,
+  HelpText<"Set DWARF fission mode to either 'split' or 'single'">,
+  Values<"split,single">;
 def ggnu_pubnames : Flag<["-"], "ggnu-pubnames">, Group<g_flags_Group>, Flags<[CC1Option]>;
 def gno_gnu_pubnames : Flag<["-"], "gno-gnu-pubnames">, Group<g_flags_Group>, Flags<[CC1Option]>;
 def gpubnames : Flag<["-"], "gpubnames">, Group<g_flags_Group>, Flags<[CC1Option]>;

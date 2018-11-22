@@ -38,6 +38,7 @@
 #include "clang/Serialization/ASTReader.h"
 #include "clang/Serialization/GlobalModuleIndex.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Support/BuryPointer.h"
 #include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/FileSystem.h"
@@ -1726,7 +1727,9 @@ CompilerInstance::loadModule(SourceLocation ImportLoc,
     // module cache, we don't know how to rebuild modules.
     unsigned ARRFlags = Source == ModuleCache ?
                         ASTReader::ARR_OutOfDate | ASTReader::ARR_Missing :
-                        ASTReader::ARR_ConfigurationMismatch;
+                        Source == PrebuiltModulePath ?
+                            0 :
+                            ASTReader::ARR_ConfigurationMismatch;
     switch (ModuleManager->ReadAST(ModuleFileName,
                                    Source == PrebuiltModulePath
                                        ? serialization::MK_PrebuiltModule
@@ -2129,7 +2132,7 @@ CompilerInstance::lookupMissingImports(StringRef Name,
 
   return false;
 }
-void CompilerInstance::resetAndLeakSema() { BuryPointer(takeSema()); }
+void CompilerInstance::resetAndLeakSema() { llvm::BuryPointer(takeSema()); }
 
 void CompilerInstance::setExternalSemaSource(
     IntrusiveRefCntPtr<ExternalSemaSource> ESS) {

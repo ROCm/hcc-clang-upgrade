@@ -807,6 +807,29 @@ static void addPGOAndCoverageFlags(Compilation &C, const Driver &D,
     CmdArgs.push_back("-fcoverage-mapping");
   }
 
+  if (Args.hasArg(options::OPT_fprofile_exclude_files_EQ)) {
+    auto *Arg = Args.getLastArg(options::OPT_fprofile_exclude_files_EQ);
+    if (!Args.hasArg(options::OPT_coverage))
+      D.Diag(clang::diag::err_drv_argument_only_allowed_with)
+          << "-fprofile-exclude-files="
+          << "--coverage";
+
+    StringRef v = Arg->getValue();
+    CmdArgs.push_back(
+        Args.MakeArgString(Twine("-fprofile-exclude-files=" + v)));
+  }
+
+  if (Args.hasArg(options::OPT_fprofile_filter_files_EQ)) {
+    auto *Arg = Args.getLastArg(options::OPT_fprofile_filter_files_EQ);
+    if (!Args.hasArg(options::OPT_coverage))
+      D.Diag(clang::diag::err_drv_argument_only_allowed_with)
+          << "-fprofile-filter-files="
+          << "--coverage";
+
+    StringRef v = Arg->getValue();
+    CmdArgs.push_back(Args.MakeArgString(Twine("-fprofile-filter-files=" + v)));
+  }
+
   if (C.getArgs().hasArg(options::OPT_c) ||
       C.getArgs().hasArg(options::OPT_S)) {
     if (Output.isFilename()) {
@@ -2781,8 +2804,10 @@ static void RenderCharacterOptions(const ArgList &Args, const llvm::Triple &T,
     CmdArgs.push_back("-fno-signed-char");
   }
 
-  if (Args.hasFlag(options::OPT_fchar8__t, options::OPT_fno_char8__t, false))
-    CmdArgs.push_back("-fchar8_t");
+  // The default depends on the language standard.
+  if (const Arg *A =
+          Args.getLastArg(options::OPT_fchar8__t, options::OPT_fno_char8__t))
+    A->render(Args, CmdArgs);
 
   if (const Arg *A = Args.getLastArg(options::OPT_fshort_wchar,
                                      options::OPT_fno_short_wchar)) {
@@ -2995,12 +3020,35 @@ static void RenderDiagnosticsOptions(const Driver &D, const ArgList &Args,
     CmdArgs.push_back("-fno-spell-checking");
 }
 
+enum class DwarfFissionKind { None, Split, Single };
+
+static DwarfFissionKind getDebugFissionKind(const Driver &D,
+                                            const ArgList &Args, Arg *&Arg) {
+  Arg =
+      Args.getLastArg(options::OPT_gsplit_dwarf, options::OPT_gsplit_dwarf_EQ);
+  if (!Arg)
+    return DwarfFissionKind::None;
+
+  if (Arg->getOption().matches(options::OPT_gsplit_dwarf))
+    return DwarfFissionKind::Split;
+
+  StringRef Value = Arg->getValue();
+  if (Value == "split")
+    return DwarfFissionKind::Split;
+  if (Value == "single")
+    return DwarfFissionKind::Single;
+
+  D.Diag(diag::err_drv_unsupported_option_argument)
+      << Arg->getOption().getName() << Arg->getValue();
+  return DwarfFissionKind::None;
+}
+
 static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
                                const llvm::Triple &T, const ArgList &Args,
                                bool EmitCodeView, bool IsWindowsMSVC,
                                bool IsHCCKernelPath, ArgStringList &CmdArgs,
                                codegenoptions::DebugInfoKind &DebugInfoKind,
-                               const Arg *&SplitDWARFArg) {
+                               DwarfFissionKind &DwarfFission) {
   if (Args.hasFlag(options::OPT_fdebug_info_for_profiling,
                    options::OPT_fno_debug_info_for_profiling, false) &&
       checkDebugInfoOption(
@@ -3025,10 +3073,12 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
 
   Args.ClaimAllArgs(options::OPT_g_Group);
 
-  SplitDWARFArg = Args.getLastArg(options::OPT_gsplit_dwarf);
+  Arg* SplitDWARFArg;
+  DwarfFission = getDebugFissionKind(D, Args, SplitDWARFArg);
 
-  if (SplitDWARFArg && !checkDebugInfoOption(SplitDWARFArg, Args, D, TC)) {
-    SplitDWARFArg = nullptr;
+  if (DwarfFission != DwarfFissionKind::None &&
+      !checkDebugInfoOption(SplitDWARFArg, Args, D, TC)) {
+    DwarfFission = DwarfFissionKind::None;
     SplitDWARFInlining = false;
   }
 
@@ -3045,13 +3095,13 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
         // composing split-dwarf and line-tables-only, so let those compose
         // naturally in that case. And if you just turned off debug info,
         // (-gsplit-dwarf -g0) - do that.
-        if (SplitDWARFArg) {
+        if (DwarfFission != DwarfFissionKind::None) {
           if (A->getIndex() > SplitDWARFArg->getIndex()) {
             if (DebugInfoKind == codegenoptions::NoDebugInfo ||
                 DebugInfoKind == codegenoptions::DebugDirectivesOnly ||
                 (DebugInfoKind == codegenoptions::DebugLineTablesOnly &&
                  SplitDWARFInlining))
-              SplitDWARFArg = nullptr;
+              DwarfFission = DwarfFissionKind::None;
           } else if (SplitDWARFInlining)
             DebugInfoKind = codegenoptions::NoDebugInfo;
         }
@@ -3086,21 +3136,24 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
     if (checkDebugInfoOption(A, Args, D, TC))
       DWARFVersion = DwarfVersionNum(A->getSpelling());
 
-  // Forward -gcodeview. EmitCodeView might have been set by CL-compatibility
-  // argument parsing.
-  if (EmitCodeView) {
-    if (const Arg *A = Args.getLastArg(options::OPT_gcodeview)) {
-      EmitCodeView = checkDebugInfoOption(A, Args, D, TC);
-      if (EmitCodeView) {
-        // DWARFVersion remains at 0 if no explicit choice was made.
-        CmdArgs.push_back("-gcodeview");
-      }
-    }
+  if (const Arg *A = Args.getLastArg(options::OPT_gcodeview)) {
+    if (checkDebugInfoOption(A, Args, D, TC))
+      EmitCodeView = true;
   }
 
+  // If the user asked for debug info but did not explicitly specify -gcodeview
+  // or -gdwarf, ask the toolchain for the default format.
   if (!EmitCodeView && DWARFVersion == 0 &&
-      DebugInfoKind != codegenoptions::NoDebugInfo)
-    DWARFVersion = TC.GetDefaultDwarfVersion();
+      DebugInfoKind != codegenoptions::NoDebugInfo) {
+    switch (TC.getDefaultDebugFormat()) {
+    case codegenoptions::DIF_CodeView:
+      EmitCodeView = true;
+      break;
+    case codegenoptions::DIF_DWARF:
+      DWARFVersion = TC.GetDefaultDwarfVersion();
+      break;
+    }
+  }
 
   // -gline-directives-only supported only for the DWARF debug info.
   if (DWARFVersion == 0 && DebugInfoKind == codegenoptions::DebugDirectivesOnly)
@@ -3141,10 +3194,14 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
     if (!SplitDWARFInlining)
       CmdArgs.push_back("-fno-split-dwarf-inlining");
 
-    if (SplitDWARFArg) {
+    if (DwarfFission != DwarfFissionKind::None) {
       if (DebugInfoKind == codegenoptions::NoDebugInfo)
         DebugInfoKind = codegenoptions::LimitedDebugInfo;
-      CmdArgs.push_back("-enable-split-dwarf");
+
+      if (DwarfFission == DwarfFissionKind::Single)
+        CmdArgs.push_back("-enable-split-dwarf=single");
+      else
+        CmdArgs.push_back("-enable-split-dwarf");
     }
   }
 
@@ -3175,6 +3232,16 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
       CmdArgs.push_back("-gembed-source");
   }
 
+  if (EmitCodeView) {
+    CmdArgs.push_back("-gcodeview");
+
+    // Emit codeview type hashes if requested.
+    if (Args.hasFlag(options::OPT_gcodeview_ghash,
+                     options::OPT_gno_codeview_ghash, false)) {
+      CmdArgs.push_back("-gcodeview-ghash");
+    }
+  }
+
   RenderDebugEnablingArgs(Args, CmdArgs, DebugInfoKind, DWARFVersion,
                           DebuggerTuning);
 
@@ -3189,7 +3256,8 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
   const auto *PubnamesArg =
       Args.getLastArg(options::OPT_ggnu_pubnames, options::OPT_gno_gnu_pubnames,
                       options::OPT_gpubnames, options::OPT_gno_pubnames);
-  if (SplitDWARFArg || DebuggerTuning == llvm::DebuggerKind::LLDB ||
+  if (DwarfFission != DwarfFissionKind::None ||
+      DebuggerTuning == llvm::DebuggerKind::LLDB ||
       (PubnamesArg && checkDebugInfoOption(PubnamesArg, Args, D, TC)))
     if (!PubnamesArg ||
         (!PubnamesArg->getOption().matches(options::OPT_gno_gnu_pubnames) &&
@@ -3198,6 +3266,11 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
                                            options::OPT_gpubnames)
                             ? "-gpubnames"
                             : "-ggnu-pubnames");
+
+  if (Args.hasFlag(options::OPT_fdebug_ranges_base_address,
+                   options::OPT_fno_debug_ranges_base_address, false)) {
+    CmdArgs.push_back("-fdebug-ranges-base-address");
+  }
 
   // -gdwarf-aranges turns on the emission of the aranges section in the
   // backend.
@@ -3919,23 +3992,21 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   types::ID InputType = Input.getType();
   if (D.IsCLMode())
     AddClangCLArgs(Args, InputType, CmdArgs, &DebugInfoKind, &EmitCodeView);
-  else
-    EmitCodeView = Args.hasArg(options::OPT_gcodeview);
 
-  const Arg *SplitDWARFArg = nullptr;
-  RenderDebugOptions(TC, D, RawTriple, Args, EmitCodeView,
-                     IsWindowsMSVC, IsHCCKernelPath, CmdArgs, DebugInfoKind, SplitDWARFArg);
+  DwarfFissionKind DwarfFission;
+  RenderDebugOptions(TC, D, RawTriple, Args, EmitCodeView, IsWindowsMSVC, IsHCCKernelPath,
+                     CmdArgs, DebugInfoKind, DwarfFission);
 
   // Add the split debug info name to the command lines here so we
   // can propagate it to the backend.
-  bool SplitDWARF = SplitDWARFArg &&
+  bool SplitDWARF = (DwarfFission != DwarfFissionKind::None) &&
                     (RawTriple.isOSLinux() || RawTriple.isOSFuchsia()) &&
                     (isa<AssembleJobAction>(JA) || isa<CompileJobAction>(JA) ||
                      isa<BackendJobAction>(JA));
   const char *SplitDWARFOut;
   if (SplitDWARF) {
     CmdArgs.push_back("-split-dwarf-file");
-    SplitDWARFOut = SplitDebugName(Args, Input);
+    SplitDWARFOut = SplitDebugName(Args, Output);
     CmdArgs.push_back(SplitDWARFOut);
   }
 
@@ -4935,7 +5006,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // nice to enable this when doing a crashdump for modules as well.
   if (Args.hasFlag(options::OPT_frewrite_includes,
                    options::OPT_fno_rewrite_includes, false) ||
-      (C.isForDiagnostics() && (RewriteImports || !HaveModules)))
+      (C.isForDiagnostics() && !HaveModules))
     CmdArgs.push_back("-frewrite-includes");
 
   // Only allow -traditional or -traditional-cpp outside in preprocessing modes.
@@ -5545,7 +5616,6 @@ void Clang::AddClangCLArgs(const ArgList &Args, types::ID InputType,
       *DebugInfoKind = codegenoptions::LimitedDebugInfo;
     else
       *DebugInfoKind = codegenoptions::DebugLineTablesOnly;
-    CmdArgs.push_back("-gcodeview");
   } else {
     *EmitCodeView = false;
   }
@@ -5581,8 +5651,13 @@ void Clang::AddClangCLArgs(const ArgList &Args, types::ID InputType,
 
  if (Args.hasFlag(options::OPT__SLASH_Zc_dllexportInlines_,
                   options::OPT__SLASH_Zc_dllexportInlines,
-                  false))
+                  false)) {
+   if (Args.hasArg(options::OPT__SLASH_fallback)) {
+     D.Diag(clang::diag::err_drv_dllexport_inlines_and_fallback);
+   } else {
     CmdArgs.push_back("-fno-dllexport-inlines");
+   }
+ }
 
   Arg *MostGeneralArg = Args.getLastArg(options::OPT__SLASH_vmg);
   Arg *BestCaseArg = Args.getLastArg(options::OPT__SLASH_vmb);
@@ -5932,10 +6007,11 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
   CmdArgs.push_back(Output.getFilename());
 
   const llvm::Triple &T = getToolChain().getTriple();
-  if (Args.hasArg(options::OPT_gsplit_dwarf) &&
+  Arg *A;
+  if ((getDebugFissionKind(D, Args, A) == DwarfFissionKind::Split) &&
       (T.isOSLinux() || T.isOSFuchsia())) {
     CmdArgs.push_back("-split-dwarf-file");
-    CmdArgs.push_back(SplitDebugName(Args, Input));
+    CmdArgs.push_back(SplitDebugName(Args, Output));
   }
 
   assert(Input.isFilename() && "Invalid input.");

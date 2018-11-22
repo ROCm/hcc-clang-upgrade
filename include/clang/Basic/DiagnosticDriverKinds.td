@@ -161,6 +161,9 @@ def warn_drv_yc_multiple_inputs_clang_cl : Warning<
   "support for '/Yc' with more than one source file not implemented yet; flag ignored">,
   InGroup<ClangClPch>;
 
+def err_drv_dllexport_inlines_and_fallback : Error<
+  "option '/Zc:dllexportInlines-' is ABI-changing and not compatible with '/fallback'">;
+
 def err_drv_invalid_value : Error<"invalid value '%1' in '%0'">;
 def err_drv_invalid_int_value : Error<"invalid integral value '%1' in '%0'">;
 def err_drv_invalid_remap_file : Error<
@@ -370,7 +373,7 @@ def warn_drv_unsupported_pic_with_mabicalls : Warning<
   "%select{implicit usage of|}1 -mabicalls and the N64 ABI">,
   InGroup<OptionIgnored>;
 def err_drv_unsupported_noabicalls_pic : Error<
-  "position-independent code requires ‘-mabicalls’">;
+  "position-independent code requires '-mabicalls'">;
 def err_drv_unsupported_indirect_jump_opt : Error<
   "'-mindirect-jump=%0' is unsupported with the '%1' architecture">;
 def err_drv_unknown_indirect_jump_opt : Error<

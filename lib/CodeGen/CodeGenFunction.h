@@ -1197,6 +1197,8 @@ public:
 
 private:
   CGDebugInfo *DebugInfo;
+  /// Used to create unique names for artificial VLA size debug info variables.
+  unsigned VLAExprCounter = 0;
   bool DisableDebugInfo = false;
 
   /// DidCallStackSave - Whether llvm.stacksave has been called. Used to avoid
@@ -1854,7 +1856,7 @@ public:
   void FinishThunk();
 
   /// Emit a musttail call for a thunk with a potentially adjusted this pointer.
-  void EmitMustTailThunk(const CXXMethodDecl *MD, llvm::Value *AdjustedThisPtr,
+  void EmitMustTailThunk(GlobalDecl GD, llvm::Value *AdjustedThisPtr,
                          llvm::Value *Callee);
 
   /// Generate a thunk for the given method.
@@ -3691,9 +3693,8 @@ public:
   RValue EmitNVPTXDevicePrintfCallExpr(const CallExpr *E,
                                        ReturnValueSlot ReturnValue);
 
-  RValue EmitBuiltinExpr(const FunctionDecl *FD,
-                         unsigned BuiltinID, const CallExpr *E,
-                         ReturnValueSlot ReturnValue);
+  RValue EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
+                         const CallExpr *E, ReturnValueSlot ReturnValue);
 
   RValue emitRotate(const CallExpr *E, bool IsRotateRight);
 

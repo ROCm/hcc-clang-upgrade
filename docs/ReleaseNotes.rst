@@ -64,6 +64,12 @@ Non-comprehensive list of changes in this release
 New Compiler Flags
 ------------------
 
+- ``-fprofile-filter-files=[regexes]`` and ``-fprofile-exclude-files=[regexes]``.
+
+  Clang has now options to filter or exclude some files when
+  instrumenting for gcov-based profiling.
+  See the :doc:`UsersManual` for details.
+
 - ...
 
 Deprecated Compiler Flags
@@ -102,6 +108,11 @@ Windows Support
   filename, a `#pragma hdrstop` inside the source marks the end of the
   precompiled code.
 
+- clang-cl has a new command-line option, ``/Zc:dllexportInlines-``, similar to
+  ``-fvisibility-inlines-hidden`` on non-Windows, that makes class-level
+  `dllexport` and `dllimport` attributes not apply to inline member functions.
+  This can significantly reduce compile and link times. See the `User's Manual
+  <UsersManual.html#the-zc-dllexportinlines-option>`_ for more info.
 - ...
 
 
@@ -222,6 +233,9 @@ Undefined Behavior Sanitizer (UBSan)
   but the ``-fsanitize=implicit-integer-sign-change`` check
   is enabled by ``-fsanitize=integer``.
   (as is ``-fsanitize=implicit-integer-truncation`` check)
+
+* The Implicit Conversion Sanitizer (``-fsanitize=implicit-conversion``) has
+  learned to sanitize compound assignment operators.
 
 Core Analysis Improvements
 ==========================

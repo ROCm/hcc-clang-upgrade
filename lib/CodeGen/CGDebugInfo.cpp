@@ -581,12 +581,16 @@ void CGDebugInfo::CreateCompileUnit() {
       CGOpts.EmitVersionIdentMetadata ? Producer : "",
       LO.Optimize || CGOpts.PrepareForLTO || CGOpts.PrepareForThinLTO,
       CGOpts.DwarfDebugFlags, RuntimeVers,
-      CGOpts.EnableSplitDwarf ? "" : CGOpts.SplitDwarfFile, EmissionKind,
-      0 /* DWOid */, CGOpts.SplitDwarfInlining, CGOpts.DebugInfoForProfiling,
+      (CGOpts.getSplitDwarfMode() != CodeGenOptions::NoFission)
+          ? ""
+          : CGOpts.SplitDwarfFile,
+      EmissionKind, 0 /* DWOid */, CGOpts.SplitDwarfInlining,
+      CGOpts.DebugInfoForProfiling,
       CGM.getTarget().getTriple().isNVPTX()
           ? llvm::DICompileUnit::DebugNameTableKind::None
           : static_cast<llvm::DICompileUnit::DebugNameTableKind>(
-                CGOpts.DebugNameTable));
+                CGOpts.DebugNameTable),
+      CGOpts.DebugRangesBaseAddress);
 }
 
 llvm::DIType *CGDebugInfo::CreateType(const BuiltinType *BT) {
@@ -1490,16 +1494,16 @@ llvm::DISubprogram *CGDebugInfo::CreateCXXMemberFunction(
 
   // Collect virtual method info.
   llvm::DIType *ContainingType = nullptr;
-  unsigned Virtuality = 0;
   unsigned VIndex = 0;
   llvm::DINode::DIFlags Flags = llvm::DINode::FlagZero;
+  llvm::DISubprogram::DISPFlags SPFlags = llvm::DISubprogram::SPFlagZero;
   int ThisAdjustment = 0;
 
   if (Method->isVirtual()) {
     if (Method->isPure())
-      Virtuality = llvm::dwarf::DW_VIRTUALITY_pure_virtual;
+      SPFlags |= llvm::DISubprogram::SPFlagPureVirtual;
     else
-      Virtuality = llvm::dwarf::DW_VIRTUALITY_virtual;
+      SPFlags |= llvm::DISubprogram::SPFlagVirtual;
 
     if (CGM.getTarget().getCXXABI().isItaniumFamily()) {
       // It doesn't make sense to give a virtual destructor a vtable index,
@@ -1551,12 +1555,13 @@ llvm::DISubprogram *CGDebugInfo::CreateCXXMemberFunction(
     Flags |= llvm::DINode::FlagLValueReference;
   if (Method->getRefQualifier() == RQ_RValue)
     Flags |= llvm::DINode::FlagRValueReference;
+  if (CGM.getLangOpts().Optimize)
+    SPFlags |= llvm::DISubprogram::SPFlagOptimized;
 
   llvm::DINodeArray TParamsArray = CollectFunctionTemplateParams(Method, Unit);
   llvm::DISubprogram *SP = DBuilder.createMethod(
       RecordTy, MethodName, MethodLinkageName, MethodDefUnit, MethodLine,
-      MethodTy, /*isLocalToUnit=*/false, /*isDefinition=*/false, Virtuality,
-      VIndex, ThisAdjustment, ContainingType, Flags, CGM.getLangOpts().Optimize,
+      MethodTy, VIndex, ThisAdjustment, ContainingType, Flags, SPFlags,
       TParamsArray.get());
 
   SPCache[Method->getCanonicalDecl()].reset(SP);
@@ -3164,6 +3169,7 @@ llvm::DISubprogram *CGDebugInfo::getFunctionFwdDeclOrStub(GlobalDecl GD,
   llvm::DINodeArray TParamsArray;
   StringRef Name, LinkageName;
   llvm::DINode::DIFlags Flags = llvm::DINode::FlagZero;
+  llvm::DISubprogram::DISPFlags SPFlags = llvm::DISubprogram::SPFlagZero;
   SourceLocation Loc = GD.getDecl()->getLocation();
   llvm::DIFile *Unit = getOrCreateFile(Loc);
   llvm::DIScope *DContext = Unit;
@@ -3180,21 +3186,23 @@ llvm::DISubprogram *CGDebugInfo::getFunctionFwdDeclOrStub(GlobalDecl GD,
   CallingConv CC = FD->getType()->castAs<FunctionType>()->getCallConv();
   QualType FnType = CGM.getContext().getFunctionType(
       FD->getReturnType(), ArgTypes, FunctionProtoType::ExtProtoInfo(CC));
+  if (!FD->isExternallyVisible())
+    SPFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+  if (CGM.getLangOpts().Optimize)
+    SPFlags |= llvm::DISubprogram::SPFlagOptimized;
+
   if (Stub) {
     Flags |= getCallSiteRelatedAttrs();
+    SPFlags |= llvm::DISubprogram::SPFlagDefinition;
     return DBuilder.createFunction(
         DContext, Name, LinkageName, Unit, Line,
-        getOrCreateFunctionType(GD.getDecl(), FnType, Unit),
-        !FD->isExternallyVisible(),
-        /* isDefinition = */ true, 0, Flags, CGM.getLangOpts().Optimize,
+        getOrCreateFunctionType(GD.getDecl(), FnType, Unit), 0, Flags, SPFlags,
         TParamsArray.get(), getFunctionDeclaration(FD));
   }
 
   llvm::DISubprogram *SP = DBuilder.createTempFunctionFwdDecl(
       DContext, Name, LinkageName, Unit, Line,
-      getOrCreateFunctionType(GD.getDecl(), FnType, Unit),
-      !FD->isExternallyVisible(),
-      /* isDefinition = */ false, 0, Flags, CGM.getLangOpts().Optimize,
+      getOrCreateFunctionType(GD.getDecl(), FnType, Unit), 0, Flags, SPFlags,
       TParamsArray.get(), getFunctionDeclaration(FD));
   const FunctionDecl *CanonDecl = FD->getCanonicalDecl();
   FwdDeclReplaceMap.emplace_back(std::piecewise_construct,
@@ -3382,6 +3390,7 @@ void CGDebugInfo::EmitFunctionStart(GlobalDecl GD, SourceLocation Loc,
   bool HasDecl = (D != nullptr);
 
   llvm::DINode::DIFlags Flags = llvm::DINode::FlagZero;
+  llvm::DISubprogram::DISPFlags SPFlags = llvm::DISubprogram::SPFlagZero;
   llvm::DIFile *Unit = getOrCreateFile(Loc);
   llvm::DIScope *FDContext = Unit;
   llvm::DINodeArray TParamsArray;
@@ -3421,7 +3430,14 @@ void CGDebugInfo::EmitFunctionStart(GlobalDecl GD, SourceLocation Loc,
   if (CurFuncIsThunk)
     Flags |= llvm::DINode::FlagThunk;
 
+  if (Fn->hasLocalLinkage())
+    SPFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+  if (CGM.getLangOpts().Optimize)
+    SPFlags |= llvm::DISubprogram::SPFlagOptimized;
+
   llvm::DINode::DIFlags FlagsForDef = Flags | getCallSiteRelatedAttrs();
+  llvm::DISubprogram::DISPFlags SPFlagsForDef =
+      SPFlags | llvm::DISubprogram::SPFlagDefinition;
 
   unsigned LineNo = getLineNumber(Loc);
   unsigned ScopeLine = getLineNumber(ScopeLoc);
@@ -3433,9 +3449,8 @@ void CGDebugInfo::EmitFunctionStart(GlobalDecl GD, SourceLocation Loc,
   // are emitted as CU level entities by the backend.
   llvm::DISubprogram *SP = DBuilder.createFunction(
       FDContext, Name, LinkageName, Unit, LineNo,
-      getOrCreateFunctionType(D, FnType, Unit), Fn->hasLocalLinkage(),
-      true /*definition*/, ScopeLine, FlagsForDef, CGM.getLangOpts().Optimize,
-      TParamsArray.get(), getFunctionDeclaration(D));
+      getOrCreateFunctionType(D, FnType, Unit), ScopeLine, FlagsForDef,
+      SPFlagsForDef, TParamsArray.get(), getFunctionDeclaration(D));
   Fn->setSubprogram(SP);
   // We might get here with a VarDecl in the case we're generating
   // code for the initialization of globals. Do not record these decls
@@ -3455,8 +3470,7 @@ void CGDebugInfo::EmitFunctionStart(GlobalDecl GD, SourceLocation Loc,
             cast<llvm::DICompositeType>(It->second);
         llvm::DISubprogram *FD = DBuilder.createFunction(
             InterfaceDecl, Name, LinkageName, Unit, LineNo,
-            getOrCreateFunctionType(D, FnType, Unit), Fn->hasLocalLinkage(),
-            false /*definition*/, ScopeLine, Flags, CGM.getLangOpts().Optimize,
+            getOrCreateFunctionType(D, FnType, Unit), ScopeLine, Flags, SPFlags,
             TParamsArray.get());
         DBuilder.finalizeSubprogram(FD);
         ObjCMethodCache[ID].push_back(FD);
@@ -3505,11 +3519,13 @@ void CGDebugInfo::EmitFunctionDecl(GlobalDecl GD, SourceLocation Loc,
   }
   unsigned LineNo = getLineNumber(Loc);
   unsigned ScopeLine = 0;
+  llvm::DISubprogram::DISPFlags SPFlags = llvm::DISubprogram::SPFlagZero;
+  if (CGM.getLangOpts().Optimize)
+    SPFlags |= llvm::DISubprogram::SPFlagOptimized;
 
   DBuilder.retainType(DBuilder.createFunction(
       FDContext, Name, LinkageName, Unit, LineNo,
-      getOrCreateFunctionType(D, FnType, Unit), false /*internalLinkage*/,
-      false /*definition*/, ScopeLine, Flags, CGM.getLangOpts().Optimize,
+      getOrCreateFunctionType(D, FnType, Unit), ScopeLine, Flags, SPFlags,
       TParamsArray.get(), getFunctionDeclaration(D)));
 }
 
@@ -3538,7 +3554,7 @@ void CGDebugInfo::EmitLocation(CGBuilderTy &Builder, SourceLocation Loc) {
   // Update our current location
   setLocation(Loc);
 
-  if (CurLoc.isInvalid() || CurLoc.isMacroID())
+  if (CurLoc.isInvalid() || CurLoc.isMacroID() || LexicalBlockStack.empty())
     return;
 
   llvm::MDNode *Scope = LexicalBlockStack.back();

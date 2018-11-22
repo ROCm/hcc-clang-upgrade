@@ -1559,6 +1559,32 @@ Sema::ActOnStringLiteral(ArrayRef<Token> StringToks, Scope *UDLScope) {
     CharTy = Context.UnsignedCharTy;
   }
 
+  // Warn on initializing an array of char from a u8 string literal; this
+  // becomes ill-formed in C++2a.
+  if (getLangOpts().CPlusPlus && !getLangOpts().CPlusPlus2a &&
+      !getLangOpts().Char8 && Kind == StringLiteral::UTF8) {
+    Diag(StringTokLocs.front(), diag::warn_cxx2a_compat_utf8_string);
+
+    // Create removals for all 'u8' prefixes in the string literal(s). This
+    // ensures C++2a compatibility (but may change the program behavior when
+    // built by non-Clang compilers for which the execution character set is
+    // not always UTF-8).
+    auto RemovalDiag = PDiag(diag::note_cxx2a_compat_utf8_string_remove_u8);
+    SourceLocation RemovalDiagLoc;
+    for (const Token &Tok : StringToks) {
+      if (Tok.getKind() == tok::utf8_string_literal) {
+        if (RemovalDiagLoc.isInvalid())
+          RemovalDiagLoc = Tok.getLocation();
+        RemovalDiag << FixItHint::CreateRemoval(CharSourceRange::getCharRange(
+            Tok.getLocation(),
+            Lexer::AdvanceToTokenCharacter(Tok.getLocation(), 2,
+                                           getSourceManager(), getLangOpts())));
+      }
+    }
+    Diag(RemovalDiagLoc, RemovalDiag);
+  }
+
+
   QualType CharTyConst = CharTy;
   // A C++ string literal has a const-qualified element type (C++ 2.13.4p1).
   if (getLangOpts().CPlusPlus || getLangOpts().ConstStrings)
@@ -5881,21 +5907,6 @@ Sema::BuildCompoundLiteralExpr(SourceLocation LParenLoc, TypeSourceInfo *TInfo,
   LiteralExpr = Result.get();
 
   bool isFileScope = !CurContext->isFunctionOrMethod();
-  if (isFileScope) {
-    if (!LiteralExpr->isTypeDependent() &&
-        !LiteralExpr->isValueDependent() &&
-        !literalType->isDependentType()) // C99 6.5.2.5p3
-      if (CheckForConstantInitializer(LiteralExpr, literalType))
-        return ExprError();
-  } else if (literalType.getAddressSpace() != LangAS::opencl_private &&
-             literalType.getAddressSpace() != LangAS::Default) {
-    // Embedded-C extensions to C99 6.5.2.5:
-    //   "If the compound literal occurs inside the body of a function, the
-    //   type name shall not be qualified by an address-space qualifier."
-    Diag(LParenLoc, diag::err_compound_literal_with_address_space)
-      << SourceRange(LParenLoc, LiteralExpr->getSourceRange().getEnd());
-    return ExprError();
-  }
 
   // In C, compound literals are l-values for some reason.
   // For GCC compatibility, in C++, file-scope array compound literals with
@@ -5920,9 +5931,26 @@ Sema::BuildCompoundLiteralExpr(SourceLocation LParenLoc, TypeSourceInfo *TInfo,
           ? VK_RValue
           : VK_LValue;
 
-  return MaybeBindToTemporary(
-      new (Context) CompoundLiteralExpr(LParenLoc, TInfo, literalType,
-                                        VK, LiteralExpr, isFileScope));
+  Expr *E = new (Context) CompoundLiteralExpr(LParenLoc, TInfo, literalType,
+                                              VK, LiteralExpr, isFileScope);
+  if (isFileScope) {
+    if (!LiteralExpr->isTypeDependent() &&
+        !LiteralExpr->isValueDependent() &&
+        !literalType->isDependentType()) // C99 6.5.2.5p3
+      if (CheckForConstantInitializer(LiteralExpr, literalType))
+        return ExprError();
+    E = new (Context) ConstantExpr(E);
+  } else if (literalType.getAddressSpace() != LangAS::opencl_private &&
+             literalType.getAddressSpace() != LangAS::Default) {
+    // Embedded-C extensions to C99 6.5.2.5:
+    //   "If the compound literal occurs inside the body of a function, the
+    //   type name shall not be qualified by an address-space qualifier."
+    Diag(LParenLoc, diag::err_compound_literal_with_address_space)
+      << SourceRange(LParenLoc, LiteralExpr->getSourceRange().getEnd());
+    return ExprError();
+  }
+
+  return MaybeBindToTemporary(E);
 }
 
 ExprResult
@@ -14284,7 +14312,7 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
   if (!getLangOpts().CPlusPlus11 && E->isIntegerConstantExpr(Context)) {
     if (Result)
       *Result = E->EvaluateKnownConstIntCheckOverflow(Context);
-    return E;
+    return new (Context) ConstantExpr(E);
   }
 
   Expr::EvalResult EvalResult;
@@ -14302,7 +14330,7 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
   if (Folded && getLangOpts().CPlusPlus11 && Notes.empty()) {
     if (Result)
       *Result = EvalResult.Val.getInt();
-    return E;
+    return new (Context) ConstantExpr(E);
   }
 
   // If our only note is the usual "invalid subexpression" note, just point
@@ -14330,7 +14358,7 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
 
   if (Result)
     *Result = EvalResult.Val.getInt();
-  return E;
+  return new (Context) ConstantExpr(E);
 }
 
 namespace {
