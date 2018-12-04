@@ -36,14 +36,14 @@ HCCInstallationDetector::HCCInstallationDetector(const Driver &D, const llvm::op
   if (Args.hasArg(options::OPT_hcc_path_EQ))
     HCCPathCandidates.push_back(
       Args.getLastArgValue(options::OPT_hcc_path_EQ));
-    
+
   HCCPathCandidates.push_back(InstallPath + "/..");
   HCCPathCandidates.push_back(BinPath + "/..");
   HCCPathCandidates.push_back(BinPath + "/../..");
 
   for (const auto &HCCPath: HCCPathCandidates) {
     if (HCCPath.empty() ||
-        !(FS.exists(HCCPath + "/include/hc.hpp") || FS.exists(HCCPath + "/include/hcc/hc.hpp")) || 
+        !(FS.exists(HCCPath + "/include/hc.hpp") || FS.exists(HCCPath + "/include/hcc/hc.hpp")) ||
         !FS.exists(HCCPath + "/lib/libmcwamp.a"))
       continue;
 
@@ -66,7 +66,7 @@ void HCCInstallationDetector::AddHCCLibArgs(const llvm::opt::ArgList &Args, llvm
   if (IsValid) {
     // add verbose flag to linker script if clang++ is invoked with --verbose flag
     if (Args.hasArg(options::OPT_v)) CmdArgs.push_back("--verbose");
-        
+
     // Reverse translate the -lstdc++ option
     // Or add -lstdc++ when running on RHEL 7 or CentOS 7
     if (Args.hasArg(options::OPT_Z_reserved_lib_stdcxx) ||

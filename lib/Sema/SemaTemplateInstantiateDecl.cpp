@@ -365,6 +365,20 @@ void Sema::InstantiateAttrsForDecl(
   }
 }
 
+static Sema::RetainOwnershipKind
+attrToRetainOwnershipKind(const Attr *A) {
+  switch (A->getKind()) {
+  case clang::attr::CFConsumed:
+    return Sema::RetainOwnershipKind::CF;
+  case clang::attr::OSConsumed:
+    return Sema::RetainOwnershipKind::OS;
+  case clang::attr::NSConsumed:
+    return Sema::RetainOwnershipKind::NS;
+  default:
+    llvm_unreachable("Wrong argument supplied");
+  }
+}
+
 void Sema::InstantiateAttrs(const MultiLevelTemplateArgumentList &TemplateArgs,
                             const Decl *Tmpl, Decl *New,
                             LateInstantiatedAttrVec *LateAttrs,
@@ -438,11 +452,12 @@ void Sema::InstantiateAttrs(const MultiLevelTemplateArgumentList &TemplateArgs,
       continue;
     }
 
-    if (isa<NSConsumedAttr>(TmplAttr) || isa<CFConsumedAttr>(TmplAttr)) {
-      AddNSConsumedAttr(TmplAttr->getRange(), New,
-                        TmplAttr->getSpellingListIndex(),
-                        isa<NSConsumedAttr>(TmplAttr),
-                        /*template instantiation*/ true);
+    if (isa<NSConsumedAttr>(TmplAttr) || isa<OSConsumedAttr>(TmplAttr) ||
+        isa<CFConsumedAttr>(TmplAttr)) {
+      AddXConsumedAttr(New, TmplAttr->getRange(),
+                       TmplAttr->getSpellingListIndex(),
+                       attrToRetainOwnershipKind(TmplAttr),
+                       /*template instantiation=*/true);
       continue;
     }
 
@@ -1587,9 +1602,11 @@ static QualType adjustFunctionTypeForInstantiation(ASTContext &Context,
 static void MarkByValueRecordsPassedToHIPGlobalFN(FunctionDecl *FDecl)
 { // TODO: this is a temporary kludge; a preferable solution shall be provided
   //       in the future, which shall eschew FE involvement.
+  static constexpr const char HIPLaunch[]{"hipLaunchKernelGGL"};
+
   if (!FDecl) return;
   if (FDecl->getDeclName().isIdentifier() &&
-    FDecl->getName() != "hipLaunchKernelGGL") return;
+    FDecl->getNameAsString().find(HIPLaunch) == std::string::npos) return;
 
   for (auto &&Parameter : FDecl->parameters()) {
     if (Parameter->getOriginalType()->isPointerType()) continue;

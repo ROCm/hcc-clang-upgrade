@@ -847,6 +847,51 @@ Query for this feature with ``__has_attribute(objc_method_family)``.
   }];
 }
 
+def RetainBehaviorDocs : Documentation {
+  let Category = DocCatFunction;
+  let Content = [{
+The behavior of a function with respect to reference counting for Foundation
+(Objective-C), CoreFoundation (C) and OSObject (C++) is determined by a naming
+convention (e.g. functions starting with "get" are assumed to return at
+``+0``).
+
+It can be overriden using a family of the following attributes.  In
+Objective-C, the annotation ``__attribute__((ns_returns_retained))`` applied to
+a function communicates that the object is returned at ``+1``, and the caller
+is responsible for freeing it.
+Similiarly, the annotation ``__attribute__((ns_returns_not_retained))``
+specifies that the object is returned at ``+0`` and the ownership remains with
+the callee.
+Additionally, parameters can have an annotation
+``__attribute__((ns_consumed))``, which specifies that passing an owned object
+as that parameter effectively transfers the ownership, and the caller is no
+longer responsible for it.
+These attributes affect code generation when interacting with ARC code, and
+they are used by the Clang Static Analyzer.
+
+In C programs using CoreFoundation, a similar set of attributes:
+``__attribute__((cf_returns_not_retained))``,
+``__attribute__((cf_returns_retained))`` and ``__attribute__((cf_consumed))``
+have the same respective semantics when applied to CoreFoundation objects.
+These attributes affect code generation when interacting with ARC code, and
+they are used by the Clang Static Analyzer.
+
+Finally, in C++ interacting with XNU kernel (objects inheriting from OSObject),
+the same attribute family is present:
+``__attribute__((os_returns_not_retained))``,
+``__attribute__((os_returns_retained))`` and ``__attribute__((os_consumed))``,
+with the same respective semantics.
+These attributes are also used by the Clang Static Analyzer.
+
+The family of attributes ``X_returns_X_retained`` can be added to functions,
+C++ methods, and Objective-C methods and properties.
+Attributes ``X_consumed`` can be added to parameters of methods, functions,
+and Objective-C methods.
+  }];
+}
+
+
+
 def NoDebugDocs : Documentation {
   let Category = DocCatVariable;
   let Content = [{
@@ -1792,6 +1837,31 @@ def PcsDocs : Documentation {
 On ARM targets, this attribute can be used to select calling conventions
 similar to ``stdcall`` on x86. Valid parameter values are "aapcs" and
 "aapcs-vfp".
+  }];
+}
+
+def AArch64VectorPcsDocs : Documentation {
+  let Category = DocCatCallingConvs;
+  let Content = [{
+On AArch64 targets, this attribute changes the calling convention of a
+function to preserve additional floating-point and Advanced SIMD registers
+relative to the default calling convention used for AArch64.
+
+This means it is more efficient to call such functions from code that performs
+extensive floating-point and vector calculations, because fewer live SIMD and FP
+registers need to be saved. This property makes it well-suited for e.g.
+floating-point or vector math library functions, which are typically leaf
+functions that require a small number of registers.
+
+However, using this attribute also means that it is more expensive to call
+a function that adheres to the default calling convention from within such
+a function. Therefore, it is recommended that this attribute is only used
+for leaf functions.
+
+For more information, see the documentation for `aarch64_vector_pcs`_ on
+the Arm Developer website.
+
+.. _`aarch64_vector_pcs`: https://developer.arm.com/products/software-development-tools/hpc/arm-compiler-for-hpc/vector-function-abi
   }];
 }
 
@@ -3655,5 +3725,29 @@ unspecified which macro is defined in a C++ compilation.
 
 GNU inline semantics are the default behavior with ``-std=gnu89``,
 ``-std=c89``, ``-std=c94``, or ``-fgnu89-inline``.
+  }];
+}
+
+def SpeculativeLoadHardeningDocs : Documentation {
+  let Category = DocCatFunction;
+  let Content = [{
+  This attribute can be applied to a function declaration in order to indicate
+  that `Speculative Load Hardening <https://llvm.org/docs/SpeculativeLoadHardening.html>`_
+  should be enabled for the function body. This can also be applied to a method
+  in Objective C.
+
+  Speculative Load Hardening is a best-effort mitigation against
+  information leak attacks that make use of control flow
+  miss-speculation - specifically miss-speculation of whether a branch
+  is taken or not. Typically vulnerabilities enabling such attacks are
+  classified as "Spectre variant #1". Notably, this does not attempt to
+  mitigate against miss-speculation of branch target, classified as
+  "Spectre variant #2" vulnerabilities.
+
+  When inlining, the attribute is sticky. Inlining a function that
+  carries this attribute will cause the caller to gain the
+  attribute. This is intended to provide a maximally conservative model
+  where the code in a function annotated with this attribute will always
+  (even after inlining) end up hardened.
   }];
 }

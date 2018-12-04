@@ -535,7 +535,8 @@ static bool useFramePointerForTargetByDefault(const ArgList &Args,
     return !areOptimizationsEnabled(Args);
   }
 
-  if (Triple.isOSLinux() || Triple.getOS() == llvm::Triple::CloudABI) {
+  if (Triple.isOSLinux() || Triple.getOS() == llvm::Triple::CloudABI ||
+      Triple.isOSHurd()) {
     switch (Triple.getArch()) {
     // Don't use a frame pointer on linux if optimizing for certain targets.
     case llvm::Triple::mips64:
@@ -2376,6 +2377,9 @@ static void RenderAnalyzerOptions(const ArgList &Args, ArgStringList &CmdArgs,
   // Treat blocks as analysis entry points.
   CmdArgs.push_back("-analyzer-opt-analyze-nested-blocks");
 
+  // Enable compatilibily mode to avoid analyzer-config related errors.
+  CmdArgs.push_back("-analyzer-config-compatibility-mode=true");
+
   // Add default argument set.
   if (!Args.hasArg(options::OPT__analyzer_no_default_checks)) {
     CmdArgs.push_back("-analyzer-checker=core");
@@ -4006,7 +4010,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   const char *SplitDWARFOut;
   if (SplitDWARF) {
     CmdArgs.push_back("-split-dwarf-file");
-    SplitDWARFOut = SplitDebugName(Args, Output);
+    SplitDWARFOut = SplitDebugName(Args, Input, Output);
     CmdArgs.push_back(SplitDWARFOut);
   }
 
@@ -4507,8 +4511,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.AddLastArg(CmdArgs, options::OPT_pthread);
 
-  Args.AddLastArg(CmdArgs, options::OPT_mspeculative_load_hardening,
-                  options::OPT_mno_speculative_load_hardening);
+  if (Args.hasFlag(options::OPT_mspeculative_load_hardening, options::OPT_mno_speculative_load_hardening,
+                   false))
+    CmdArgs.push_back(Args.MakeArgString("-mspeculative-load-hardening"));
 
   RenderSSPOptions(TC, Args, CmdArgs, KernelOrKext);
 
@@ -6011,7 +6016,7 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
   if ((getDebugFissionKind(D, Args, A) == DwarfFissionKind::Split) &&
       (T.isOSLinux() || T.isOSFuchsia())) {
     CmdArgs.push_back("-split-dwarf-file");
-    CmdArgs.push_back(SplitDebugName(Args, Output));
+    CmdArgs.push_back(SplitDebugName(Args, Input, Output));
   }
 
   assert(Input.isFilename() && "Invalid input.");
