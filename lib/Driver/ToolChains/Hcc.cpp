@@ -10,13 +10,13 @@
 #include "Hcc.h"
 #include "Gnu.h"
 #include "InputInfo.h"
-#include "clang/Basic/VirtualFileSystem.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Options.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/VirtualFileSystem.h"
 
 #include <sstream>
 #include <string>
@@ -47,7 +47,7 @@ HCCInstallationDetector::HCCInstallationDetector(const Driver &D,
     if (HCCPath.empty() ||
         !(FS.exists(HCCPath + "/include/hc.hpp") ||
           FS.exists(HCCPath + "/include/hcc/hc.hpp")) ||
-        !FS.exists(HCCPath + "/lib/libmcwamp.a"))
+        !FS.exists(HCCPath + "/lib/libmcwamp.so"))
       continue;
 
     IncPath = HCCPath;
@@ -109,65 +109,9 @@ void HCCInstallationDetector::print(raw_ostream &OS) const {
   if (IsValid)
     OS << "Found HCC installation: " << IncPath << "\n";
 }
-
-void HCC::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
-                                    const InputInfo &Output,
-                                    const InputInfoList &Inputs,
-                                    const ArgList &Args,
-                                    const char *LinkingOutput) const {
-  assert(Inputs.size() == 1 && "Unable to handle multiple inputs.");
-
-  ArgStringList CmdArgs;
-  for (InputInfoList::const_iterator
-         it = Inputs.begin(), ie = Inputs.end(); it != ie; ++it) {
-    const InputInfo &II = *it;
-    if (II.isFilename())
-      CmdArgs.push_back(II.getFilename());
-    else
-      II.getInputArg().renderAsInput(Args, CmdArgs);
-  }
-
-  if (Output.isFilename())
-    CmdArgs.push_back(Output.getFilename());
-  else
-    Output.getInputArg().renderAsInput(Args, CmdArgs);
-
-  if (JA.getKind() == Action::AssembleJobClass) {
-    std::string assembler;
-    if (JA.ContainsActions(Action::AssembleJobClass, types::TY_HC_HOST))
-      assembler = "hc-host-assemble";
-    else if (JA.ContainsActions(Action::AssembleJobClass, types::TY_HC_KERNEL))
-      assembler = "hc-kernel-assemble";
-    else if (JA.ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP) ||
-      JA.ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP_CPU))
-      assembler = "clamp-assemble";
-    else {
-      assert(!assembler.empty() && "Unsupported assembler.");
-      return;
-    }
-    const char *Exec = Args.MakeArgString(
-      getToolChain().GetProgramPath(assembler.c_str()));
-    C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
-  }
-}
-
+    
 namespace
 {
-    std::string temporary_replace_long_form_GFXIp(const Compilation &c,
-                                                  std::string l)
-    {   // Precondition: l = "AMD:AMDGPU:\d:\d:\d"
-        // TODO: this should be removed once we have transitioned all users to
-        //       the short form. It is purposefully inefficient.
-        const auto t = l;
-
-        l.replace(0u, 3u, {'g', 'f', 'x'});
-        l.erase(std::copy_if(
-            l.begin() + 3u, l.end(), l.begin() + 3u, isdigit), l.end());
-        c.getDriver().Diag(diag::warn_drv_deprecated_arg) << t << l;
-
-        return l;
-    }
-
     struct Process_deleter {
         int status = EXIT_FAILURE;
         void operator()(std::FILE* p)
@@ -297,7 +241,82 @@ namespace
         TargetVec.erase(
             std::unique(TargetVec.begin(), TargetVec.end()), TargetVec.end());
     }
+
+    void construct_amdgpu_target_cmdargs(
+        Compilation &C,
+        const ToolChain& tc,
+        const ArgList &Args,
+        ArgStringList &CmdArgs)
+    {
+        // specify AMDGPU target
+        constexpr const char auto_tgt[] = "auto";
+        
+        #if !defined(HCC_AMDGPU_TARGET)
+            #define HCC_AMDGPU_TARGET auto_tgt
+        #endif
+
+        auto AMDGPUTargetVector =
+            Args.getAllArgValues(options::OPT_amdgpu_target_EQ);
+
+        if (AMDGPUTargetVector.empty()) {
+            // split HCC_AMDGPU_TARGET list up
+            AMDGPUTargetVector = split_gfx_list(HCC_AMDGPU_TARGET, ' ');
+        }
+
+        const auto cnt = std::count(
+            AMDGPUTargetVector.cbegin(), AMDGPUTargetVector.cend(), auto_tgt);
+
+        if (cnt > 1) C.getDriver().Diag(diag::warn_amdgpu_target_auto_nonsingular);
+        if (cnt == AMDGPUTargetVector.size()) {
+            AMDGPUTargetVector = detect_and_add_targets(C, tc);
+        }
+        AMDGPUTargetVector.erase(
+            std::remove(
+                AMDGPUTargetVector.begin(), AMDGPUTargetVector.end(), auto_tgt),
+            AMDGPUTargetVector.end());
+
+        remove_duplicate_targets(AMDGPUTargetVector);
+
+        for (auto&& AMDGPUTarget : AMDGPUTargetVector) {
+            validate_and_add_to_command(AMDGPUTarget, C, Args, CmdArgs);
+        }
+    }
 }
+
+void HCC::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
+                                    const InputInfo &Output,
+                                    const InputInfoList &Inputs,
+                                    const ArgList &Args,
+                                    const char *LinkingOutput) const {
+  assert(Inputs.size() == 1 && "Unable to handle multiple inputs.");
+
+  ArgStringList CmdArgs;
+  for (InputInfoList::const_iterator
+         it = Inputs.begin(), ie = Inputs.end(); it != ie; ++it) {
+    const InputInfo &II = *it;
+    if (II.isFilename())
+      CmdArgs.push_back(II.getFilename());
+    else
+      II.getInputArg().renderAsInput(Args, CmdArgs);
+  }
+
+  if (Output.isFilename())
+    CmdArgs.push_back(Output.getFilename());
+  else
+    Output.getInputArg().renderAsInput(Args, CmdArgs);
+
+  if (JA.getKind() == Action::AssembleJobClass) {
+    if (!Args.hasFlag(options::OPT_fgpu_rdc, options::OPT_fno_gpu_rdc, true)) {
+      CmdArgs.push_back("--early_finalize");
+      // add the amdgpu target args
+      construct_amdgpu_target_cmdargs(C, getToolChain(), Args, CmdArgs);
+    }
+    const char *Exec = Args.MakeArgString(
+      getToolChain().GetProgramPath("hc-kernel-assemble"));
+    C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
+  }
+}
+
 
 #ifndef HCC_TOOLCHAIN_RHEL
   #define HCC_TOOLCHAIN_RHEL false
@@ -312,51 +331,10 @@ void HCC::HCLink::ConstructLinkerJob(
     const char *LinkingOutput,
     ArgStringList &CmdArgs) const
 {
-    // specify AMDGPU target
-    constexpr const char auto_tgt[] = "auto";
-
     const auto &TC = static_cast<const toolchains::Generic_ELF &>(getToolChain());
     TC.HCCInstallation.AddHCCLibArgs(Args, CmdArgs);
 
-    #if !defined(HCC_AMDGPU_TARGET)
-        #define HCC_AMDGPU_TARGET auto_tgt
-    #endif
-
-    auto AMDGPUTargetVector =
-        Args.getAllArgValues(options::OPT_amdgpu_target_EQ);
-
-    if (AMDGPUTargetVector.empty()) {
-        // split HCC_AMDGPU_TARGET list up
-        AMDGPUTargetVector = split_gfx_list(HCC_AMDGPU_TARGET, ' ');
-    }
-
-    const unsigned cnt = std::count(
-        AMDGPUTargetVector.cbegin(), AMDGPUTargetVector.cend(), auto_tgt);
-
-    if (cnt > 1) C.getDriver().Diag(diag::warn_amdgpu_target_auto_nonsingular);
-    if (cnt == AMDGPUTargetVector.size()) {
-        AMDGPUTargetVector = detect_and_add_targets(C, getToolChain());
-    }
-    AMDGPUTargetVector.erase(
-        std::remove(
-            AMDGPUTargetVector.begin(), AMDGPUTargetVector.end(), auto_tgt),
-        AMDGPUTargetVector.end());
-
-    remove_duplicate_targets(AMDGPUTargetVector);
-
-    for (auto&& AMDGPUTarget : AMDGPUTargetVector) {
-        // TODO: this is Temporary.
-        static const std::string long_gfx_ip_prefix{"AMD:AMDGPU:"};
-        if (std::search(
-            AMDGPUTarget.cbegin(),
-            AMDGPUTarget.cend(),
-            long_gfx_ip_prefix.cbegin(),
-            long_gfx_ip_prefix.cend()) != AMDGPUTarget.cend()) {
-            AMDGPUTarget =
-                temporary_replace_long_form_GFXIp(C, AMDGPUTarget);
-        }
-        validate_and_add_to_command(AMDGPUTarget, C, Args, CmdArgs);
-    }
+    construct_amdgpu_target_cmdargs(C, getToolChain(), Args, CmdArgs);
 }
 
 void HCC::HCLink::ConstructJob(Compilation &C,

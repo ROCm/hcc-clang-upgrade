@@ -112,8 +112,7 @@ public:
                     FileID FID, const FileEntry *Entry, const char *declName);
 
   // Rewrite the file specified by FID with HTML formatting.
-  void RewriteFile(Rewriter &R, const SourceManager& SMgr,
-                   const PathPieces& path, FileID FID);
+  void RewriteFile(Rewriter &R, const PathPieces& path, FileID FID);
 
 
 private:
@@ -219,7 +218,7 @@ void HTMLDiagnostics::ReportDiag(const PathDiagnostic& D,
   int FD;
   SmallString<128> Model, ResultPath;
 
-  if (!AnalyzerOpts.shouldWriteStableReportFilename()) {
+  if (!AnalyzerOpts.ShouldWriteStableReportFilename) {
       llvm::sys::path::append(Model, Directory, "report-%%%%%%.html");
       if (std::error_code EC =
           llvm::sys::fs::make_absolute(Model)) {
@@ -279,7 +278,7 @@ std::string HTMLDiagnostics::GenerateHTML(const PathDiagnostic& D, Rewriter &R,
       continue;
 
     FileIDs.push_back(FID);
-    RewriteFile(R, SMgr, path, FID);
+    RewriteFile(R, path, FID);
   }
 
   if (SupportsCrossFileDiagnostics && FileIDs.size() > 1) {
@@ -607,8 +606,8 @@ window.addEventListener("keydown", function (event) {
 )<<<";
 }
 
-void HTMLDiagnostics::RewriteFile(Rewriter &R, const SourceManager& SMgr,
-    const PathPieces& path, FileID FID) {
+void HTMLDiagnostics::RewriteFile(Rewriter &R,
+                                  const PathPieces& path, FileID FID) {
   // Process the path.
   // Maintain the counts of extra note pieces separately.
   unsigned TotalPieces = path.size();

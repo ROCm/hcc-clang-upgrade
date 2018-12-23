@@ -627,6 +627,24 @@ bool CXXRecordDecl::hasSubobjectAtOffsetZeroOfEmptyBaseType(
   return false;
 }
 
+bool CXXRecordDecl::lambdaIsDefaultConstructibleAndAssignable() const {
+  assert(isLambda() && "not a lambda");
+
+  // C++2a [expr.prim.lambda.capture]p11:
+  //   The closure type associated with a lambda-expression has no default
+  //   constructor if the lambda-expression has a lambda-capture and a
+  //   defaulted default constructor otherwise. It has a deleted copy
+  //   assignment operator if the lambda-expression has a lambda-capture and
+  //   defaulted copy and move assignment operators otherwise.
+  //
+  // C++17 [expr.prim.lambda]p21:
+  //   The closure type associated with a lambda-expression has no default
+  //   constructor and a deleted copy assignment operator.
+  if (getLambdaCaptureDefault() != LCD_None)
+    return false;
+  return getASTContext().getLangOpts().CPlusPlus2a;
+}
+
 void CXXRecordDecl::addedMember(Decl *D) {
   if (!D->isImplicit() &&
       !isa<FieldDecl>(D) &&
@@ -730,9 +748,14 @@ void CXXRecordDecl::addedMember(Decl *D) {
     }
 
     // C++11 [dcl.init.aggr]p1: DR1518
-    //   An aggregate is an array or a class with no user-provided, explicit, or
-    //   inherited constructors
-    if (Constructor->isUserProvided() || Constructor->isExplicit())
+    //   An aggregate is an array or a class with no user-provided [or]
+    //   explicit [...] constructors
+    // C++20 [dcl.init.aggr]p1:
+    //   An aggregate is an array or a class with no user-declared [...]
+    //   constructors
+    if (getASTContext().getLangOpts().CPlusPlus2a
+            ? !Constructor->isImplicit()
+            : (Constructor->isUserProvided() || Constructor->isExplicit()))
       data().Aggregate = false;
   }
 
@@ -2004,7 +2027,9 @@ CXXMethodDecl *CXXMethodDecl::getDevirtualizedMethod(const Expr *Base,
   return nullptr;
 }
 
-bool CXXMethodDecl::isUsualDeallocationFunction() const {
+bool CXXMethodDecl::isUsualDeallocationFunction(
+    SmallVectorImpl<const FunctionDecl *> &PreventedBy) const {
+  assert(PreventedBy.empty() && "PreventedBy is expected to be empty");
   if (getOverloadedOperator() != OO_Delete &&
       getOverloadedOperator() != OO_Array_Delete)
     return false;
@@ -2062,14 +2087,16 @@ bool CXXMethodDecl::isUsualDeallocationFunction() const {
   // This function is a usual deallocation function if there are no
   // single-parameter deallocation functions of the same kind.
   DeclContext::lookup_result R = getDeclContext()->lookup(getDeclName());
-  for (DeclContext::lookup_result::iterator I = R.begin(), E = R.end();
-       I != E; ++I) {
-    if (const auto *FD = dyn_cast<FunctionDecl>(*I))
-      if (FD->getNumParams() == 1)
-        return false;
+  bool Result = true;
+  for (const auto *D : R) {
+    if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
+      if (FD->getNumParams() == 1) {
+        PreventedBy.push_back(FD);
+        Result = false;
+      }
+    }
   }
-
-  return true;
+  return Result;
 }
 
 bool CXXMethodDecl::isCopyAssignmentOperator() const {
@@ -2145,19 +2172,24 @@ CXXMethodDecl::overridden_methods() const {
   return getASTContext().overridden_methods(this);
 }
 
+QualType CXXMethodDecl::getThisType(const FunctionProtoType *FPT,
+                                    const CXXRecordDecl *Decl) {
+  ASTContext &C = Decl->getASTContext();
+  QualType ClassTy = C.getTypeDeclType(Decl);
+  ClassTy = C.getQualifiedType(ClassTy, FPT->getTypeQuals());
+  return C.getPointerType(ClassTy);
+}
+
 QualType CXXMethodDecl::getThisType(ASTContext &C) const {
   // C++ 9.3.2p1: The type of this in a member function of a class X is X*.
   // If the member function is declared const, the type of this is const X*,
   // if the member function is declared volatile, the type of this is
   // volatile X*, and if the member function is declared const volatile,
   // the type of this is const volatile X*.
-
   assert(isInstance() && "No 'this' for static methods!");
 
-  QualType ClassTy = C.getTypeDeclType(getParent());
-  ClassTy = C.getQualifiedType(ClassTy,
-                               Qualifiers::fromCVRUMask(getTypeQualifiers()));
-  return C.getPointerType(ClassTy);
+  return CXXMethodDecl::getThisType(getType()->getAs<FunctionProtoType>(),
+                                    getParent());
 }
 
 bool CXXMethodDecl::hasInlineBody() const {
@@ -2217,6 +2249,11 @@ CXXCtorInitializer::CXXCtorInitializer(ASTContext &Context,
                                        SourceLocation R)
     : Initializee(TInfo), Init(Init), LParenLoc(L), RParenLoc(R),
       IsDelegating(true), IsVirtual(false), IsWritten(false), SourceOrder(0) {}
+
+int64_t CXXCtorInitializer::getID(const ASTContext &Context) const {
+  return Context.getAllocator()
+                .identifyKnownAlignedObject<CXXCtorInitializer>(this);
+}
 
 TypeLoc CXXCtorInitializer::getBaseClassLoc() const {
   if (isBaseInitializer())

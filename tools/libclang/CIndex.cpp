@@ -31,14 +31,12 @@
 #include "clang/Basic/Version.h"
 #include "clang/Frontend/ASTUnit.h"
 #include "clang/Frontend/CompilerInstance.h"
-#include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Index/CodegenNameGenerator.h"
 #include "clang/Index/CommentToXML.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Lex/PreprocessingRecord.h"
 #include "clang/Lex/Preprocessor.h"
-#include "clang/Serialization/SerializationDiagnostic.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -1044,7 +1042,7 @@ bool CursorVisitor::VisitObjCContainerDecl(ObjCContainerDecl *D) {
   }
 
   // Now sort the Decls so that they appear in lexical order.
-  llvm::sort(DeclsInContainer.begin(), DeclsInContainer.end(),
+  llvm::sort(DeclsInContainer,
              [&SM](Decl *A, Decl *B) {
                SourceLocation L_A = A->getBeginLoc();
                SourceLocation L_B = B->getBeginLoc();
@@ -1519,6 +1517,9 @@ bool CursorVisitor::VisitBuiltinTypeLoc(BuiltinTypeLoc TL) {
 #define IMAGE_TYPE(ImgType, Id, SingletonId, Access, Suffix) \
   case BuiltinType::Id:
 #include "clang/Basic/OpenCLImageTypes.def"
+#define EXT_OPAQUE_TYPE(ExtTYpe, Id, Ext) \
+  case BuiltinType::Id:
+#include "clang/Basic/OpenCLExtensionTypes.def"
   case BuiltinType::OCLSampler:
   case BuiltinType::OCLEvent:
   case BuiltinType::OCLClkEvent:
@@ -2206,6 +2207,21 @@ void OMPClauseEnqueue::VisitOMPThreadsClause(const OMPThreadsClause *) {}
 void OMPClauseEnqueue::VisitOMPSIMDClause(const OMPSIMDClause *) {}
 
 void OMPClauseEnqueue::VisitOMPNogroupClause(const OMPNogroupClause *) {}
+
+void OMPClauseEnqueue::VisitOMPUnifiedAddressClause(
+    const OMPUnifiedAddressClause *) {}
+
+void OMPClauseEnqueue::VisitOMPUnifiedSharedMemoryClause(
+    const OMPUnifiedSharedMemoryClause *) {}
+
+void OMPClauseEnqueue::VisitOMPReverseOffloadClause(
+    const OMPReverseOffloadClause *) {}
+
+void OMPClauseEnqueue::VisitOMPDynamicAllocatorsClause(
+    const OMPDynamicAllocatorsClause *) {}
+
+void OMPClauseEnqueue::VisitOMPAtomicDefaultMemOrderClause(
+    const OMPAtomicDefaultMemOrderClause *) {}
 
 void OMPClauseEnqueue::VisitOMPDeviceClause(const OMPDeviceClause *C) {
   Visitor->AddStmt(C->getDevice());
@@ -3119,25 +3135,19 @@ bool CursorVisitor::RunVisitorWorkList(VisitorWorkList &WL) {
             return true;
         }
         
+        TypeLoc TL = E->getCallOperator()->getTypeSourceInfo()->getTypeLoc();
         // Visit parameters and return type, if present.
-        if (E->hasExplicitParameters() || E->hasExplicitResultType()) {
-          TypeLoc TL = E->getCallOperator()->getTypeSourceInfo()->getTypeLoc();
-          if (E->hasExplicitParameters() && E->hasExplicitResultType()) {
-            // Visit the whole type.
-            if (Visit(TL))
-              return true;
-          } else if (FunctionProtoTypeLoc Proto =
-                         TL.getAs<FunctionProtoTypeLoc>()) {
-            if (E->hasExplicitParameters()) {
-              // Visit parameters.
-              for (unsigned I = 0, N = Proto.getNumParams(); I != N; ++I)
-                if (Visit(MakeCXCursor(Proto.getParam(I), TU)))
-                  return true;
-            } else {
-              // Visit result type.
-              if (Visit(Proto.getReturnLoc()))
+        if (FunctionTypeLoc Proto = TL.getAs<FunctionProtoTypeLoc>()) {
+          if (E->hasExplicitParameters()) {
+            // Visit parameters.
+            for (unsigned I = 0, N = Proto.getNumParams(); I != N; ++I)
+              if (Visit(MakeCXCursor(Proto.getParam(I), TU)))
                 return true;
-            }
+          }
+          if (E->hasExplicitResultType()) {
+            // Visit result type.
+            if (Visit(Proto.getReturnLoc()))
+              return true;
           }
         }
         break;
@@ -6220,6 +6230,7 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
   case Decl::Import:
   case Decl::OMPThreadPrivate:
   case Decl::OMPDeclareReduction:
+  case Decl::OMPRequires:
   case Decl::ObjCTypeParam:
   case Decl::BuiltinTemplate:
   case Decl::PragmaComment:
@@ -6921,7 +6932,7 @@ AnnotateTokensWorker::DetermineChildActions(CXCursor Cursor) const {
     if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(Callee)) {
       const Expr *SubExpr = ICE->getSubExpr();
       if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
-        const Decl *parentDecl = getCursorParentDecl(Cursor);
+        const Decl *parentDecl = getCursorDecl(Cursor);
         CXTranslationUnit TU = clang_Cursor_getTranslationUnit(Cursor);
 
         // Visit the DeclRefExpr as last.
@@ -7144,7 +7155,7 @@ AnnotateTokensWorker::Visit(CXCursor cursor, CXCursor parent) {
   //  MyCXXClass foo; // Make sure we don't annotate 'foo' as a CallExpr cursor.
   if (clang_isExpression(cursorK) && MoreTokens()) {
     const Expr *E = getCursorExpr(cursor);
-    if (const Decl *D = getCursorParentDecl(cursor)) {
+    if (const Decl *D = getCursorDecl(cursor)) {
       const unsigned I = NextToken();
       if (E->getBeginLoc().isValid() && D->getLocation().isValid() &&
           E->getBeginLoc() == D->getLocation() &&
@@ -7799,11 +7810,11 @@ static void getCursorPlatformAvailabilityForDecl(
   if (AvailabilityAttrs.empty())
     return;
 
-  llvm::sort(AvailabilityAttrs.begin(), AvailabilityAttrs.end(),
+  llvm::sort(AvailabilityAttrs,
              [](AvailabilityAttr *LHS, AvailabilityAttr *RHS) {
                return LHS->getPlatform()->getName() <
                       RHS->getPlatform()->getName();
-            });
+             });
   ASTContext &Ctx = D->getASTContext();
   auto It = std::unique(
       AvailabilityAttrs.begin(), AvailabilityAttrs.end(),
@@ -8351,7 +8362,7 @@ unsigned clang_CXXMethod_isConst(CXCursor C) {
   const Decl *D = cxcursor::getCursorDecl(C);
   const CXXMethodDecl *Method =
       D ? dyn_cast_or_null<CXXMethodDecl>(D->getAsFunction()) : nullptr;
-  return (Method && (Method->getTypeQualifiers() & Qualifiers::Const)) ? 1 : 0;
+  return (Method && Method->getTypeQualifiers().hasConst()) ? 1 : 0;
 }
 
 unsigned clang_CXXMethod_isDefaulted(CXCursor C) {

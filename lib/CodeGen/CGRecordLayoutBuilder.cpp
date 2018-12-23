@@ -20,7 +20,7 @@
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecordLayout.h"
-#include "clang/Frontend/CodeGenOptions.h"
+#include "clang/Basic/CodeGenOptions.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Type.h"
@@ -600,6 +600,19 @@ void CGRecordLowering::clipTailPadding() {
       Prior = Member;
     Tail = Prior->Offset + getSize(Prior->Data);
   }
+}
+
+static bool isPassedToHIPGlobalFn(const CXXRecordDecl *MaybeKernarg)
+{
+  if (!MaybeKernarg) return false;
+  if (!MaybeKernarg->hasAttr<AnnotateAttr>()) return false;
+
+  // N.B.: this is set in Sema::GatherArgumentsForCall, via
+  //       MarkByValueRecordsPassedToHIPGlobalFN.
+  static constexpr const char HIPKernargRecord[]{"__HIP_KERNARG_RECORD__"};
+
+  return MaybeKernarg->getAttr<AnnotateAttr>()->getAnnotation()
+    .find(HIPKernargRecord) != StringRef::npos;
 }
 
 void CGRecordLowering::determinePacked(bool NVBaseType) {

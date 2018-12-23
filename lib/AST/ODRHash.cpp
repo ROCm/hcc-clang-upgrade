@@ -34,13 +34,22 @@ void ODRHash::AddIdentifierInfo(const IdentifierInfo *II) {
 
 void ODRHash::AddDeclarationName(DeclarationName Name, bool TreatAsDecl) {
   if (TreatAsDecl)
+    // Matches the NamedDecl check in AddDecl
     AddBoolean(true);
 
+  AddDeclarationNameImpl(Name);
+
+  if (TreatAsDecl)
+    // Matches the ClassTemplateSpecializationDecl check in AddDecl
+    AddBoolean(false);
+}
+
+void ODRHash::AddDeclarationNameImpl(DeclarationName Name) {
   // Index all DeclarationName and use index numbers to refer to them.
   auto Result = DeclNameMap.insert(std::make_pair(Name, DeclNameMap.size()));
   ID.AddInteger(Result.first->second);
   if (!Result.second) {
-    // If found in map, the the DeclarationName has previously been processed.
+    // If found in map, the DeclarationName has previously been processed.
     return;
   }
 
@@ -91,9 +100,6 @@ void ODRHash::AddDeclarationName(DeclarationName Name, bool TreatAsDecl) {
     }
   }
   }
-
-  if (TreatAsDecl)
-    AddBoolean(false);
 }
 
 void ODRHash::AddNestedNameSpecifier(const NestedNameSpecifier *NNS) {
