@@ -464,7 +464,6 @@ static void InitializeStandardPredefinedMacros(const TargetInfo &TI,
   if(LangOpts.DevicePath) {
     Builder.defineMacro("__GPU__", "1");
     Builder.defineMacro("__HCC_ACCELERATOR__", "1");
-    Builder.defineMacro("__HCC_ACCELERATOR__", "1");
   }
 }
 

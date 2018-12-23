@@ -67,6 +67,7 @@ void HCCInstallationDetector::AddHCCIncludeArgs(
       DriverArgs.MakeArgString("-I" + IncPath + "/hcc/include"));
     CC1Args.push_back(
       DriverArgs.MakeArgString("-I" + IncPath + "/third_party"));
+    CC1Args.push_back(DriverArgs.MakeArgString("-I/opt/rocm/hsa/include"));
   }
 }
 

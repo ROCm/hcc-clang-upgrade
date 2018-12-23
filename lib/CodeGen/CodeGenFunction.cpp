@@ -1356,30 +1356,17 @@ shouldUseUndefinedBehaviorReturnOptimization(const FunctionDecl *FD,
   return !T.isTriviallyCopyableType(Context);
 }
 
-static void maybeEmitHCArrayCapturePropagation(CodeGenFunction &CGF,
-                                               const FunctionDecl *FD) {
-  if (!FD->hasAttr<AnnotateAttr>()) return;
+static void handleHCArrayField(CodeGenFunction &CGF, FieldDecl *Field,
+                               const FunctionDecl *FD, Expr *CallableRef)
+{
+    if (!Field->getType()->isReferenceType()) return;
+    if (Field->getType().getNonReferenceType().isConstQualified()) return;
+    if (!Field->getType().getNonReferenceType()->isGPUArrayType()) return;
 
-  static constexpr const char HCPfe[]{"__HC_PFE__"};
-  if (FD->getAttr<AnnotateAttr>()->getAnnotation() != HCPfe) return;
-
-  static constexpr unsigned int CallableIdx{2u};
-  auto Callable = FD->parameters()[CallableIdx]
-                    ->getOriginalType()
-                    .getNonReferenceType()
-                    ->getAsCXXRecordDecl();
-
-  DeclRefExpr CallableRef{FD->parameters()[CallableIdx], false,
-                          FD->parameters()[CallableIdx]->getOriginalType(),
-                          VK_LValue, FD->getBody()->getBeginLoc()};
-  for (auto &&Field : Callable->fields()) {
-    if (!Field->getType()->isReferenceType()) continue;
-    if (Field->getType().getNonReferenceType().isConstQualified()) continue;
-    if (!Field->getType().getNonReferenceType()->isGPUArrayType()) continue;
-
-    MemberExpr ArrRef{&CallableRef, false, SourceLocation{}, Field,
-                      Field->getBeginLoc(), Field->getType(), VK_LValue,
-                      OK_Ordinary};
+    MemberExpr ArrRef{CallableRef, false, SourceLocation{}, Field,
+                      Field->getBeginLoc(),
+                      Field->getType().getNonReferenceType(),
+                      VK_LValue, OK_Ordinary};
     auto Array = Field->getType().getNonReferenceType()->getAsCXXRecordDecl();
     auto AddFn = *std::find_if(Array->method_begin(),
                                Array->method_end(),
@@ -1398,31 +1385,45 @@ static void maybeEmitHCArrayCapturePropagation(CodeGenFunction &CGF,
                                     FD->getBody()->getBeginLoc()};
 
     CGF.EmitCallExpr(&AddToCaptured);
-  }
 }
 
-static Stmt *maybeEmitKernargAlignof(CodeGenFunction &CGF,
-                                     const FunctionDecl *FD, Stmt *Body) {
-  if (!FD->hasAttr<AnnotateAttr>()) return Body;
+static void maybeEmitHCArrayCapturePropagation(CodeGenFunction &CGF,
+                                               const FunctionDecl *FD) {
+  if (!FD->hasAttr<AnnotateAttr>()) return;
 
-  static constexpr const char HCCKernargAlignOf[]{"__HCC_KERNARG_ALIGNOF__"};
-  if (FD->getAttr<AnnotateAttr>()->getAnnotation() != HCCKernargAlignOf) {
-    return Body;
+  static constexpr const char HCPfe[]{"__HC_PFE__"};
+  if (FD->getAttr<AnnotateAttr>()->getAnnotation() != HCPfe) return;
+
+  static constexpr unsigned int CallableIdx{2u};
+  auto CallableT = FD->parameters()[CallableIdx]
+                     ->getOriginalType()
+                     .getNonReferenceType();
+  auto Callable = CallableT->getAsCXXRecordDecl();
+  auto TSI = FD->getASTContext()
+               .getTrivialTypeSourceInfo(CallableT, Callable->getBeginLoc());
+
+  DeclRefExpr CallableRef{FD->parameters()[CallableIdx], false,
+                          FD->parameters()[CallableIdx]->getOriginalType()
+                                                       .getNonReferenceType(),
+                          VK_LValue, FD->getBody()->getBeginLoc()};
+  // TODO: fields should be visited as well
+  for (auto &&Field : Callable->fields()) {
+    handleHCArrayField(CGF, Field, FD, &CallableRef);
   }
-
-  auto Ty = FD->getTemplateSpecializationArgs()->get(0u).getAsType();
-
-  llvm::Type* RetTy = convertTypeForMemory(CGF.CGM, FD->getReturnType());
-  llvm::Type* LLVMTy = convertTypeForMemory(CGF.CGM, Ty);
-  llvm::APInt Align{CGF.CGM.getDataLayout().getTypeSizeInBits(RetTy),
-                    CGF.CGM.getDataLayout().getABITypeAlignment(LLVMTy)};
-
-  auto RetVal = IntegerLiteral::Create(FD->getASTContext(), Align,
-                                       FD->getReturnType(),
-                                       Body->getBeginLoc());
-
-  return
-    new (FD->getASTContext()) ReturnStmt{Body->getBeginLoc(), RetVal, nullptr};
+  // TODO: bases should be visited recursively.
+  for (auto &&Base : Callable->bases()) {
+    for (auto &&Field : Base.getType()->getAsRecordDecl()->fields()) {
+      CXXCastPath Tmp{&Base};
+      auto BaseRef = CXXStaticCastExpr::Create(FD->getASTContext(),
+                                               CallableT, VK_LValue,
+                                               CastKind::CK_DerivedToBase,
+                                               &CallableRef, &Tmp, TSI,
+                                               FD->getBody()->getBeginLoc(),
+                                               FD->getBody()->getBeginLoc(),
+                                               SourceRange{});
+      handleHCArrayField(CGF, Field, FD, BaseRef);
+    }
+  }
 }
 
 void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
@@ -1460,9 +1461,6 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Loc = SpecDecl->getLocation();
 
   Stmt *Body = FD->getBody();
-  if (getLangOpts().CPlusPlusAMP) {
-    Body = maybeEmitKernargAlignof(*this, FD, Body);
-  }
 
   // Initialize helper which will detect jumps which can cause invalid lifetime
   // markers.
@@ -1503,7 +1501,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     // copy-constructors.
     emitImplicitAssignmentOperatorBody(Args);
   } else if (Body) {
-    if (getLangOpts().CPlusPlusAMP) {
+    if (getLangOpts().CPlusPlusAMP && !getLangOpts().DevicePath) {
       maybeEmitHCArrayCapturePropagation(*this, FD);
     }
     EmitFunctionBody(Args, Body);
