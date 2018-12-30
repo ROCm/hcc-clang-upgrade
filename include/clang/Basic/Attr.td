@@ -90,6 +90,10 @@ def NonBitField : SubsetSubject<Field,
                                 [{!S->isBitField()}],
                                 "non-bit-field non-static data members">;
 
+def NonStaticCXXMethod : SubsetSubject<CXXMethod,
+                                       [{!S->isStatic()}],
+                                       "non-static member functions">;
+
 def NonStaticNonConstCXXMethod
     : SubsetSubject<CXXMethod,
                     [{!S->isStatic() && !S->isConst()}],
@@ -844,6 +848,12 @@ def OSReturnsRetained : InheritableAttr {
 def OSReturnsNotRetained : InheritableAttr {
   let Spellings = [Clang<"os_returns_not_retained">];
   let Subjects = SubjectList<[Function, ObjCMethod, ObjCProperty]>;
+  let Documentation = [RetainBehaviorDocs];
+}
+
+def OSConsumesThis : InheritableAttr {
+  let Spellings = [Clang<"os_consumes_this">];
+  let Subjects = SubjectList<[NonStaticCXXMethod]>;
   let Documentation = [RetainBehaviorDocs];
 }
 
@@ -1674,13 +1684,13 @@ def NSReturnsAutoreleased : InheritableAttr {
 def NSConsumesSelf : InheritableAttr {
   let Spellings = [Clang<"ns_consumes_self">];
   let Subjects = SubjectList<[ObjCMethod]>;
-  let Documentation = [Undocumented];
+  let Documentation = [RetainBehaviorDocs];
 }
 
 def NSConsumed : InheritableParamAttr {
   let Spellings = [Clang<"ns_consumed">];
   let Subjects = SubjectList<[ParmVar]>;
-  let Documentation = [Undocumented];
+  let Documentation = [RetainBehaviorDocs];
 }
 
 def ObjCException : InheritableAttr {
@@ -1845,6 +1855,11 @@ def Regparm : TypeAttr {
   let Documentation = [RegparmDocs];
   // Represented as part of the enclosing function type.
   let ASTNode = 0;
+}
+
+def NoDeref : TypeAttr {
+  let Spellings = [Clang<"noderef">];
+  let Documentation = [NoDerefDocs];
 }
 
 def ReqdWorkGroupSize : InheritableAttr {
@@ -3140,4 +3155,10 @@ def SpeculativeLoadHardening : InheritableAttr {
   let Spellings = [Clang<"speculative_load_hardening">];
   let Subjects = SubjectList<[Function, ObjCMethod], ErrorDiag>;
   let Documentation = [SpeculativeLoadHardeningDocs];
+}
+
+def Uninitialized : InheritableAttr {
+  let Spellings = [Clang<"uninitialized", 0>];
+  let Subjects = SubjectList<[LocalVar]>;
+  let Documentation = [UninitializedDocs];
 }

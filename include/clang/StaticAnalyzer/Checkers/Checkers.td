@@ -275,6 +275,9 @@ def NewDeleteLeaksChecker : Checker<"NewDeleteLeaks">,
 def CXXSelfAssignmentChecker : Checker<"SelfAssignment">,
   HelpText<"Checks C++ copy and move assignment operators for self assignment">;
 
+def MoveChecker: Checker<"Move">,
+   HelpText<"Find use-after-move bugs in C++">;
+
 } // end: "cplusplus"
 
 let ParentPackage = CplusplusOptIn in {
@@ -302,10 +305,6 @@ def IteratorRangeChecker : Checker<"IteratorRange">,
 def MismatchedIteratorChecker : Checker<"MismatchedIterator">,
   HelpText<"Check for use of iterators of different containers where iterators "
            "of the same container are expected">;
-
-def MisusedMovedObjectChecker: Checker<"MisusedMovedObject">,
-     HelpText<"Method calls on a moved-from object and copying a moved-from "
-              "object will be reported">;
 
 def UninitializedObjectChecker: Checker<"UninitializedObject">,
      HelpText<"Reports uninitialized fields after object construction">;
@@ -521,6 +520,9 @@ def MacOSKeychainAPIChecker : Checker<"SecKeychainAPI">,
 def ObjCPropertyChecker : Checker<"ObjCProperty">,
   HelpText<"Check for proper uses of Objective-C properties">;
 
+def OSObjectRetainCountChecker : Checker<"OSObjectRetainCount">,
+  HelpText<"Check for leaks and improper reference count management for OSObject">;
+
 } // end "osx"
 
 let ParentPackage = Cocoa in {
@@ -704,6 +706,9 @@ def DominatorsTreeDumper : Checker<"DumpDominators">,
 
 def LiveVariablesDumper : Checker<"DumpLiveVars">,
   HelpText<"Print results of live variable analysis">;
+
+def LiveStatementsDumper : Checker<"DumpLiveStmts">,
+  HelpText<"Print results of live statement analysis">;
 
 def CFGViewer : Checker<"ViewCFG">,
   HelpText<"View Control-Flow Graphs using GraphViz">;

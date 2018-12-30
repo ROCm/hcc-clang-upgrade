@@ -56,10 +56,6 @@ HCCInstallationDetector::HCCInstallationDetector(const Driver &D, const llvm::op
 }
 
 void HCCInstallationDetector::AddHCCIncludeArgs(const llvm::opt::ArgList &DriverArgs, llvm::opt::ArgStringList &CC1Args) const {
-  if (IsValid) {
-    CC1Args.push_back(DriverArgs.MakeArgString("-I" + IncPath + "/include"));
-    CC1Args.push_back(DriverArgs.MakeArgString("-I" + IncPath + "/hcc/include"));
-  }
 }
 
 void HCCInstallationDetector::AddHCCLibArgs(const llvm::opt::ArgList &Args, llvm::opt::ArgStringList &CmdArgs) const {
@@ -74,8 +70,8 @@ void HCCInstallationDetector::AddHCCLibArgs(const llvm::opt::ArgList &Args, llvm
       CmdArgs.push_back("-lstdc++");
     }
 
-    CmdArgs.push_back(Args.MakeArgString("-L" + LibPath));
-    CmdArgs.push_back(Args.MakeArgString("--rpath=" + LibPath));
+    // CmdArgs.push_back(Args.MakeArgString("-L" + LibPath));
+    // CmdArgs.push_back(Args.MakeArgString("--rpath=" + LibPath));
 
     for (auto &lib: SystemLibs)
       CmdArgs.push_back(lib);
@@ -121,18 +117,7 @@ void HCC::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
     Output.getInputArg().renderAsInput(Args, CmdArgs);
 
   if (JA.getKind() == Action::AssembleJobClass) {
-    std::string assembler;
-    if (JA.ContainsActions(Action::AssembleJobClass, types::TY_HC_HOST))
-      assembler = "hc-host-assemble";
-    else if (JA.ContainsActions(Action::AssembleJobClass, types::TY_HC_KERNEL))
-      assembler = "hc-kernel-assemble";
-    else if (JA.ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP) ||
-      JA.ContainsActions(Action::AssembleJobClass, types::TY_PP_CXX_AMP_CPU))
-      assembler = "clamp-assemble";
-    else {
-      assert(!assembler.empty() && "Unsupported assembler.");
-      return;
-    }
+    std::string assembler{"hc-kernel-assemble"};
     const char *Exec = Args.MakeArgString(
       getToolChain().GetProgramPath(assembler.c_str()));
     C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));

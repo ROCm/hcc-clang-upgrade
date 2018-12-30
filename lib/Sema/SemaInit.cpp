@@ -7688,6 +7688,18 @@ ExprResult InitializationSequence::Perform(Sema &S,
 
     case SK_ConversionSequence:
     case SK_ConversionSequenceNoNarrowing: {
+      if (const auto *FromPtrType =
+              CurInit.get()->getType()->getAs<PointerType>()) {
+        if (const auto *ToPtrType = Step->Type->getAs<PointerType>()) {
+          if (FromPtrType->getPointeeType()->hasAttr(attr::NoDeref) &&
+              !ToPtrType->getPointeeType()->hasAttr(attr::NoDeref)) {
+            S.Diag(CurInit.get()->getExprLoc(),
+                   diag::warn_noderef_to_dereferenceable_pointer)
+                << CurInit.get()->getSourceRange();
+          }
+        }
+      }
+
       Sema::CheckedConversionKind CCK
         = Kind.isCStyleCast()? Sema::CCK_CStyleCast
         : Kind.isFunctionalCast()? Sema::CCK_FunctionalCast
@@ -7854,6 +7866,7 @@ ExprResult InitializationSequence::Perform(Sema &S,
 
     case SK_CAssignment: {
       QualType SourceType = CurInit.get()->getType();
+
       // Save off the initial CurInit in case we need to emit a diagnostic
       ExprResult InitialCurInit = CurInit;
       ExprResult Result = CurInit;
@@ -7989,7 +8002,7 @@ ExprResult InitializationSequence::Perform(Sema &S,
     }
 
     case SK_OCLSamplerInit: {
-      // Sampler initialzation have 5 cases:
+      // Sampler initialization have 5 cases:
       //   1. function argument passing
       //      1a. argument is a file-scope variable
       //      1b. argument is a function-scope variable

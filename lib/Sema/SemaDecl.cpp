@@ -3193,7 +3193,12 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD,
   if (RequiresAdjustment) {
     const FunctionType *AdjustedType = New->getType()->getAs<FunctionType>();
     AdjustedType = Context.adjustFunctionType(AdjustedType, NewTypeInfo);
-    New->setType(QualType(AdjustedType, 0));
+
+    QualType AdjustedQT = QualType(AdjustedType, 0);
+    LangAS AS = Old->getType().getAddressSpace();
+    AdjustedQT = Context.getAddrSpaceQualType(AdjustedQT, AS);
+
+    New->setType(AdjustedQT);
     NewQType = Context.getCanonicalType(New->getType());
     NewType = cast<FunctionType>(NewQType);
   }
@@ -8110,7 +8115,7 @@ static OpenCLParamType getOpenCLKernelParameterType(Sema &S, QualType PT) {
     const Type *UnderlyingTy = PT->getPointeeOrArrayElementType();
     // Call ourself to check an underlying type of an array. Since the
     // getPointeeOrArrayElementType returns an innermost type which is not an
-    // array, this recusive call only happens once.
+    // array, this recursive call only happens once.
     return getOpenCLKernelParameterType(S, QualType(UnderlyingTy, 0));
   }
 
@@ -10022,7 +10027,7 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(NewFD);
   if (!getLangOpts().CPlusPlus14 && MD && MD->isConstexpr() &&
       !MD->isStatic() && !isa<CXXConstructorDecl>(MD) &&
-      (MD->getTypeQualifiers() & Qualifiers::Const) == 0) {
+      !MD->getTypeQualifiers().hasConst()) {
     CXXMethodDecl *OldMD = nullptr;
     if (OldDecl)
       OldMD = dyn_cast_or_null<CXXMethodDecl>(OldDecl->getAsFunction());
@@ -10030,7 +10035,7 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
       const FunctionProtoType *FPT =
         MD->getType()->castAs<FunctionProtoType>();
       FunctionProtoType::ExtProtoInfo EPI = FPT->getExtProtoInfo();
-      EPI.TypeQuals |= Qualifiers::Const;
+      EPI.TypeQuals.addConst();
       MD->setType(Context.getFunctionType(FPT->getReturnType(),
                                           FPT->getParamTypes(), EPI));
 
@@ -10525,7 +10530,7 @@ namespace {
       Expr *Base = E;
       bool ReferenceField = false;
 
-      // Get the field memebers used.
+      // Get the field members used.
       while (MemberExpr *ME = dyn_cast<MemberExpr>(Base)) {
         FieldDecl *FD = dyn_cast<FieldDecl>(ME->getMemberDecl());
         if (!FD)
@@ -12434,13 +12439,6 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D) {
         D.setInvalidType(true);
       }
     }
-
-    if (LangOpts.CPlusPlus) {
-      DeclarationNameInfo DNI = GetNameForDeclarator(D);
-      if (auto *RD = dyn_cast<CXXRecordDecl>(CurContext))
-        CheckShadowInheritedFields(DNI.getLoc(), DNI.getName(), RD,
-                                   /*DeclIsField*/ false);
-    }
   }
 
   // Temporarily put parameter variables in the translation unit, not
@@ -12751,6 +12749,29 @@ Sema::CheckForFunctionRedefinition(FunctionDecl *FD,
       }
     }
   }
+
+  if (!Definition)
+    // Similar to friend functions a friend function template may be a
+    // definition and do not have a body if it is instantiated in a class
+    // template.
+    if (FunctionTemplateDecl *FTD = FD->getDescribedFunctionTemplate()) {
+      for (auto I : FTD->redecls()) {
+        auto D = cast<FunctionTemplateDecl>(I);
+        if (D != FTD) {
+          assert(!D->isThisDeclarationADefinition() &&
+                 "More than one definition in redeclaration chain");
+          if (D->getFriendObjectKind() != Decl::FOK_None)
+            if (FunctionTemplateDecl *FT =
+                                       D->getInstantiatedFromMemberTemplate()) {
+              if (FT->isThisDeclarationADefinition()) {
+                Definition = D->getTemplatedDecl();
+                break;
+              }
+            }
+        }
+      }
+    }
+
   if (!Definition)
     return;
 
@@ -12842,6 +12863,7 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
     // Parsing the function declaration failed in some way. Push on a fake scope
     // anyway so we can try to parse the function body.
     PushFunctionScope();
+    PushExpressionEvaluationContext(ExprEvalContexts.back().Context);
     return D;
   }
 
@@ -12851,6 +12873,11 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
     FD = FunTmpl->getTemplatedDecl();
   else
     FD = cast<FunctionDecl>(D);
+
+  // Do not push if it is a lambda because one is already pushed when building
+  // the lambda in ActOnStartOfLambdaDefinition().
+  if (!isLambdaCallOperator(FD))
+    PushExpressionEvaluationContext(ExprEvalContexts.back().Context);
 
   // Check for defining attributes before the check for redefinition.
   if (const auto *Attr = FD->getAttr<AliasAttr>()) {
@@ -13060,6 +13087,21 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *D, Stmt *BodyArg) {
   return ActOnFinishFunctionBody(D, BodyArg, false);
 }
 
+/// RAII object that pops an ExpressionEvaluationContext when exiting a function
+/// body.
+class ExitFunctionBodyRAII {
+public:
+  ExitFunctionBodyRAII(Sema &S, bool IsLambda) : S(S), IsLambda(IsLambda) {}
+  ~ExitFunctionBodyRAII() {
+    if (!IsLambda)
+      S.PopExpressionEvaluationContext();
+  }
+
+private:
+  Sema &S;
+  bool IsLambda = false;
+};
+
 Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
                                     bool IsInstantiation) {
   FunctionDecl *FD = dcl ? dcl->getAsFunction() : nullptr;
@@ -13069,6 +13111,11 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
 
   if (getLangOpts().CoroutinesTS && getCurFunction()->isCoroutine())
     CheckCompletedCoroutineBody(FD, Body);
+
+  // Do not call PopExpressionEvaluationContext() if it is a lambda because one
+  // is already popped when finishing the lambda in BuildLambdaExpr(). This is
+  // meant to pop the context added in ActOnStartOfFunctionDef().
+  ExitFunctionBodyRAII ExitRAII(*this, isLambdaCallOperator(FD));
 
   if (FD) {
     FD->setBody(Body);
@@ -13810,76 +13857,106 @@ bool Sema::isAcceptableTagRedeclaration(const TagDecl *Previous,
   //   struct class-key shall be used to refer to a class (clause 9)
   //   declared using the class or struct class-key.
   TagTypeKind OldTag = Previous->getTagKind();
-  if (!isDefinition || !isClassCompatTagKind(NewTag))
-    if (OldTag == NewTag)
+  if (OldTag != NewTag &&
+      !(isClassCompatTagKind(OldTag) && isClassCompatTagKind(NewTag)))
+    return false;
+
+  // Tags are compatible, but we might still want to warn on mismatched tags.
+  // Non-class tags can't be mismatched at this point.
+  if (!isClassCompatTagKind(NewTag))
+    return true;
+
+  // Declarations for which -Wmismatched-tags is disabled are entirely ignored
+  // by our warning analysis. We don't want to warn about mismatches with (eg)
+  // declarations in system headers that are designed to be specialized, but if
+  // a user asks us to warn, we should warn if their code contains mismatched
+  // declarations.
+  auto IsIgnoredLoc = [&](SourceLocation Loc) {
+    return getDiagnostics().isIgnored(diag::warn_struct_class_tag_mismatch,
+                                      Loc);
+  };
+  if (IsIgnoredLoc(NewTagLoc))
+    return true;
+
+  auto IsIgnored = [&](const TagDecl *Tag) {
+    return IsIgnoredLoc(Tag->getLocation());
+  };
+  while (IsIgnored(Previous)) {
+    Previous = Previous->getPreviousDecl();
+    if (!Previous)
       return true;
+    OldTag = Previous->getTagKind();
+  }
 
-  if (isClassCompatTagKind(OldTag) && isClassCompatTagKind(NewTag)) {
-    // Warn about the struct/class tag mismatch.
-    bool isTemplate = false;
-    if (const CXXRecordDecl *Record = dyn_cast<CXXRecordDecl>(Previous))
-      isTemplate = Record->getDescribedClassTemplate();
+  bool isTemplate = false;
+  if (const CXXRecordDecl *Record = dyn_cast<CXXRecordDecl>(Previous))
+    isTemplate = Record->getDescribedClassTemplate();
 
-    if (inTemplateInstantiation()) {
+  if (inTemplateInstantiation()) {
+    if (OldTag != NewTag) {
       // In a template instantiation, do not offer fix-its for tag mismatches
       // since they usually mess up the template instead of fixing the problem.
       Diag(NewTagLoc, diag::warn_struct_class_tag_mismatch)
         << getRedeclDiagFromTagKind(NewTag) << isTemplate << Name
         << getRedeclDiagFromTagKind(OldTag);
+      // FIXME: Note previous location?
+    }
+    return true;
+  }
+
+  if (isDefinition) {
+    // On definitions, check all previous tags and issue a fix-it for each
+    // one that doesn't match the current tag.
+    if (Previous->getDefinition()) {
+      // Don't suggest fix-its for redefinitions.
       return true;
     }
 
-    if (isDefinition) {
-      // On definitions, check previous tags and issue a fix-it for each
-      // one that doesn't match the current tag.
-      if (Previous->getDefinition()) {
-        // Don't suggest fix-its for redefinitions.
-        return true;
-      }
+    bool previousMismatch = false;
+    for (const TagDecl *I : Previous->redecls()) {
+      if (I->getTagKind() != NewTag) {
+        // Ignore previous declarations for which the warning was disabled.
+        if (IsIgnored(I))
+          continue;
 
-      bool previousMismatch = false;
-      for (auto I : Previous->redecls()) {
-        if (I->getTagKind() != NewTag) {
-          if (!previousMismatch) {
-            previousMismatch = true;
-            Diag(NewTagLoc, diag::warn_struct_class_previous_tag_mismatch)
-              << getRedeclDiagFromTagKind(NewTag) << isTemplate << Name
-              << getRedeclDiagFromTagKind(I->getTagKind());
-          }
-          Diag(I->getInnerLocStart(), diag::note_struct_class_suggestion)
-            << getRedeclDiagFromTagKind(NewTag)
-            << FixItHint::CreateReplacement(I->getInnerLocStart(),
-                 TypeWithKeyword::getTagTypeKindName(NewTag));
+        if (!previousMismatch) {
+          previousMismatch = true;
+          Diag(NewTagLoc, diag::warn_struct_class_previous_tag_mismatch)
+            << getRedeclDiagFromTagKind(NewTag) << isTemplate << Name
+            << getRedeclDiagFromTagKind(I->getTagKind());
         }
+        Diag(I->getInnerLocStart(), diag::note_struct_class_suggestion)
+          << getRedeclDiagFromTagKind(NewTag)
+          << FixItHint::CreateReplacement(I->getInnerLocStart(),
+               TypeWithKeyword::getTagTypeKindName(NewTag));
       }
-      return true;
     }
+    return true;
+  }
 
-    // Check for a previous definition.  If current tag and definition
-    // are same type, do nothing.  If no definition, but disagree with
-    // with previous tag type, give a warning, but no fix-it.
-    const TagDecl *Redecl = Previous->getDefinition() ?
-                            Previous->getDefinition() : Previous;
-    if (Redecl->getTagKind() == NewTag) {
-      return true;
-    }
-
+  // Identify the prevailing tag kind: this is the kind of the definition (if
+  // there is a non-ignored definition), or otherwise the kind of the prior
+  // (non-ignored) declaration.
+  const TagDecl *PrevDef = Previous->getDefinition();
+  if (PrevDef && IsIgnored(PrevDef))
+    PrevDef = nullptr;
+  const TagDecl *Redecl = PrevDef ? PrevDef : Previous;
+  if (Redecl->getTagKind() != NewTag) {
     Diag(NewTagLoc, diag::warn_struct_class_tag_mismatch)
       << getRedeclDiagFromTagKind(NewTag) << isTemplate << Name
       << getRedeclDiagFromTagKind(OldTag);
     Diag(Redecl->getLocation(), diag::note_previous_use);
 
     // If there is a previous definition, suggest a fix-it.
-    if (Previous->getDefinition()) {
-        Diag(NewTagLoc, diag::note_struct_class_suggestion)
-          << getRedeclDiagFromTagKind(Redecl->getTagKind())
-          << FixItHint::CreateReplacement(SourceRange(NewTagLoc),
-               TypeWithKeyword::getTagTypeKindName(Redecl->getTagKind()));
+    if (PrevDef) {
+      Diag(NewTagLoc, diag::note_struct_class_suggestion)
+        << getRedeclDiagFromTagKind(Redecl->getTagKind())
+        << FixItHint::CreateReplacement(SourceRange(NewTagLoc),
+             TypeWithKeyword::getTagTypeKindName(Redecl->getTagKind()));
     }
-
-    return true;
   }
-  return false;
+
+  return true;
 }
 
 /// Add a minimal nested name specifier fixit hint to allow lookup of a tag name
@@ -16647,7 +16724,7 @@ void Sema::ActOnEnumBody(SourceLocation EnumLoc, SourceRange BraceRange,
       NumNegativeBits = std::max(NumNegativeBits,
                                  (unsigned)InitVal.getMinSignedBits());
 
-    // Keep track of whether every enum element has type int (very commmon).
+    // Keep track of whether every enum element has type int (very common).
     if (AllElementsInt)
       AllElementsInt = ECD->getType() == Context.IntTy;
   }

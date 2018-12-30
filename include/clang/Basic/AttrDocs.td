@@ -554,9 +554,9 @@ certain user-defined criteria. For example:
 
 .. code-block:: c
 
-  void abs(int a)
+  int abs(int a)
     __attribute__((diagnose_if(a >= 0, "Redundant abs call", "warning")));
-  void must_abs(int a)
+  int must_abs(int a)
     __attribute__((diagnose_if(a >= 0, "Redundant abs call", "error")));
 
   int val = abs(1); // warning: Redundant abs call
@@ -862,6 +862,9 @@ is responsible for freeing it.
 Similiarly, the annotation ``__attribute__((ns_returns_not_retained))``
 specifies that the object is returned at ``+0`` and the ownership remains with
 the callee.
+The annotation ``__attribute__((ns_consumes_self))`` specifies that
+the Objective-C method call consumes the reference to ``self``, e.g. by
+attaching it to a supplied parameter.
 Additionally, parameters can have an annotation
 ``__attribute__((ns_consumed))``, which specifies that passing an owned object
 as that parameter effectively transfers the ownership, and the caller is no
@@ -881,7 +884,11 @@ the same attribute family is present:
 ``__attribute__((os_returns_not_retained))``,
 ``__attribute__((os_returns_retained))`` and ``__attribute__((os_consumed))``,
 with the same respective semantics.
-These attributes are also used by the Clang Static Analyzer.
+Similar to ``__attribute__((ns_consumes_self))``,
+``__attribute__((os_consumes_this))`` specifies that the method call consumes
+the reference to "this" (e.g., when attaching it to a different object supplied
+as a parameter).
+These attributes are only used by the Clang Static Analyzer.
 
 The family of attributes ``X_returns_X_retained`` can be added to functions,
 C++ methods, and Objective-C methods and properties.
@@ -3646,6 +3653,63 @@ corresponding line within the inlined callee.
   }];
 }
 
+def NoDerefDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+The ``noderef`` attribute causes clang to diagnose dereferences of annotated pointer types.
+This is ideally used with pointers that point to special memory which cannot be read
+from or written to, but allowing for the pointer to be used in pointer arithmetic.
+The following are examples of valid expressions where dereferences are diagnosed:
+
+.. code-block:: c
+
+  int __attribute__((noderef)) *p;
+  int x = *p;  // warning
+
+  int __attribute__((noderef)) **p2;
+  x = **p2;  // warning
+
+  int * __attribute__((noderef)) *p3;
+  p = *p3;  // warning
+
+  struct S {
+    int a;
+  };
+  struct S __attribute__((noderef)) *s;
+  x = s->a;    // warning
+  x = (*s).a;  // warning
+
+Not all dereferences may diagnose a warning if the value directed by the pointer may not be
+accessed. The following are examples of valid expressions where may not be diagnosed:
+
+.. code-block:: c
+
+  int *q;
+  int __attribute__((noderef)) *p;
+  q = &*p;
+  q = *&p;
+
+  struct S {
+    int a;
+  };
+  struct S __attribute__((noderef)) *s;
+  p = &s->a;
+  p = &(*s).a;
+
+``noderef`` is currently only supported for pointers and arrays and not usable for
+references or Objective-C object pointers.
+
+.. code-block: c++
+
+  int x = 2;
+  int __attribute__((noderef)) &y = x;  // warning: 'noderef' can only be used on an array or pointer type
+
+.. code-block: objc
+
+  id __attribute__((noderef)) obj = [NSObject new]; // warning: 'noderef' can only be used on an array or pointer type
+}];
+}
+
 def ReinitializesDocs : Documentation {
   let Category = DocCatFunction;
   let Content = [{
@@ -3690,6 +3754,18 @@ The ``no_destroy`` attribute specifies that a variable with static or thread
 storage duration shouldn't have its exit-time destructor run. Annotating every
 static and thread duration variable with this attribute is equivalent to
 invoking clang with -fno-c++-static-destructors.
+  }];
+}
+
+def UninitializedDocs : Documentation {
+  let Category = DocCatVariable;
+  let Content = [{
+The command-line parameter ``-ftrivial-auto-var-init=*`` can be used to
+initialize trivial automatic stack variables. By default, trivial automatic
+stack variables are uninitialized. This attribute is used to override the
+command-line parameter, forcing variables to remain uninitialized. It has no
+semantic meaning in that using uninitialized values is undefined behavior,
+it rather documents the programmer's intent.
   }];
 }
 

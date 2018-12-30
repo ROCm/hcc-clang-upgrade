@@ -120,8 +120,18 @@ struct OrderGlobalInits {
 struct ObjCEntrypoints {
   ObjCEntrypoints() { memset(this, 0, sizeof(*this)); }
 
-    /// void objc_autoreleasePoolPop(void*);
+  /// void objc_alloc(id);
+  llvm::Constant *objc_alloc;
+
+  /// void objc_allocWithZone(id);
+  llvm::Constant *objc_allocWithZone;
+
+  /// void objc_autoreleasePoolPop(void*);
   llvm::Constant *objc_autoreleasePoolPop;
+
+  /// void objc_autoreleasePoolPop(void*);
+  /// Note this method is used when we are using exception handling
+  llvm::Constant *objc_autoreleasePoolPopInvoke;
 
   /// void *objc_autoreleasePoolPush(void);
   llvm::Constant *objc_autoreleasePoolPush;
@@ -1410,6 +1420,9 @@ private:
 
   /// Emit the Clang version as llvm.ident metadata.
   void EmitVersionIdentMetadata();
+
+  /// Emit the Clang commandline as llvm.commandline metadata.
+  void EmitCommandLineMetadata();
 
   /// Emits target specific Metadata for global declarations.
   void EmitTargetMetadata();

@@ -736,6 +736,11 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
     AsanGlobalsDeadStripping =
         !TC.getTriple().isOSBinFormatELF() || TC.getTriple().isOSFuchsia() ||
         Args.hasArg(options::OPT_fsanitize_address_globals_dead_stripping);
+
+    AsanUseOdrIndicator =
+        Args.hasFlag(options::OPT_fsanitize_address_use_odr_indicator,
+                     options::OPT_fno_sanitize_address_use_odr_indicator,
+                     AsanUseOdrIndicator);
   } else {
     AsanUseAfterScope = false;
   }
@@ -909,6 +914,9 @@ void SanitizerArgs::addArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
 
   if (AsanGlobalsDeadStripping)
     CmdArgs.push_back("-fsanitize-address-globals-dead-stripping");
+
+  if (AsanUseOdrIndicator)
+    CmdArgs.push_back("-fsanitize-address-use-odr-indicator");
 
   // MSan: Workaround for PR16386.
   // ASan: This is mainly to help LSan with cases such as

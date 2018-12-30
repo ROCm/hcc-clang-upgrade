@@ -295,7 +295,7 @@ static void instantiateOMPDeclareSimdDeclAttr(
               PVD, FD->getParamDecl(PVD->getFunctionScopeIndex()));
         return S.SubstExpr(E, TemplateArgs);
       }
-    Sema::CXXThisScopeRAII ThisScope(S, ThisContext, /*TypeQuals=*/0,
+    Sema::CXXThisScopeRAII ThisScope(S, ThisContext, Qualifiers(),
                                      FD->isCXXInstanceMember());
     return S.SubstExpr(E, TemplateArgs);
   };
@@ -355,7 +355,7 @@ void Sema::InstantiateAttrsForDecl(
       // applicable to template declaration, we'll need to add them here.
       CXXThisScopeRAII ThisScope(
           *this, dyn_cast_or_null<CXXRecordDecl>(ND->getDeclContext()),
-          /*TypeQuals*/ 0, ND->isCXXInstanceMember());
+          Qualifiers(), ND->isCXXInstanceMember());
 
       Attr *NewAttr = sema::instantiateTemplateAttributeForDecl(
           TmplAttr, Context, *this, TemplateArgs);
@@ -474,7 +474,7 @@ void Sema::InstantiateAttrs(const MultiLevelTemplateArgumentList &TemplateArgs,
       NamedDecl *ND = dyn_cast<NamedDecl>(New);
       CXXRecordDecl *ThisContext =
           dyn_cast_or_null<CXXRecordDecl>(ND->getDeclContext());
-      CXXThisScopeRAII ThisScope(*this, ThisContext, /*TypeQuals*/0,
+      CXXThisScopeRAII ThisScope(*this, ThisContext, Qualifiers(),
                                  ND && ND->isCXXInstanceMember());
 
       Attr *NewAttr = sema::instantiateTemplateAttribute(TmplAttr, Context,
@@ -1842,7 +1842,9 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
   // If the original function was part of a friend declaration,
   // inherit its namespace state and add it to the owner.
   if (isFriend) {
-    PrincipalDecl->setObjectOfFriendDecl();
+    Function->setObjectOfFriendDecl();
+    if (FunctionTemplateDecl *FT = Function->getDescribedFunctionTemplate())
+      FT->setObjectOfFriendDecl();
     DC->makeDeclVisibleInContext(PrincipalDecl);
 
     bool QueuedInstantiation = false;
@@ -2734,26 +2736,28 @@ Decl *TemplateDeclInstantiator::VisitUsingPackDecl(UsingPackDecl *D) {
 }
 
 Decl *TemplateDeclInstantiator::VisitClassScopeFunctionSpecializationDecl(
-                                     ClassScopeFunctionSpecializationDecl *Decl) {
+    ClassScopeFunctionSpecializationDecl *Decl) {
   CXXMethodDecl *OldFD = Decl->getSpecialization();
   CXXMethodDecl *NewFD =
     cast_or_null<CXXMethodDecl>(VisitCXXMethodDecl(OldFD, nullptr, true));
   if (!NewFD)
     return nullptr;
 
-  LookupResult Previous(SemaRef, NewFD->getNameInfo(), Sema::LookupOrdinaryName,
-                        Sema::ForExternalRedeclaration);
-
-  TemplateArgumentListInfo TemplateArgs;
-  TemplateArgumentListInfo *TemplateArgsPtr = nullptr;
+  TemplateArgumentListInfo ExplicitTemplateArgs;
+  TemplateArgumentListInfo *ExplicitTemplateArgsPtr = nullptr;
   if (Decl->hasExplicitTemplateArgs()) {
-    TemplateArgs = Decl->templateArgs();
-    TemplateArgsPtr = &TemplateArgs;
+    if (SemaRef.Subst(Decl->templateArgs().getArgumentArray(),
+                      Decl->templateArgs().size(), ExplicitTemplateArgs,
+                      TemplateArgs))
+      return nullptr;
+    ExplicitTemplateArgsPtr = &ExplicitTemplateArgs;
   }
 
+  LookupResult Previous(SemaRef, NewFD->getNameInfo(), Sema::LookupOrdinaryName,
+                        Sema::ForExternalRedeclaration);
   SemaRef.LookupQualifiedName(Previous, SemaRef.CurContext);
-  if (SemaRef.CheckFunctionTemplateSpecialization(NewFD, TemplateArgsPtr,
-                                                  Previous)) {
+  if (SemaRef.CheckFunctionTemplateSpecialization(
+          NewFD, ExplicitTemplateArgsPtr, Previous)) {
     NewFD->setInvalidDecl();
     return NewFD;
   }
@@ -2850,7 +2854,7 @@ Decl *TemplateDeclInstantiator::VisitOMPDeclareReductionDecl(
         cast<DeclRefExpr>(D->getCombinerOut())->getDecl(),
         cast<DeclRefExpr>(NewDRD->getCombinerOut())->getDecl());
     auto *ThisContext = dyn_cast_or_null<CXXRecordDecl>(Owner);
-    Sema::CXXThisScopeRAII ThisScope(SemaRef, ThisContext, /*TypeQuals*/ 0,
+    Sema::CXXThisScopeRAII ThisScope(SemaRef, ThisContext, Qualifiers(),
                                      ThisContext);
     SubstCombiner = SemaRef.SubstExpr(D->getCombiner(), TemplateArgs).get();
     SemaRef.ActOnOpenMPDeclareReductionCombinerEnd(NewDRD, SubstCombiner);
@@ -3469,7 +3473,7 @@ TemplateDeclInstantiator::SubstFunctionType(FunctionDecl *D,
   assert(Params.empty() && "parameter vector is non-empty at start");
 
   CXXRecordDecl *ThisContext = nullptr;
-  unsigned ThisTypeQuals = 0;
+  Qualifiers ThisTypeQuals;
   if (CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(D)) {
     ThisContext = cast<CXXRecordDecl>(Owner);
     ThisTypeQuals = Method->getTypeQualifiers();

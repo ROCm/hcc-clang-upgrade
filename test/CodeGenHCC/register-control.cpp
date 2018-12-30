@@ -14,7 +14,7 @@ struct index {
 
 struct array {
   int x;
-  void foo() /*restrict(amp)*/ {}
+  void foo() /*[[hc]]*/ {}
 };
 
 template <typename Kernel>
@@ -36,7 +36,7 @@ int main() {
   // Test parallel-for-each with functor.
   class A {
   public:
-    void foo()/*restrict(amp)*/{}
+    void foo()/*[[hc]]*/{}
     // CHECK-LABEL: define internal amdgpu_kernel void @_ZZ4mainEN1A19__cxxamp_trampolineEi(i32)
     // CHECK-SAME: #[[ATTR2:[0-9]+]]
     void operator()(index& i)

@@ -11,6 +11,7 @@
 #include "TestModuleFileExtension.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/CharInfo.h"
+#include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/CommentOptions.h"
 #include "clang/Basic/DebugInfoOptions.h"
 #include "clang/Basic/Diagnostic.h"
@@ -28,7 +29,6 @@
 #include "clang/Config/config.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Options.h"
-#include "clang/Frontend/CodeGenOptions.h"
 #include "clang/Frontend/CommandLineSourceLoc.h"
 #include "clang/Frontend/DependencyOutputOptions.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
@@ -456,12 +456,13 @@ static void parseAnalyzerConfigs(AnalyzerOptions &AnOpts,
     return;
 
   if (!AnOpts.CTUDir.empty() && !llvm::sys::fs::is_directory(AnOpts.CTUDir))
-    Diags->Report(diag::err_analyzer_config_invalid_input)
-      << "ctu-dir" << "a filename";
+    Diags->Report(diag::err_analyzer_config_invalid_input) << "ctu-dir"
+                                                           << "a filename";
 
-  if (!AnOpts.CTUDir.empty() && !llvm::sys::fs::is_directory(AnOpts.CTUDir))
-    Diags->Report(diag::err_analyzer_config_invalid_input)
-      << "model-path" << "a filename";
+  if (!AnOpts.ModelPath.empty() &&
+      !llvm::sys::fs::is_directory(AnOpts.ModelPath))
+    Diags->Report(diag::err_analyzer_config_invalid_input) << "model-path"
+                                                           << "a filename";
 }
 
 static bool ParseMigratorArgs(MigratorOptions &Opts, ArgList &Args) {
@@ -754,6 +755,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
       Args.hasFlag(OPT_ffine_grained_bitfield_accesses,
                    OPT_fno_fine_grained_bitfield_accesses, false);
   Opts.DwarfDebugFlags = Args.getLastArgValue(OPT_dwarf_debug_flags);
+  Opts.RecordCommandLine = Args.getLastArgValue(OPT_record_command_line);
   Opts.MergeAllConstants = Args.hasArg(OPT_fmerge_all_constants);
   Opts.NoCommon = Args.hasArg(OPT_fno_common);
   Opts.NoImplicitFloat = Args.hasArg(OPT_no_implicit_float);
@@ -993,7 +995,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
       for (const auto &arg : ASL) {
         StringRef ArgStr(arg);
         Opts.CmdArgs.insert(Opts.CmdArgs.end(), ArgStr.begin(), ArgStr.end());
-        // using \00 to seperate each commandline options.
+        // using \00 to separate each commandline options.
         Opts.CmdArgs.push_back('\0');
       }
     }
@@ -1117,6 +1119,11 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   }
   Opts.SanitizeAddressGlobalsDeadStripping =
       Args.hasArg(OPT_fsanitize_address_globals_dead_stripping);
+  if (Arg *A = Args.getLastArg(OPT_fsanitize_address_use_odr_indicator,
+                               OPT_fno_sanitize_address_use_odr_indicator)) {
+    Opts.SanitizeAddressUseOdrIndicator =
+        A->getOption().getID() == OPT_fsanitize_address_use_odr_indicator;
+  }
   Opts.SSPBufferSize =
       getLastArgIntValue(Args, OPT_stack_protector_buffer_size, 8, Diags);
   Opts.StackRealignment = Args.hasArg(OPT_mstackrealign);
@@ -1151,6 +1158,10 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
         static_cast<CodeGenOptions::ObjCDispatchMethodKind>(Method));
     }
   }
+
+
+  if (Args.hasArg(OPT_fno_objc_convert_messages_to_runtime_calls))
+    Opts.ObjCConvertMessagesToRuntimeCalls = 0;
 
   if (Args.getLastArg(OPT_femulated_tls) ||
       Args.getLastArg(OPT_fno_emulated_tls)) {
@@ -1621,8 +1632,6 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
       Opts.ProgramAction = frontend::GenerateHeaderModule; break;
     case OPT_emit_pch:
       Opts.ProgramAction = frontend::GeneratePCH; break;
-    case OPT_emit_pth:
-      Opts.ProgramAction = frontend::GeneratePTH; break;
     case OPT_init_only:
       Opts.ProgramAction = frontend::InitOnly; break;
     case OPT_fsyntax_only:
@@ -2506,6 +2515,9 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   if (Args.hasArg(OPT_fvisibility_inlines_hidden))
     Opts.InlineVisibilityHidden = 1;
 
+  if (Args.hasArg(OPT_fvisibility_global_new_delete_hidden))
+    Opts.GlobalAllocationFunctionVisibilityHidden = 1;
+
   if (Args.hasArg(OPT_ftrapv)) {
     Opts.setSignedOverflowBehavior(LangOptions::SOB_Trapping);
     // Set the handler, if one is specified.
@@ -2529,7 +2541,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
                                   VT.getSubminor().getValueOr(0);
   }
 
-  // Mimicing gcc's behavior, trigraphs are only enabled if -trigraphs
+  // Mimicking gcc's behavior, trigraphs are only enabled if -trigraphs
   // is specified, or -std is set to a conforming mode.
   // Trigraphs are disabled by default in c++1z onwards.
   Opts.Trigraphs = !Opts.GNUMode && !Opts.MSVCCompat && !Opts.CPlusPlus17;
@@ -2951,6 +2963,19 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   case 3: Opts.setStackProtector(LangOptions::SSPReq); break;
   }
 
+  if (Arg *A = Args.getLastArg(OPT_ftrivial_auto_var_init)) {
+    StringRef Val = A->getValue();
+    if (Val == "uninitialized")
+      Opts.setTrivialAutoVarInit(
+          LangOptions::TrivialAutoVarInitKind::Uninitialized);
+    else if (Val == "zero")
+      Opts.setTrivialAutoVarInit(LangOptions::TrivialAutoVarInitKind::Zero);
+    else if (Val == "pattern")
+      Opts.setTrivialAutoVarInit(LangOptions::TrivialAutoVarInitKind::Pattern);
+    else
+      Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << Val;
+  }
+
   // Parse -fsanitize= arguments.
   parseSanitizerKinds("-fsanitize=", Args.getAllArgValues(OPT_fsanitize_EQ),
                       Diags, Opts.Sanitize);
@@ -3041,7 +3066,6 @@ static bool isStrictlyPreprocessorAction(frontend::ActionKind Action) {
   case frontend::GenerateModuleInterface:
   case frontend::GenerateHeaderModule:
   case frontend::GeneratePCH:
-  case frontend::GeneratePTH:
   case frontend::ParseSyntaxOnly:
   case frontend::ModuleFileInfo:
   case frontend::VerifyPCH:
@@ -3070,15 +3094,10 @@ static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
                                   DiagnosticsEngine &Diags,
                                   frontend::ActionKind Action) {
   Opts.ImplicitPCHInclude = Args.getLastArgValue(OPT_include_pch);
-  Opts.ImplicitPTHInclude = Args.getLastArgValue(OPT_include_pth);
   Opts.PCHWithHdrStop = Args.hasArg(OPT_pch_through_hdrstop_create) ||
                         Args.hasArg(OPT_pch_through_hdrstop_use);
   Opts.PCHWithHdrStopCreate = Args.hasArg(OPT_pch_through_hdrstop_create);
   Opts.PCHThroughHeader = Args.getLastArgValue(OPT_pch_through_header_EQ);
-  if (const Arg *A = Args.getLastArg(OPT_token_cache))
-      Opts.TokenCache = A->getValue();
-  else
-    Opts.TokenCache = Opts.ImplicitPTHInclude;
   Opts.UsePredefines = !Args.hasArg(OPT_undef);
   Opts.DetailedRecord = Args.hasArg(OPT_detailed_preprocessing_record);
   Opts.DisablePCHValidation = Args.hasArg(OPT_fno_validate_pch);
@@ -3212,6 +3231,14 @@ static void ParseTargetArgs(TargetOptions &Opts, ArgList &Args,
   Opts.ForceEnableInt128 = Args.hasArg(OPT_fforce_enable_int128);
   Opts.NVPTXUseShortPointers = Args.hasFlag(
       options::OPT_fcuda_short_ptr, options::OPT_fno_cuda_short_ptr, false);
+  if (Arg *A = Args.getLastArg(options::OPT_target_sdk_version_EQ)) {
+    llvm::VersionTuple Version;
+    if (Version.tryParse(A->getValue()))
+      Diags.Report(diag::err_drv_invalid_value)
+          << A->getAsString(Args) << A->getValue();
+    else
+      Opts.SDKVersion = Version;
+  }
 }
 
 bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
@@ -3264,6 +3291,7 @@ bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
                               Res.getTargetOpts(), Res.getFrontendOpts());
   ParseHeaderSearchArgs(Res.getHeaderSearchOpts(), Args,
                         Res.getFileSystemOpts().WorkingDir);
+  llvm::Triple T(Res.getTargetOpts().Triple);
   if (DashX.getFormat() == InputKind::Precompiled ||
       DashX.getLanguage() == InputKind::LLVM_IR) {
     // ObjCAAutoRefCount and Sanitize LangOpts are used to setup the
@@ -3278,12 +3306,18 @@ bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
     parseSanitizerKinds("-fsanitize=", Args.getAllArgValues(OPT_fsanitize_EQ),
                         Diags, LangOpts.Sanitize);
   } else {
-    // Other LangOpts are only initialzed when the input is not AST or LLVM IR.
+    // Other LangOpts are only initialized when the input is not AST or LLVM IR.
     // FIXME: Should we really be calling this for an InputKind::Asm input?
     ParseLangArgs(LangOpts, Args, DashX, Res.getTargetOpts(),
                   Res.getPreprocessorOpts(), Diags);
     if (Res.getFrontendOpts().ProgramAction == frontend::RewriteObjC)
       LangOpts.ObjCExceptions = 1;
+    if (T.isOSDarwin() && DashX.isPreprocessed()) {
+      // Supress the darwin-specific 'stdlibcxx-not-found' diagnostic for
+      // preprocessed input as we don't expect it to be used with -std=libc++
+      // anyway.
+      Res.getDiagnosticOpts().Warnings.push_back("no-stdlibcxx-not-found");
+    }
   }
 
   LangOpts.FunctionAlignment =
@@ -3320,7 +3354,6 @@ bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
                               Res.getFrontendOpts().ProgramAction);
 
   // Turn on -Wspir-compat for SPIR target.
-  llvm::Triple T(Res.getTargetOpts().Triple);
   auto Arch = T.getArch();
   if (Arch == llvm::Triple::spir || Arch == llvm::Triple::spir64) {
     Res.getDiagnosticOpts().Warnings.push_back("spir-compat");

@@ -37,14 +37,14 @@
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/CharInfo.h"
+#include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/Module.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/Version.h"
 #include "clang/CodeGen/ConstantInitBuilder.h"
-#include "clang/Frontend/CodeGenOptions.h"
-#include "clang/Sema/SemaDiagnostic.h"
+#include "clang/Frontend/FrontendDiagnostic.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
@@ -599,6 +599,9 @@ void CodeGenModule::Release() {
 
   if (getCodeGenOpts().EmitVersionIdentMetadata)
     EmitVersionIdentMetadata();
+
+  if (!getCodeGenOpts().RecordCommandLine.empty())
+    EmitCommandLineMetadata();
 
   EmitTargetMetadata();
 }
@@ -2707,11 +2710,22 @@ void CodeGenModule::emitCPUDispatchDefinition(GlobalDecl GD) {
 
     llvm::Constant *Func = GetGlobalValue(MangledName);
 
-    if (!Func)
+    if (!Func) {
+      GlobalDecl ExistingDecl = Manglings.lookup(MangledName);
+      if (ExistingDecl.getDecl() &&
+          ExistingDecl.getDecl()->getAsFunction()->isDefined()) {
+        EmitGlobalFunctionDefinition(ExistingDecl, nullptr);
+        Func = GetGlobalValue(MangledName);
+      } else {
+        if (!ExistingDecl.getDecl())
+          ExistingDecl = GD.getWithMultiVersionIndex(Index);
+
       Func = GetOrCreateLLVMFunction(
-          MangledName, DeclTy, GD.getWithMultiVersionIndex(Index),
+          MangledName, DeclTy, ExistingDecl,
           /*ForVTable=*/false, /*DontDefer=*/true,
           /*IsThunk=*/false, llvm::AttributeList(), ForDefinition);
+      }
+    }
 
     llvm::SmallVector<StringRef, 32> Features;
     Target.getCPUSpecificCPUDispatchFeatures(II->getName(), Features);
@@ -3592,8 +3606,15 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
   // CUDA E.2.4.1 "__shared__ variables cannot have an initialization
   // as part of their declaration."  Sema has already checked for
   // error cases, so we just need to set Init to UndefValue.
-  if (getLangOpts().CUDA && getLangOpts().CUDAIsDevice &&
-      D->hasAttr<CUDASharedAttr>())
+  bool IsCUDASharedVar =
+      getLangOpts().CUDAIsDevice && D->hasAttr<CUDASharedAttr>();
+  // Shadows of initialized device-side global variables are also left
+  // undefined.
+  bool IsCUDAShadowVar =
+      !getLangOpts().CUDAIsDevice &&
+      (D->hasAttr<CUDAConstantAttr>() || D->hasAttr<CUDADeviceAttr>() ||
+       D->hasAttr<CUDASharedAttr>());
+  if (getLangOpts().CUDA && (IsCUDASharedVar || IsCUDAShadowVar))
     Init = llvm::UndefValue::get(getTypes().ConvertType(ASTTy));
   else if (!InitExpr) {
     // This is a tentative definition; tentative definitions are
@@ -5322,6 +5343,16 @@ void CodeGenModule::EmitVersionIdentMetadata() {
 
   llvm::Metadata *IdentNode[] = {llvm::MDString::get(Ctx, Version)};
   IdentMetadata->addOperand(llvm::MDNode::get(Ctx, IdentNode));
+}
+
+void CodeGenModule::EmitCommandLineMetadata() {
+  llvm::NamedMDNode *CommandLineMetadata =
+    TheModule.getOrInsertNamedMetadata("llvm.commandline");
+  std::string CommandLine = getCodeGenOpts().RecordCommandLine;
+  llvm::LLVMContext &Ctx = TheModule.getContext();
+
+  llvm::Metadata *CommandLineNode[] = {llvm::MDString::get(Ctx, CommandLine)};
+  CommandLineMetadata->addOperand(llvm::MDNode::get(Ctx, CommandLineNode));
 }
 
 void CodeGenModule::EmitTargetMetadata() {

@@ -291,6 +291,14 @@ QualType QualType::getSingleStepDesugaredTypeImpl(QualType type,
   return Context.getQualifiedType(desugar, split.Quals);
 }
 
+// Check that no type class is polymorphic. LLVM style RTTI should be used
+// instead. If absolutely needed an exception can still be added here by
+// defining the appropriate macro (but please don't do this).
+#define TYPE(CLASS, BASE) \
+  static_assert(!std::is_polymorphic<CLASS##Type>::value, \
+                #CLASS "Type should not be polymorphic!");
+#include "clang/AST/TypeNodes.def"
+
 QualType Type::getLocallyUnqualifiedSingleStepDesugaredType() const {
   switch (getTypeClass()) {
 #define ABSTRACT_TYPE(Class, Parent)
@@ -2843,7 +2851,7 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
                    result->isInstantiationDependentType(),
                    result->isVariablyModifiedType(),
                    result->containsUnexpandedParameterPack(), epi.ExtInfo) {
-  FunctionTypeBits.TypeQuals = epi.TypeQuals;
+  FunctionTypeBits.FastTypeQuals = epi.TypeQuals.getFastQualifiers();
   FunctionTypeBits.RefQualifier = epi.RefQualifier;
   FunctionTypeBits.NumParams = params.size();
   assert(getNumParams() == params.size() && "NumParams overflow!");
@@ -2942,6 +2950,13 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
     for (unsigned i = 0; i != getNumParams(); ++i)
       extParamInfos[i] = epi.ExtParameterInfos[i];
   }
+
+  if (epi.TypeQuals.hasNonFastQualifiers()) {
+    FunctionTypeBits.HasExtQuals = 1;
+    *getTrailingObjects<Qualifiers>() = epi.TypeQuals;
+  } else {
+    FunctionTypeBits.HasExtQuals = 0;
+  }
 }
 
 bool FunctionProtoType::hasDependentExceptionSpec() const {
@@ -3033,14 +3048,13 @@ void FunctionProtoType::Profile(llvm::FoldingSetNodeID &ID, QualType Result,
   // shortcut, use one AddInteger call instead of four for the next four
   // fields.
   assert(!(unsigned(epi.Variadic) & ~1) &&
-         !(unsigned(epi.TypeQuals) & ~255) &&
          !(unsigned(epi.RefQualifier) & ~3) &&
          !(unsigned(epi.ExceptionSpec.Type) & ~15) &&
          "Values larger than expected.");
   ID.AddInteger(unsigned(epi.Variadic) +
-                (epi.TypeQuals << 1) +
-                (epi.RefQualifier << 9) +
-                (epi.ExceptionSpec.Type << 11));
+                (epi.RefQualifier << 1) +
+                (epi.ExceptionSpec.Type << 3));
+  ID.Add(epi.TypeQuals);
   if (epi.ExceptionSpec.Type == EST_Dynamic) {
     for (QualType Ex : epi.ExceptionSpec.Exceptions)
       ID.AddPointer(Ex.getAsOpaquePtr());
@@ -3158,14 +3172,23 @@ bool TagType::isBeingDefined() const {
 }
 
 bool RecordType::hasConstFields() const {
-  for (FieldDecl *FD : getDecl()->fields()) {
-    QualType FieldTy = FD->getType();
-    if (FieldTy.isConstQualified())
-      return true;
-    FieldTy = FieldTy.getCanonicalType();
-    if (const auto *FieldRecTy = FieldTy->getAs<RecordType>())
-      if (FieldRecTy->hasConstFields())
+  std::vector<const RecordType*> RecordTypeList;
+  RecordTypeList.push_back(this);
+  unsigned NextToCheckIndex = 0;
+
+  while (RecordTypeList.size() > NextToCheckIndex) {
+    for (FieldDecl *FD :
+         RecordTypeList[NextToCheckIndex]->getDecl()->fields()) {
+      QualType FieldTy = FD->getType();
+      if (FieldTy.isConstQualified())
         return true;
+      FieldTy = FieldTy.getCanonicalType();
+      if (const auto *FieldRecTy = FieldTy->getAs<RecordType>()) {
+        if (llvm::find(RecordTypeList, FieldRecTy) == RecordTypeList.end())
+          RecordTypeList.push_back(FieldRecTy);
+      }
+    }
+    ++NextToCheckIndex;
   }
   return false;
 }

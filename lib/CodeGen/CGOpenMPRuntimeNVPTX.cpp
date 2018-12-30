@@ -96,6 +96,8 @@ enum OpenMPRTLFunctionNVPTX {
   OMPRTL_NVPTX__kmpc_get_team_static_memory,
   /// Call to void __kmpc_restore_team_static_memory(int16_t is_shared);
   OMPRTL_NVPTX__kmpc_restore_team_static_memory,
+  // Call to void __kmpc_barrier(ident_t *loc, kmp_int32 global_tid);
+  OMPRTL__kmpc_barrier,
 };
 
 /// Pre(post)-action for different OpenMP constructs specialized for NVPTX.
@@ -185,13 +187,6 @@ enum MachineConfiguration : unsigned {
 
   /// Maximal size of the shared memory buffer.
   SharedMemorySize = 128,
-};
-
-enum NamedBarrier : unsigned {
-  /// Synchronize on this barrier #ID using a named barrier primitive.
-  /// Only the subset of active threads in a parallel region arrive at the
-  /// barrier.
-  NB_Parallel = 1,
 };
 
 static const ValueDecl *getPrivateItem(const Expr *RefExpr) {
@@ -324,9 +319,11 @@ class CheckVarsEscapingDeclContext final
           const auto *Attr = FD->getAttr<OMPCaptureKindAttr>();
           if (!Attr)
             return;
-          if (!isOpenMPPrivate(
-                  static_cast<OpenMPClauseKind>(Attr->getCaptureKind())) ||
-              Attr->getCaptureKind() == OMPC_map)
+          if (((Attr->getCaptureKind() != OMPC_map) &&
+               !isOpenMPPrivate(
+                   static_cast<OpenMPClauseKind>(Attr->getCaptureKind()))) ||
+              ((Attr->getCaptureKind() == OMPC_map) &&
+               !FD->getType()->isAnyPointerType()))
             return;
         }
         if (!FD->getType()->isReferenceType()) {
@@ -651,25 +648,8 @@ static void getNVPTXCTABarrier(CodeGenFunction &CGF) {
   CGF.EmitRuntimeCall(F);
 }
 
-/// Get barrier #ID to synchronize selected (multiple of warp size) threads in
-/// a CTA.
-static void getNVPTXBarrier(CodeGenFunction &CGF, int ID,
-                            llvm::Value *NumThreads) {
-  CGBuilderTy &Bld = CGF.Builder;
-  llvm::Value *Args[] = {Bld.getInt32(ID), NumThreads};
-  llvm::Function *F = llvm::Intrinsic::getDeclaration(
-      &CGF.CGM.getModule(), llvm::Intrinsic::nvvm_barrier);
-  F->addFnAttr(llvm::Attribute::Convergent);
-  CGF.EmitRuntimeCall(F, Args);
-}
-
 /// Synchronize all GPU threads in a block.
 static void syncCTAThreads(CodeGenFunction &CGF) { getNVPTXCTABarrier(CGF); }
-
-/// Synchronize worker threads in a parallel region.
-static void syncParallelThreads(CodeGenFunction &CGF, llvm::Value *NumThreads) {
-  return getNVPTXBarrier(CGF, NB_Parallel, NumThreads);
-}
 
 /// Get the value of the thread_limit clause in the teams directive.
 /// For the 'generic' execution mode, the runtime encodes thread_limit in
@@ -1824,6 +1804,15 @@ CGOpenMPRuntimeNVPTX::createNVPTXRuntimeFunction(unsigned Function) {
         CGM.CreateRuntimeFunction(FnTy, "__kmpc_restore_team_static_memory");
     break;
   }
+  case OMPRTL__kmpc_barrier: {
+    // Build void __kmpc_barrier(ident_t *loc, kmp_int32 global_tid);
+    llvm::Type *TypeParams[] = {getIdentTyPointerTy(), CGM.Int32Ty};
+    auto *FnTy =
+        llvm::FunctionType::get(CGM.VoidTy, TypeParams, /*isVarArg*/ false);
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, /*Name*/ "__kmpc_barrier");
+    cast<llvm::Function>(RTLFn)->addFnAttr(llvm::Attribute::Convergent);
+    break;
+  }
   }
   return RTLFn;
 }
@@ -2511,7 +2500,7 @@ void CGOpenMPRuntimeNVPTX::emitNonSPMDParallelCall(
     // passed from the outside of the target region.
     CodeGenFunction::OMPPrivateScope PrivateArgScope(CGF);
 
-    // There's somehting to share.
+    // There's something to share.
     if (!CapturedVars.empty()) {
       // Prepare for parallel region. Indicate the outlined function.
       Address SharedArgs =
@@ -2676,6 +2665,20 @@ void CGOpenMPRuntimeNVPTX::emitSPMDParallelCall(
   }
 }
 
+void CGOpenMPRuntimeNVPTX::emitBarrierCall(CodeGenFunction &CGF,
+                                           SourceLocation Loc,
+                                           OpenMPDirectiveKind Kind, bool,
+                                           bool) {
+  // Always emit simple barriers!
+  if (!CGF.HaveInsertPoint())
+    return;
+  // Build call __kmpc_cancel_barrier(loc, thread_id);
+  unsigned Flags = getDefaultFlagsForBarriers(Kind);
+  llvm::Value *Args[] = {emitUpdateLocation(CGF, Loc, Flags),
+                         getThreadID(CGF, Loc)};
+  CGF.EmitRuntimeCall(createNVPTXRuntimeFunction(OMPRTL__kmpc_barrier), Args);
+}
+
 void CGOpenMPRuntimeNVPTX::emitCriticalRegion(
     CodeGenFunction &CGF, StringRef CriticalName,
     const RegionCodeGenTy &CriticalOpGen, SourceLocation Loc,
@@ -2718,14 +2721,16 @@ void CGOpenMPRuntimeNVPTX::emitCriticalRegion(
   CGF.EmitBlock(BodyBB);
 
   // Output the critical statement.
-  CriticalOpGen(CGF);
+  CGOpenMPRuntime::emitCriticalRegion(CGF, CriticalName, CriticalOpGen, Loc,
+                                      Hint);
 
   // After the body surrounded by the critical region, the single executing
   // thread will jump to the synchronisation point.
   // Block waits for all threads in current team to finish then increments the
   // counter variable and returns to the loop.
   CGF.EmitBlock(SyncBB);
-  getNVPTXCTABarrier(CGF);
+  emitBarrierCall(CGF, Loc, OMPD_unknown, /*EmitChecks=*/false,
+                  /*ForceSimpleCall=*/true);
 
   llvm::Value *IncCounterVal =
       CGF.Builder.CreateNSWAdd(CounterVal, CGF.Builder.getInt32(1));
@@ -3084,6 +3089,7 @@ static void emitReductionListCopy(
 /// void inter_warp_copy_func(void* reduce_data, num_warps)
 ///   shared smem[warp_size];
 ///   For all data entries D in reduce_data:
+///     sync
 ///     If (I am the first lane in each warp)
 ///       Copy my local D to smem[warp_id]
 ///     sync
@@ -3198,6 +3204,10 @@ static llvm::Value *emitInterWarpCopyFunction(CodeGenModule &CGM,
         Bld.CreateCondBr(Cmp, BodyBB, ExitBB);
         CGF.EmitBlock(BodyBB);
       }
+      // kmpc_barrier.
+      CGM.getOpenMPRuntime().emitBarrierCall(CGF, Loc, OMPD_unknown,
+                                             /*EmitChecks=*/false,
+                                             /*ForceSimpleCall=*/true);
       llvm::BasicBlock *ThenBB = CGF.createBasicBlock("then");
       llvm::BasicBlock *ElseBB = CGF.createBasicBlock("else");
       llvm::BasicBlock *MergeBB = CGF.createBasicBlock("ifcont");
@@ -3243,14 +3253,10 @@ static llvm::Value *emitInterWarpCopyFunction(CodeGenModule &CGM,
 
       CGF.EmitBlock(MergeBB);
 
-      Address AddrNumWarpsArg = CGF.GetAddrOfLocalVar(&NumWarpsArg);
-      llvm::Value *NumWarpsVal = CGF.EmitLoadOfScalar(
-          AddrNumWarpsArg, /*Volatile=*/false, C.IntTy, Loc);
-
-      llvm::Value *NumActiveThreads = Bld.CreateNSWMul(
-          NumWarpsVal, getNVPTXWarpSize(CGF), "num_active_threads");
-      // named_barrier_sync(ParallelBarrierID, num_active_threads)
-      syncParallelThreads(CGF, NumActiveThreads);
+      // kmpc_barrier.
+      CGM.getOpenMPRuntime().emitBarrierCall(CGF, Loc, OMPD_unknown,
+                                             /*EmitChecks=*/false,
+                                             /*ForceSimpleCall=*/true);
 
       //
       // Warp 0 copies reduce element from transfer medium.
@@ -3258,6 +3264,10 @@ static llvm::Value *emitInterWarpCopyFunction(CodeGenModule &CGM,
       llvm::BasicBlock *W0ThenBB = CGF.createBasicBlock("then");
       llvm::BasicBlock *W0ElseBB = CGF.createBasicBlock("else");
       llvm::BasicBlock *W0MergeBB = CGF.createBasicBlock("ifcont");
+
+      Address AddrNumWarpsArg = CGF.GetAddrOfLocalVar(&NumWarpsArg);
+      llvm::Value *NumWarpsVal = CGF.EmitLoadOfScalar(
+          AddrNumWarpsArg, /*Volatile=*/false, C.IntTy, Loc);
 
       // Up to 32 threads in warp 0 are active.
       llvm::Value *IsActiveThread =
@@ -3300,7 +3310,10 @@ static llvm::Value *emitInterWarpCopyFunction(CodeGenModule &CGM,
 
       // While warp 0 copies values from transfer medium, all other warps must
       // wait.
-      syncParallelThreads(CGF, NumActiveThreads);
+      // kmpc_barrier.
+      CGM.getOpenMPRuntime().emitBarrierCall(CGF, Loc, OMPD_unknown,
+                                             /*EmitChecks=*/false,
+                                             /*ForceSimpleCall=*/true);
       if (NumIters > 1) {
         Cnt = Bld.CreateNSWAdd(Cnt, llvm::ConstantInt::get(CGM.IntTy, /*V=*/1));
         CGF.EmitStoreOfScalar(Cnt, CntAddr, /*Volatile=*/false, C.IntTy);
@@ -4504,6 +4517,22 @@ void CGOpenMPRuntimeNVPTX::clear() {
       Records.RecSize->setInitializer(llvm::ConstantInt::get(CGM.SizeTy, Size));
       Records.UseSharedMemory->setInitializer(
           llvm::ConstantInt::get(CGM.Int16Ty, UseSharedMemory ? 1 : 0));
+    }
+    // Allocate SharedMemorySize buffer for the shared memory.
+    // FIXME: nvlink does not handle weak linkage correctly (object with the
+    // different size are reported as erroneous).
+    // Restore this code as sson as nvlink is fixed.
+    if (!SharedStaticRD->field_empty()) {
+      llvm::APInt ArySize(/*numBits=*/64, SharedMemorySize);
+      QualType SubTy = C.getConstantArrayType(
+          C.CharTy, ArySize, ArrayType::Normal, /*IndexTypeQuals=*/0);
+      auto *Field = FieldDecl::Create(
+          C, SharedStaticRD, SourceLocation(), SourceLocation(), nullptr, SubTy,
+          C.getTrivialTypeSourceInfo(SubTy, SourceLocation()),
+          /*BW=*/nullptr, /*Mutable=*/false,
+          /*InitStyle=*/ICIS_NoInit);
+      Field->setAccess(AS_public);
+      SharedStaticRD->addDecl(Field);
     }
     SharedStaticRD->completeDefinition();
     if (!SharedStaticRD->field_empty()) {

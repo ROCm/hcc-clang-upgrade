@@ -8,10 +8,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/CodeGen/BackendUtil.h"
+#include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/TargetOptions.h"
-#include "clang/Frontend/CodeGenOptions.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/Utils.h"
 #include "clang/Lex/HeaderSearchOptions.h"
@@ -259,11 +259,12 @@ static void addAddressSanitizerPasses(const PassManagerBuilder &Builder,
   const CodeGenOptions &CGOpts = BuilderWrapper.getCGOpts();
   bool Recover = CGOpts.SanitizeRecover.has(SanitizerKind::Address);
   bool UseAfterScope = CGOpts.SanitizeAddressUseAfterScope;
+  bool UseOdrIndicator = CGOpts.SanitizeAddressUseOdrIndicator;
   bool UseGlobalsGC = asanUseGlobalsGC(T, CGOpts);
   PM.add(createAddressSanitizerFunctionPass(/*CompileKernel*/ false, Recover,
                                             UseAfterScope));
   PM.add(createAddressSanitizerModulePass(/*CompileKernel*/ false, Recover,
-                                          UseGlobalsGC));
+                                          UseGlobalsGC, UseOdrIndicator));
 }
 
 static void addKernelAddressSanitizerPasses(const PassManagerBuilder &Builder,
@@ -271,7 +272,8 @@ static void addKernelAddressSanitizerPasses(const PassManagerBuilder &Builder,
   PM.add(createAddressSanitizerFunctionPass(
       /*CompileKernel*/ true, /*Recover*/ true, /*UseAfterScope*/ false));
   PM.add(createAddressSanitizerModulePass(
-      /*CompileKernel*/ true, /*Recover*/ true));
+      /*CompileKernel*/ true, /*Recover*/ true, /*UseGlobalsGC*/ true,
+      /*UseOdrIndicator*/ false));
 }
 
 static void addHWAddressSanitizerPasses(const PassManagerBuilder &Builder,
@@ -452,7 +454,7 @@ static void initTargetOptions(llvm::TargetOptions &Options,
   switch (LangOpts.getDefaultFPContractMode()) {
   case LangOptions::FPC_Off:
     // Preserve any contraction performed by the front-end.  (Strict performs
-    // splitting of the muladd instrinsic in the backend.)
+    // splitting of the muladd intrinsic in the backend.)
     Options.AllowFPOpFusion = llvm::FPOpFusion::Standard;
     break;
   case LangOptions::FPC_On:

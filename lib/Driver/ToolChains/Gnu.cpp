@@ -853,7 +853,7 @@ void tools::gnutools::Assembler::ConstructJob(Compilation &C,
   if (Args.hasArg(options::OPT_gsplit_dwarf) &&
       getToolChain().getTriple().isOSLinux())
     SplitDebugInfo(getToolChain(), C, *this, JA, Args, Output,
-                   SplitDebugName(Args, Inputs[0], Output));
+                   SplitDebugName(Args, Output));
 }
 
 namespace {
@@ -2473,7 +2473,7 @@ bool Generic_GCC::isPICDefault() const {
   case llvm::Triple::x86_64:
     return getTriple().isOSWindows();
   case llvm::Triple::ppc64:
-  case llvm::Triple::ppc64le:
+    // Big endian PPC is PIC by default
     return !getTriple().isOSBinFormatMachO() && !getTriple().isMacOSX();
   case llvm::Triple::mips64:
   case llvm::Triple::mips64el:
@@ -2510,18 +2510,9 @@ bool Generic_GCC::IsIntegratedAssemblerDefault() const {
   case llvm::Triple::systemz:
   case llvm::Triple::mips:
   case llvm::Triple::mipsel:
-    return true;
   case llvm::Triple::mips64:
   case llvm::Triple::mips64el:
-    // Enabled for Debian, Android, FreeBSD and OpenBSD mips64/mipsel, as they
-    // can precisely identify the ABI in use (Debian) or only use N64 for MIPS64
-    // (Android). Other targets are unable to distinguish N32 from N64.
-    if (getTriple().getEnvironment() == llvm::Triple::GNUABI64 ||
-        getTriple().isAndroid() ||
-        getTriple().isOSFreeBSD() ||
-        getTriple().isOSOpenBSD())
-      return true;
-    return false;
+    return true;
   default:
     return false;
   }
@@ -2644,7 +2635,7 @@ void Generic_ELF::addClangTargetOptions(const ArgList &DriverArgs,
   bool UseInitArrayDefault =
       getTriple().getArch() == llvm::Triple::aarch64 ||
       getTriple().getArch() == llvm::Triple::aarch64_be ||
-      (getTriple().getOS() == llvm::Triple::FreeBSD &&
+      (getTriple().isOSFreeBSD() &&
        getTriple().getOSMajorVersion() >= 12) ||
       (getTriple().getOS() == llvm::Triple::Linux &&
        ((!GCCInstallation.isValid() || !V.isOlderThan(4, 7, 0)) ||

@@ -3771,10 +3771,11 @@ QualType ASTContext::getFunctionTypeInternal(
   size_t Size = FunctionProtoType::totalSizeToAlloc<
       QualType, FunctionType::FunctionTypeExtraBitfields,
       FunctionType::ExceptionType, Expr *, FunctionDecl *,
-      FunctionProtoType::ExtParameterInfo>(
+      FunctionProtoType::ExtParameterInfo, Qualifiers>(
       NumArgs, FunctionProtoType::hasExtraBitfields(EPI.ExceptionSpec.Type),
       ESH.NumExceptionType, ESH.NumExprPtr, ESH.NumFunctionDeclPtr,
-      EPI.ExtParameterInfos ? NumArgs : 0);
+      EPI.ExtParameterInfos ? NumArgs : 0,
+      EPI.TypeQuals.hasNonFastQualifiers() ? 1 : 0);
 
   auto *FTP = (FunctionProtoType *)Allocate(Size, TypeAlignment);
   FunctionProtoType::ExtProtoInfo newEPI = EPI;
@@ -8132,7 +8133,7 @@ void getIntersectionOfProtocols(ASTContext &Context,
   // Also add the protocols associated with the LHS interface.
   Context.CollectInheritedProtocols(LHS->getInterface(), LHSProtocolSet);
 
-  // Add all of the protocls for the RHS.
+  // Add all of the protocols for the RHS.
   llvm::SmallPtrSet<ObjCProtocolDecl *, 8> RHSProtocolSet;
 
   // Start with the protocol qualifiers.
@@ -9843,10 +9844,6 @@ bool ASTContext::DeclMustBeEmitted(const Decl *D) {
     return true;
 
   if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
-    // Multiversioned functions always have to be emitted, because they are used
-    // by the resolver.
-    if (FD->isMultiVersion())
-      return true;
     // Forward declarations aren't required.
     if (!FD->doesThisDeclarationHaveABody())
       return FD->doesDeclarationForceExternallyVisibleDefinition();
