@@ -33,7 +33,6 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/CodeGen/CodeGenABITypes.h"
-#include "clang/Frontend/CodeGenOptions.h"
 #include "clang/Sema/SemaDiagnostic.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Dominators.h"
@@ -1504,7 +1503,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     if (getLangOpts().CPlusPlusAMP && !getLangOpts().DevicePath) {
       maybeEmitHCArrayCapturePropagation(*this, FD);
     }
-    EmitFunctionBody(Args, Body);
+    EmitFunctionBody(Body);
   } else
     llvm_unreachable("no definition for emitted function");
 
@@ -2472,10 +2471,10 @@ void CodeGenFunction::checkTargetFeatures(const CallExpr *E,
     if (!FeatureList || StringRef(FeatureList) == "")
       return;
     StringRef(FeatureList).split(ReqFeatures, ',');
-    if (!hasRequiredFeatures(ReqFeatures, CGM, FD, MissingFeature))
-      CGM.getDiags().Report(E->getBeginLoc(), diag::err_builtin_needs_feature)
-          << TargetDecl->getDeclName()
-          << CGM.getContext().BuiltinInfo.getRequiredFeatures(BuiltinID);
+    // if (!hasRequiredFeatures(ReqFeatures, CGM, FD, MissingFeature))
+    //   CGM.getDiags().Report(E->getBeginLoc(), diag::err_builtin_needs_feature)
+    //       << TargetDecl->getDeclName()
+    //       << CGM.getContext().BuiltinInfo.getRequiredFeatures(BuiltinID);
 
   } else if (TargetDecl->hasAttr<TargetAttr>() ||
              TargetDecl->hasAttr<CPUSpecificAttr>()) {
@@ -2498,9 +2497,9 @@ void CodeGenFunction::checkTargetFeatures(const CallExpr *E,
       if (F.getValue())
         ReqFeatures.push_back(F.getKey());
     }
-    if (!hasRequiredFeatures(ReqFeatures, CGM, FD, MissingFeature))
-      CGM.getDiags().Report(E->getBeginLoc(), diag::err_function_needs_feature)
-          << FD->getDeclName() << TargetDecl->getDeclName() << MissingFeature;
+    // if (!hasRequiredFeatures(ReqFeatures, CGM, FD, MissingFeature))
+    //   CGM.getDiags().Report(E->getBeginLoc(), diag
+    //       << FD->getDeclName() << TargetDecl->getDeclName() << MissingFeature;
   }
 }
 

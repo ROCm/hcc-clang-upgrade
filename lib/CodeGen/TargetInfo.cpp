@@ -7773,7 +7773,6 @@ static llvm::APSInt getConstexprInt(const Expr *E, const ASTContext &Ctx)
 
   return R;
 }
-} // namespace
 
 void AMDGPUTargetCodeGenInfo::setTargetAttributes(
     const Decl *D, llvm::GlobalValue *GV, CodeGen::CodeGenModule &M) const {
