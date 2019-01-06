@@ -138,8 +138,6 @@ CodeGenModule::CodeGenModule(ASTContext &C, const HeaderSearchOptions &HSO,
     createOpenMPRuntime();
   if (LangOpts.CUDA)
     createCUDARuntime();
-  if (LangOpts.CPlusPlusAMP)
-    createAMPRuntime();
 
   // Enable TBAA unless it's suppressed. ThreadSanitizer needs TBAA even at O0.
   if (LangOpts.Sanitize.has(SanitizerKind::Thread) ||
@@ -1586,15 +1584,8 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
 
   // Prevent barrier functions be duplicated
   // Set C++AMP kernels carry AMDGPU_KERNEL calling convention
-  if (getLangOpts().OpenCL ||
-      (getLangOpts().CPlusPlusAMP && CodeGenOpts.AMPIsDevice)) {
-      if (F->getName()=="amp_barrier") {
-          F->addFnAttr(llvm::Attribute::NoDuplicate);
-          F->addFnAttr(llvm::Attribute::NoUnwind);
-      }
-      if (FD->hasAttr<OpenCLKernelAttr>())
-          F->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
-  }
+  if (getLangOpts().OpenCL && FD->hasAttr<OpenCLKernelAttr>())
+    F->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
 
   if (FD->isReplaceableGlobalAllocationFunction()) {
     // A replaceable global allocation function does not act like a builtin by
@@ -2446,94 +2437,6 @@ bool CodeGenModule::shouldOpportunisticallyEmitVTables() {
   return CodeGenOpts.OptimizationLevel > 0;
 }
 
-namespace
-{
-  class HCCompatible {
-    // TODO: this does not yet include the actual checking of function bodies.
-    std::unordered_map<const Decl*, bool> d_;
-
-    static
-    bool isGlobal_(const VarDecl* x)
-    {
-      return x->isFileVarDecl() || x->hasGlobalStorage();
-    }
-
-    bool allowed_(const VarDecl* x)
-    {
-      if (!x) return true;
-      if (d_.count(x)) return d_[x];
-
-      bool r{true};
-      if (isGlobal_(x) && !x->isConstexpr()) r = false;
-      if (x->isExceptionVariable()) r = false;
-
-      d_[x] = r;
-
-      return r;
-    }
-
-    bool allowed_(const FunctionDecl* x)
-    {
-      if (!x) return true;
-      if (d_.count(x)) return d_[x];
-
-      bool r = true;
-
-      if (x->isVariadic()) r = false;
-      if (x->isPure() || x->isVirtualAsWritten()) r = false;
-
-      d_[x] = r;
-
-      return r;
-    }
-
-    bool allowed_(const CXXRecordDecl* x)
-    {
-      if (!x) return true;
-      if (d_.count(x)) return d_[x];
-
-      bool r = true;
-
-      if (x->isPolymorphic()) r = false;
-
-      d_[x] = r;
-
-      return r;
-    }
-  public:
-    bool operator()(const Decl* x)
-    {
-      if (!x) return true;
-
-      if (d_.count(x)) return d_[x];
-      if (d_.count(x->getNonClosureContext()) &&
-          !d_[x->getNonClosureContext()]) {
-        d_[x] = false;
-        return false;
-      }
-
-      bool r = true;
-
-      if (isa<VarDecl>(x)) r = allowed_(cast<VarDecl>(x));
-      else if (isa<FunctionDecl>(x)) {
-        r = allowed_(cast<FunctionDecl>(x));
-      }
-      else if (isa<CXXRecordDecl>(x)) {
-        r = allowed_(cast<CXXRecordDecl>(x));
-      }
-
-      d_[x] = r;
-
-      return r;
-    }
-  };
-}
-
-static bool isWhiteListForHCC(CodeGenModule &CGM, GlobalDecl GD) {
-  static HCCompatible r;
-
-  return r(GD.getDecl());
-}
 
 void CodeGenModule::EmitMultiVersionFunctionDefinition(GlobalDecl GD,
                                                        llvm::GlobalValue *GV) {
@@ -2551,15 +2454,7 @@ void CodeGenModule::EmitMultiVersionFunctionDefinition(GlobalDecl GD,
 void CodeGenModule::EmitGlobalDefinition(GlobalDecl GD, llvm::GlobalValue *GV) {
   const auto *D = cast<ValueDecl>(GD.getDecl());
 
-  // If this is C++AMP, be selective about which declarations we emit.
-  if (LangOpts.CPlusPlusAMP && !CodeGenOpts.AMPCPU) {
-    if (CodeGenOpts.AMPIsDevice) {
-      // If -famp-is-device switch is on, we are in GPU build path.
-      if (!isWhiteListForHCC(*this, GD)) return;
-    }
-  }
-
-  PrettyStackTraceDecl CrashInfo(const_cast<ValueDecl *>(D), D->getLocation(), 
+  PrettyStackTraceDecl CrashInfo(const_cast<ValueDecl *>(D), D->getLocation(),
                                  Context.getSourceManager(),
                                  "Generating code for declaration");
 
@@ -4102,14 +3997,6 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
                                                    /*DontDefer=*/true,
                                                    ForDefinition));
 
-  // Relax the rule for C++AMP
-  if (!LangOpts.CPlusPlusAMP) {
-    // Already emitted.
-    if (!GV->isDeclaration()) {
-      return;
-    }
-  }
-
   // We need to set linkage and visibility on the function before
   // generating code for it because various parts of IR generation
   // want to propagate this information down (e.g. to local static
@@ -4121,7 +4008,6 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
   setGVProperties(Fn, GD);
 
   MaybeHandleStaticInExternC(D, Fn);
-
 
   maybeSetTrivialComdat(*D, *Fn);
 
