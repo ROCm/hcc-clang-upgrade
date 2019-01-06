@@ -249,12 +249,6 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
   else
     Init = EmitNullConstant(Ty);
 
-  if (isAcceleratorPath(*this) && !D.isConstexpr()) {
-    Linkage = llvm::GlobalVariable::LinkageTypes::ExternalLinkage;
-    Init = nullptr;
-    TargetAS = getContext().getTargetAddressSpace(LangAS::opencl_global);
-  }
-
   llvm::GlobalVariable *GV = new llvm::GlobalVariable(
       getModule(), LTy, Ty.isConstant(getContext()), Linkage, Init, Name,
       nullptr, llvm::GlobalVariable::NotThreadLocal, TargetAS);
@@ -422,8 +416,8 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   bool isCudaSharedVar = getLangOpts().CUDA && getLangOpts().CUDAIsDevice &&
                          D.hasAttr<CUDASharedAttr>();
   // If this value has an initializer, emit it.
-  if (D.getInit() && 
-      !isCudaSharedVar && 
+  if (D.getInit() &&
+      !isCudaSharedVar &&
       (!isAcceleratorPath(CGM) || D.isConstexpr()))
     var = AddInitializerToStaticVarDecl(D, var);
 
