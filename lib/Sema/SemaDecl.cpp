@@ -6714,7 +6714,8 @@ NamedDecl *Sema::ActOnVariableDeclarator(
       (!NewVD->hasExternalFormalLinkage() || NewVD->isInline()) &&
       getLangOpts().CPlusPlusAMP &&
       !getLangOpts().DevicePath) {
-      NewVD->addAttr(::new (Context) UsedAttr{NewVD->getSourceRange(), Context, 0});
+      NewVD->addAttr(UsedAttr::CreateImplicit(Context,
+                                              NewVD->getSourceRange()));
   }
   // Handle attributes prior to checking for duplicates in MergeVarDecl
   ProcessDeclAttributes(S, NewVD, D);

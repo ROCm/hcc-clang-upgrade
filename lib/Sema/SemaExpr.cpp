@@ -5060,8 +5060,8 @@ void HandleReferenceFieldInROCccCallable_() {
 
   if (Tmp.empty()) return;
 
-  Callable_->addAttr(new (Sema_.Context) AnnotateAttr{
-    Callable_->getSourceRange(), Sema_.Context, ROCccCallable_, 0u});
+  Callable_->addAttr(AnnotateAttr::CreateImplicit(Sema_.Context, ROCccCallable_,
+                                                  Callable_->getSourceRange()));
 
   ClassTemplateDecl *Master = GetUbiquitousReferenceMakerROCcc_();
 
