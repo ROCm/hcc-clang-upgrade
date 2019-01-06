@@ -321,7 +321,7 @@ static bool getPIE(const ArgList &Args, const toolchains::Linux &ToolChain) {
   return A->getOption().matches(options::OPT_pie);
 }
 
-void tools::gnutools::Linker::ConstructLinkerJob(Compilation &C, 
+void tools::gnutools::Linker::ConstructLinkerJob(Compilation &C,
                                     const JobAction &JA,
                                     const InputInfo &Output,
                                     const InputInfoList &Inputs,
@@ -554,14 +554,6 @@ void tools::gnutools::Linker::ConstructLinkerJob(Compilation &C,
       if (!isAndroid)
         CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath("crtn.o")));
     }
-  }
-
-  // HCC: Add compiler-rt library to get the half fp builtins
-  if (C.getArgs().hasArg(options::OPT_famp) ||
-    C.getArgs().getLastArgValue(options::OPT_std_EQ).equals("c++amp")) {
-    CmdArgs.push_back(Args.MakeArgString(
-        "-lclang_rt.builtins-" +
-        getToolChain().getTriple().getArchName()));
   }
 
   // Add OpenMP offloading linker script args if required.
