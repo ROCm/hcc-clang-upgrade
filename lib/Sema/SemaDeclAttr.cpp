@@ -93,6 +93,17 @@ static unsigned getFunctionOrMethodNumParams(const Decl *D) {
   return cast<ObjCMethodDecl>(D)->param_size();
 }
 
+static const ParmVarDecl *getFunctionOrMethodParam(const Decl *D,
+                                                   unsigned Idx) {
+  if (const auto *FD = dyn_cast<FunctionDecl>(D))
+    return FD->getParamDecl(Idx);
+  if (const auto *MD = dyn_cast<ObjCMethodDecl>(D))
+    return MD->getParamDecl(Idx);
+  if (const auto *BD = dyn_cast<BlockDecl>(D))
+    return BD->getParamDecl(Idx);
+  return nullptr;
+}
+
 static QualType getFunctionOrMethodParamType(const Decl *D, unsigned Idx) {
   if (const FunctionType *FnTy = D->getFunctionType())
     return cast<FunctionProtoType>(FnTy)->getParamType(Idx);
@@ -103,12 +114,8 @@ static QualType getFunctionOrMethodParamType(const Decl *D, unsigned Idx) {
 }
 
 static SourceRange getFunctionOrMethodParamRange(const Decl *D, unsigned Idx) {
-  if (const auto *FD = dyn_cast<FunctionDecl>(D))
-    return FD->getParamDecl(Idx)->getSourceRange();
-  if (const auto *MD = dyn_cast<ObjCMethodDecl>(D))
-    return MD->parameters()[Idx]->getSourceRange();
-  if (const auto *BD = dyn_cast<BlockDecl>(D))
-    return BD->getParamDecl(Idx)->getSourceRange();
+  if (auto *PVD = getFunctionOrMethodParam(D, Idx))
+    return PVD->getSourceRange();
   return SourceRange();
 }
 
@@ -1891,7 +1898,16 @@ static void handleAliasAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
     }
   }
 
-  // FIXME: check if target symbol exists in current file
+  // Mark target used to prevent unneeded-internal-declaration warnings.
+  if (!S.LangOpts.CPlusPlus) {
+    // FIXME: demangle Str for C++, as the attribute refers to the mangled
+    // linkage name, not the pre-mangled identifier.
+    const DeclarationNameInfo target(&S.Context.Idents.get(Str), AL.getLoc());
+    LookupResult LR(S, target, Sema::LookupOrdinaryName);
+    if (S.LookupQualifiedName(LR, S.getCurLexicalContext()))
+      for (NamedDecl *ND : LR)
+        ND->markUsed(S.Context);
+  }
 
   D->addAttr(::new (S.Context) AliasAttr(AL.getRange(), S.Context, Str,
                                          AL.getAttributeSpellingListIndex()));
@@ -6240,6 +6256,79 @@ static void handleUninitializedAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
                  UninitializedAttr(AL.getLoc(), S.Context, Index));
 }
 
+static bool tryMakeVariablePseudoStrong(Sema &S, VarDecl *VD,
+                                        bool DiagnoseFailure) {
+  QualType Ty = VD->getType();
+  if (!Ty->isObjCRetainableType()) {
+    if (DiagnoseFailure) {
+      S.Diag(VD->getBeginLoc(), diag::warn_ignored_objc_externally_retained)
+          << 0;
+    }
+    return false;
+  }
+
+  Qualifiers::ObjCLifetime LifetimeQual = Ty.getQualifiers().getObjCLifetime();
+
+  // Sema::inferObjCARCLifetime must run after processing decl attributes
+  // (because __block lowers to an attribute), so if the lifetime hasn't been
+  // explicitly specified, infer it locally now.
+  if (LifetimeQual == Qualifiers::OCL_None)
+    LifetimeQual = Ty->getObjCARCImplicitLifetime();
+
+  // The attributes only really makes sense for __strong variables; ignore any
+  // attempts to annotate a parameter with any other lifetime qualifier.
+  if (LifetimeQual != Qualifiers::OCL_Strong) {
+    if (DiagnoseFailure) {
+      S.Diag(VD->getBeginLoc(), diag::warn_ignored_objc_externally_retained)
+          << 1;
+    }
+    return false;
+  }
+
+  // Tampering with the type of a VarDecl here is a bit of a hack, but we need
+  // to ensure that the variable is 'const' so that we can error on
+  // modification, which can otherwise over-release.
+  VD->setType(Ty.withConst());
+  VD->setARCPseudoStrong(true);
+  return true;
+}
+
+static void handleObjCExternallyRetainedAttr(Sema &S, Decl *D,
+                                             const ParsedAttr &AL) {
+  if (auto *VD = dyn_cast<VarDecl>(D)) {
+    assert(!isa<ParmVarDecl>(VD) && "should be diagnosed automatically");
+    if (!VD->hasLocalStorage()) {
+      S.Diag(D->getBeginLoc(), diag::warn_ignored_objc_externally_retained)
+          << 0;
+      return;
+    }
+
+    if (!tryMakeVariablePseudoStrong(S, VD, /*DiagnoseFailure=*/true))
+      return;
+
+    handleSimpleAttribute<ObjCExternallyRetainedAttr>(S, D, AL);
+    return;
+  }
+
+  // If D is a function-like declaration (method, block, or function), then we
+  // make every parameter psuedo-strong.
+  for (unsigned I = 0, E = getFunctionOrMethodNumParams(D); I != E; ++I) {
+    auto *PVD = const_cast<ParmVarDecl *>(getFunctionOrMethodParam(D, I));
+    QualType Ty = PVD->getType();
+
+    // If a user wrote a parameter with __strong explicitly, then assume they
+    // want "real" strong semantics for that parameter. This works because if
+    // the parameter was written with __strong, then the strong qualifier will
+    // be non-local.
+    if (Ty.getLocalUnqualifiedType().getQualifiers().getObjCLifetime() ==
+        Qualifiers::OCL_Strong)
+      continue;
+
+    tryMakeVariablePseudoStrong(S, PVD, /*DiagnoseFailure=*/false);
+  }
+  handleSimpleAttribute<ObjCExternallyRetainedAttr>(S, D, AL);
+}
+
 //===----------------------------------------------------------------------===//
 // HC specific attribute handlers.
 // FIXME: Merge these handlers with handleSimpleAttribute
@@ -7011,6 +7100,10 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case ParsedAttr::AT_Uninitialized:
     handleUninitializedAttr(S, D, AL);
     break;
+
+  case ParsedAttr::AT_ObjCExternallyRetained:
+    handleObjCExternallyRetainedAttr(S, D, AL);
+    break;
   }
 }
 
@@ -7411,9 +7504,10 @@ ShouldDiagnoseAvailabilityOfDecl(Sema &S, const NamedDecl *D,
 /// whether we should emit a diagnostic for \c K and \c DeclVersion in
 /// the context of \c Ctx. For example, we should emit an unavailable diagnostic
 /// in a deprecated context, but not the other way around.
-static bool ShouldDiagnoseAvailabilityInContext(Sema &S, AvailabilityResult K,
-                                                VersionTuple DeclVersion,
-                                                Decl *Ctx) {
+static bool
+ShouldDiagnoseAvailabilityInContext(Sema &S, AvailabilityResult K,
+                                    VersionTuple DeclVersion, Decl *Ctx,
+                                    const NamedDecl *OffendingDecl) {
   assert(K != AR_Available && "Expected an unavailable declaration here!");
 
   // Checks if we should emit the availability diagnostic in the context of C.
@@ -7422,9 +7516,22 @@ static bool ShouldDiagnoseAvailabilityInContext(Sema &S, AvailabilityResult K,
       if (const AvailabilityAttr *AA = getAttrForPlatform(S.Context, C))
         if (AA->getIntroduced() >= DeclVersion)
           return true;
-    } else if (K == AR_Deprecated)
+    } else if (K == AR_Deprecated) {
       if (C->isDeprecated())
         return true;
+    } else if (K == AR_Unavailable) {
+      // It is perfectly fine to refer to an 'unavailable' Objective-C method
+      // when it's actually defined and is referenced from within the
+      // @implementation itself. In this context, we interpret unavailable as a
+      // form of access control.
+      if (const auto *MD = dyn_cast<ObjCMethodDecl>(OffendingDecl)) {
+        if (const auto *Impl = dyn_cast<ObjCImplDecl>(C)) {
+          if (MD->getClassInterface() == Impl->getClassInterface() &&
+              MD->isDefined())
+            return true;
+        }
+      }
+    }
 
     if (C->isUnavailable())
       return true;
@@ -7613,7 +7720,8 @@ static void DoEmitAvailabilityWarning(Sema &S, AvailabilityResult K,
   if (const AvailabilityAttr *AA = getAttrForPlatform(S.Context, OffendingDecl))
     DeclVersion = AA->getIntroduced();
 
-  if (!ShouldDiagnoseAvailabilityInContext(S, K, DeclVersion, Ctx))
+  if (!ShouldDiagnoseAvailabilityInContext(S, K, DeclVersion, Ctx,
+                                           OffendingDecl))
     return;
 
   SourceLocation Loc = Locs.front();
@@ -8097,7 +8205,8 @@ void DiagnoseUnguardedAvailability::DiagnoseDeclAvailability(
 
     // If the context of this function is less available than D, we should not
     // emit a diagnostic.
-    if (!ShouldDiagnoseAvailabilityInContext(SemaRef, Result, Introduced, Ctx))
+    if (!ShouldDiagnoseAvailabilityInContext(SemaRef, Result, Introduced, Ctx,
+                                             OffendingDecl))
       return;
 
     // We would like to emit the diagnostic even if -Wunguarded-availability is

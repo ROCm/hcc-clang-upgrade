@@ -25,6 +25,7 @@
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/ObjCRuntime.h"
 #include "clang/Basic/Version.h"
+#include "clang/Driver/Distro.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Options.h"
 #include "clang/Driver/SanitizerArgs.h"
@@ -2369,9 +2370,6 @@ static void RenderAnalyzerOptions(const ArgList &Args, ArgStringList &CmdArgs,
   // Treat blocks as analysis entry points.
   CmdArgs.push_back("-analyzer-opt-analyze-nested-blocks");
 
-  // Enable compatilibily mode to avoid analyzer-config related errors.
-  CmdArgs.push_back("-analyzer-config-compatibility-mode=true");
-
   // Add default argument set.
   if (!Args.hasArg(options::OPT__analyzer_no_default_checks)) {
     CmdArgs.push_back("-analyzer-checker=core");
@@ -3792,6 +3790,24 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (isa<AnalyzeJobAction>(JA))
     RenderAnalyzerOptions(Args, CmdArgs, Triple, Input);
 
+  // Enable compatilibily mode to avoid analyzer-config related errors.
+  // Since we can't access frontend flags through hasArg, let's manually iterate
+  // through them.
+  bool FoundAnalyzerConfig = false;
+  for (auto Arg : Args.filtered(options::OPT_Xclang))
+    if (StringRef(Arg->getValue()) == "-analyzer-config") {
+      FoundAnalyzerConfig = true;
+      break;
+    }
+  if (!FoundAnalyzerConfig)
+    for (auto Arg : Args.filtered(options::OPT_Xanalyzer))
+      if (StringRef(Arg->getValue()) == "-analyzer-config") {
+        FoundAnalyzerConfig = true;
+        break;
+      }
+  if (FoundAnalyzerConfig)
+    CmdArgs.push_back("-analyzer-config-compatibility-mode=true");
+
   CheckCodeGenerationOptions(D, Args);
 
   unsigned FunctionAlignment = ParseFunctionAlignment(TC, Args);
@@ -4487,6 +4503,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_version_EQ);
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_cuda_number_of_sm_EQ);
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_cuda_blocks_per_sm_EQ);
+      if (Args.hasFlag(options::OPT_fopenmp_optimistic_collapse,
+                       options::OPT_fno_openmp_optimistic_collapse,
+                       /*Default=*/false))
+        CmdArgs.push_back("-fopenmp-optimistic-collapse");
 
       // When in OpenMP offloading mode with NVPTX target, forward
       // cuda-mode flag
@@ -5382,6 +5402,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                     TC.getTriple().isOSBinFormatCOFF()) &&
                       !TC.getTriple().isPS4() &&
                       !TC.getTriple().isOSNetBSD() &&
+                      !Distro(D.getVFS()).IsGentoo() &&
+                      !TC.getTriple().isAndroid() &&
                        TC.useIntegratedAs()))
     CmdArgs.push_back("-faddrsig");
 
