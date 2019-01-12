@@ -5001,7 +5001,7 @@ class CallableWithReferenceFieldsHandler {
   FunctionDecl *FDecl_{};
   Sema &Sema_;
 
-  static bool IsInROCccNamespace_(const DeclContext *DCtx) {
+  static bool IsInROCccNamespace_(const DeclContext *DCtx) noexcept {
     static constexpr const char ROCcc_outer[]{"roccc"};
     static constexpr const char ROCcc_inner[]{"detail"};
 
@@ -5017,7 +5017,7 @@ class CallableWithReferenceFieldsHandler {
     return Ns->getName().find(ROCcc_outer) != StringRef::npos;
   }
 
-  ClassTemplateDecl *GetUbiquitousReferenceMakerROCcc_() {
+  ClassTemplateDecl *GetUbiquitousReferenceMakerROCcc_() noexcept {
     const auto It = std::find_if(
       Sema_.Context.getTypes().begin(),
       Sema_.Context.getTypes().end(),
@@ -5038,27 +5038,36 @@ class CallableWithReferenceFieldsHandler {
     return (*It)->getAsCXXRecordDecl()->getDescribedClassTemplate();
   }
 
-  bool IsPFECall_() {
+  bool IsPFECall_() noexcept {
     if (!FDecl_) return false;
     if (!FDecl_->hasAttr<AnnotateAttr>()) return false;
 
     return FDecl_->getAttr<AnnotateAttr>()->getAnnotation() == ROCccPFE_;
   }
 
-  bool IsPFECallable_() {
-    return Callable_->hasAttr<AnnotateAttr>() &&
-      Callable_->getAttr<AnnotateAttr>()
-        ->getAnnotation().find(ROCccCallable_) != StringRef::npos;
+  bool IsPFECallable_() noexcept {
+    if (!Callable_->hasAttr<AnnotateAttr>()) return false;
+
+    return
+      Callable_->getAttr<AnnotateAttr>()->getAnnotation() == ROCccCallable_;
   }
 
   SmallVector<TemplateArgument, 4> MakeTemplateArgsForRefFields_() {
     SmallVector<TemplateArgument, 4> Ret;
 
-    for (const FieldDecl* F : Callable_->fields()) {
-      if (!F->getType()->isReferenceType()) continue;
+    llvm::DenseMap<const VarDecl *, FieldDecl *> Captures{};
+    FieldDecl *ThisCapture{};
+    Callable_->getCaptureFields(Captures, ThisCapture);
 
-      Ret.emplace_back(
-        F->getType().getNonReferenceType()->getCanonicalTypeInternal());
+    if (ThisCapture) {
+      Ret.emplace_back(ThisCapture->getType()->getPointeeType()
+                                             ->getCanonicalTypeInternal());
+    }
+    for (auto &&Capture : Captures) {
+      if (!Capture.second->getType()->isReferenceType()) continue;
+
+      Ret.emplace_back(Capture.second->getType().getNonReferenceType()
+                                                ->getCanonicalTypeInternal());
     }
 
     return Ret;
@@ -5109,7 +5118,7 @@ void HandleReferenceFieldInROCccCallable_() {
 
 public:
   CallableWithReferenceFieldsHandler(FunctionDecl *FDecl, Sema &S)
-    : Callable_{nullptr}, FDecl_{FDecl}, Sema_{S}
+    : Callable_{}, FDecl_{FDecl}, Sema_{S}
   {}
 
   void operator()() {
@@ -5118,6 +5127,7 @@ public:
     Callable_ = FDecl_->getParamDecl(FDecl_->getNumParams() - 1)
       ->getOriginalType().getNonReferenceType()->getAsCXXRecordDecl();
 
+    if (!Callable_->isLambda()) return;
     if (IsPFECallable_()) return;
 
     HandleReferenceFieldInROCccCallable_();
