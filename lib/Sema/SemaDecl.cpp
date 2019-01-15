@@ -13044,6 +13044,22 @@ Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Declarator &D,
 
   D.setFunctionDefinitionKind(FDK_Definition);
   Decl *DP = HandleDeclarator(ParentScope, D, TemplateParameterLists);
+
+  if (LangOpts.CPlusPlusAMP && SkipBody) {
+    const bool HC = DP->hasAttr<HC_HCAttr>();
+    const bool CPU = DP->hasAttr<HC_CPUAttr>();
+
+    SkipBody->ShouldSkip = LangOpts.DevicePath ? (!HC && CPU) : (HC && !CPU);
+
+    if (SkipBody->ShouldSkip) {
+      auto Empty = new (getASTContext()) NullStmt{DP->getLocation()};
+      cast<FunctionDecl>(DP)->setBody(Empty);
+      cast<FunctionDecl>(DP)->addAttr(
+        CXX11NoReturnAttr::CreateImplicit(getASTContext()));
+      return DP;
+    }
+  }
+
   return ActOnStartOfFunctionDef(FnBodyScope, DP, SkipBody);
 }
 
