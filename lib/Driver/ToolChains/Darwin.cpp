@@ -224,13 +224,20 @@ void darwin::Linker::AddLinkArgs(Compilation &C, const ArgList &Args,
                    options::OPT_fno_application_extension, false))
     CmdArgs.push_back("-application_extension");
 
-  if (D.isUsingLTO()) {
-    // If we are using LTO, then automatically create a temporary file path for
-    // the linker to use, so that it's lifetime will extend past a possible
-    // dsymutil step.
-    if (Version[0] >= 116 && NeedsTempPath(Inputs)) {
-      const char *TmpPath = C.getArgs().MakeArgString(
-          D.GetTemporaryPath("cc", types::getTypeTempSuffix(types::TY_Object)));
+  if (D.isUsingLTO() && Version[0] >= 116 && NeedsTempPath(Inputs)) {
+    std::string TmpPathName;
+    if (D.getLTOMode() == LTOK_Full) {
+      // If we are using full LTO, then automatically create a temporary file
+      // path for the linker to use, so that it's lifetime will extend past a
+      // possible dsymutil step.
+      TmpPathName =
+          D.GetTemporaryPath("cc", types::getTypeTempSuffix(types::TY_Object));
+    } else if (D.getLTOMode() == LTOK_Thin)
+      // If we are using thin LTO, then create a directory instead.
+      TmpPathName = D.GetTemporaryDirectory("thinlto");
+
+    if (!TmpPathName.empty()) {
+      auto *TmpPath = C.getArgs().MakeArgString(TmpPathName);
       C.addTempFile(TmpPath);
       CmdArgs.push_back("-object_path_lto");
       CmdArgs.push_back(TmpPath);
@@ -1752,10 +1759,11 @@ void DarwinClang::AddClangCXXStdlibIncludeArgs(
       break;
     // On Darwin, libc++ may be installed alongside the compiler in
     // include/c++/v1.
-    // Get from 'foo/bin' to 'foo'.
-    SmallString<128> P = llvm::sys::path::parent_path(InstallDir);
-    // Get to 'foo/include/c++/v1'.
-    llvm::sys::path::append(P, "include", "c++", "v1");
+    // Get from 'foo/bin' to 'foo/include/c++/v1'.
+    SmallString<128> P = InstallDir;
+    // Note that InstallDir can be relative, so we have to '..' and not
+    // parent_path.
+    llvm::sys::path::append(P, "..", "include", "c++", "v1");
     addSystemInclude(DriverArgs, CC1Args, P);
     break;
   }

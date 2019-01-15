@@ -74,7 +74,7 @@ static CanQualType GetThisType(ASTContext &Context, const CXXRecordDecl *RD,
                                const CXXMethodDecl *MD) {
   QualType RecTy = Context.getTagDeclType(RD)->getCanonicalTypeInternal();
   if (MD)
-    RecTy = Context.getAddrSpaceQualType(RecTy, MD->getType().getAddressSpace());
+    RecTy = Context.getAddrSpaceQualType(RecTy, MD->getTypeQualifiers().getAddressSpace());
   return Context.getPointerType(CanQualType::CreateUnsafe(RecTy));
 }
 
@@ -1826,6 +1826,12 @@ void CodeGenModule::ConstructDefaultFnAttrList(StringRef Name, bool HasOptnone,
     // Respect -fcuda-flush-denormals-to-zero.
     if (CodeGenOpts.FlushDenorm)
       FuncAttrs.addAttribute("nvptx-f32ftz", "true");
+  }
+
+  for (StringRef Attr : CodeGenOpts.DefaultFunctionAttrs) {
+    StringRef Var, Value;
+    std::tie(Var, Value) = Attr.split('=');
+    FuncAttrs.addAttribute(Var, Value);
   }
 }
 

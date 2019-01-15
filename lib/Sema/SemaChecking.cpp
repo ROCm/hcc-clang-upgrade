@@ -5148,8 +5148,6 @@ Sema::SemaBuiltinAtomicOverloaded(ExprResult TheCallResult) {
     TheCall->setArg(i+1, Arg.get());
   }
 
-  ASTContext& Context = this->getASTContext();
-
   // Create a new DeclRefExpr to refer to the new decl.
   DeclRefExpr* NewDRE = DeclRefExpr::Create(
       Context,
@@ -11905,30 +11903,42 @@ public:
       notePostUse(O, E);
   }
 
+  void VisitSequencedExpressions(Expr *SequencedBefore, Expr *SequencedAfter) {
+    SequenceTree::Seq BeforeRegion = Tree.allocate(Region);
+    SequenceTree::Seq AfterRegion = Tree.allocate(Region);
+    SequenceTree::Seq OldRegion = Region;
+
+    {
+      SequencedSubexpression SeqBefore(*this);
+      Region = BeforeRegion;
+      Visit(SequencedBefore);
+    }
+
+    Region = AfterRegion;
+    Visit(SequencedAfter);
+
+    Region = OldRegion;
+
+    Tree.merge(BeforeRegion);
+    Tree.merge(AfterRegion);
+  }
+
+  void VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
+    // C++17 [expr.sub]p1:
+    //   The expression E1[E2] is identical (by definition) to *((E1)+(E2)). The
+    //   expression E1 is sequenced before the expression E2.
+    if (SemaRef.getLangOpts().CPlusPlus17)
+      VisitSequencedExpressions(ASE->getLHS(), ASE->getRHS());
+    else
+      Base::VisitStmt(ASE);
+  }
+
   void VisitBinComma(BinaryOperator *BO) {
     // C++11 [expr.comma]p1:
     //   Every value computation and side effect associated with the left
     //   expression is sequenced before every value computation and side
     //   effect associated with the right expression.
-    SequenceTree::Seq LHS = Tree.allocate(Region);
-    SequenceTree::Seq RHS = Tree.allocate(Region);
-    SequenceTree::Seq OldRegion = Region;
-
-    {
-      SequencedSubexpression SeqLHS(*this);
-      Region = LHS;
-      Visit(BO->getLHS());
-    }
-
-    Region = RHS;
-    Visit(BO->getRHS());
-
-    Region = OldRegion;
-
-    // Forget that LHS and RHS are sequenced. They are both unsequenced
-    // with respect to other stuff.
-    Tree.merge(LHS);
-    Tree.merge(RHS);
+    VisitSequencedExpressions(BO->getLHS(), BO->getRHS());
   }
 
   void VisitBinAssign(BinaryOperator *BO) {
@@ -12374,9 +12384,12 @@ void Sema::CheckArrayAccess(const Expr *BaseExpr, const Expr *IndexExpr,
       BaseExpr->getType()->getPointeeOrArrayElementType();
   BaseExpr = BaseExpr->IgnoreParenCasts();
   const ConstantArrayType *ArrayTy =
-    Context.getAsConstantArrayType(BaseExpr->getType());
+      Context.getAsConstantArrayType(BaseExpr->getType());
+
   if (!ArrayTy)
     return;
+
+  const Type *BaseType = ArrayTy->getElementType().getTypePtr();
 
   Expr::EvalResult Result;
   if (!IndexExpr->EvaluateAsInt(Result, Context, Expr::SE_AllowSideEffects))
@@ -12393,11 +12406,19 @@ void Sema::CheckArrayAccess(const Expr *BaseExpr, const Expr *IndexExpr,
     ND = ME->getMemberDecl();
 
   if (index.isUnsigned() || !index.isNegative()) {
+    // It is possible that the type of the base expression after
+    // IgnoreParenCasts is incomplete, even though the type of the base
+    // expression before IgnoreParenCasts is complete (see PR39746 for an
+    // example). In this case we have no information about whether the array
+    // access exceeds the array bounds. However we can still diagnose an array
+    // access which precedes the array bounds.
+    if (BaseType->isIncompleteType())
+      return;
+
     llvm::APInt size = ArrayTy->getSize();
     if (!size.isStrictlyPositive())
       return;
 
-    const Type *BaseType = BaseExpr->getType()->getPointeeOrArrayElementType();
     if (BaseType != EffectiveType) {
       // Make sure we're comparing apples to apples when comparing index to size
       uint64_t ptrarith_typesize = Context.getTypeSize(EffectiveType);

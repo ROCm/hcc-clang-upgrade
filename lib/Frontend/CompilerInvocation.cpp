@@ -33,6 +33,7 @@
 #include "clang/Frontend/DependencyOutputOptions.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/FrontendOptions.h"
+#include "clang/Frontend/FrontendPluginRegistry.h"
 #include "clang/Frontend/LangStandard.h"
 #include "clang/Frontend/MigratorOptions.h"
 #include "clang/Frontend/PreprocessorOutputOptions.h"
@@ -909,6 +910,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
       Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << S;
   }
   Opts.LTOUnit = Args.hasFlag(OPT_flto_unit, OPT_fno_lto_unit, false);
+  Opts.EnableSplitLTOUnit = Args.hasArg(OPT_fsplit_lto_unit);
   if (Arg *A = Args.getLastArg(OPT_fthinlto_index_EQ)) {
     if (IK.getLanguage() != InputKind::LLVM_IR)
       Diags.Report(diag::err_drv_argument_only_allowed_with)
@@ -1320,6 +1322,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.KeepStaticConsts = Args.hasArg(OPT_fkeep_static_consts);
 
   Opts.SpeculativeLoadHardening = Args.hasArg(OPT_mspeculative_load_hardening);
+
+  Opts.DefaultFunctionAttrs = Args.getAllArgValues(OPT_default_function_attr);
 
   return Success;
 }
@@ -2862,6 +2866,11 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
         getLastArgIntValue(Args, options::OPT_fopenmp_cuda_blocks_per_sm_EQ,
                            Opts.OpenMPCUDABlocksPerSM, Diags);
   }
+
+  // Prevent auto-widening the representation of loop counters during an
+  // OpenMP collapse clause.
+  Opts.OpenMPOptimisticCollapse =
+      Args.hasArg(options::OPT_fopenmp_optimistic_collapse) ? 1 : 0;
 
   // Get the OpenMP target triples if any.
   if (Arg *A = Args.getLastArg(options::OPT_fopenmp_targets_EQ)) {
