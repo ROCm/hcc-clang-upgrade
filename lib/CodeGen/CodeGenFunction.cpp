@@ -54,10 +54,6 @@ static bool shouldEmitLifetimeMarkers(const CodeGenOptions &CGOpts,
   if (LangOpts.Sanitize.has(SanitizerKind::Memory))
     return false;
 
-  // Disable lifetime markers in HCC kernel build
-  if (LangOpts.CPlusPlusAMP && CGOpts.AMPIsDevice)
-    return false;
-
   // Asan uses markers for use-after-scope checks.
   if (CGOpts.SanitizeAddressUseAfterScope)
     return true;

@@ -2262,7 +2262,7 @@ class ReferenceFieldInitialiser {
   FieldDecl const *Field_;
   Expr *Init_;
 
-  static bool IsInROCccNamespace_(const DeclContext *DCtx) {
+  static bool IsInROCccNamespace_(const DeclContext *DCtx) noexcept {
     static constexpr const char ROCcc_outer[]{"roccc"};
     static constexpr const char ROCcc_inner[]{"detail"};
 
@@ -2278,13 +2278,13 @@ class ReferenceFieldInitialiser {
     return Ns->getName().find(ROCcc_outer) != StringRef::npos;
   }
 
-  bool IsROCccCallable_() const {
+  bool IsROCccCallable_() const noexcept {
     return Callable_->hasAttr<AnnotateAttr>() &&
       Callable_->getAttr<AnnotateAttr>()
         ->getAnnotation().find(ROCccCallable) != StringRef::npos;
   }
 
-  CXXMethodDecl *GetMakerFn_() const {
+  CXXMethodDecl *GetMakerFn_() const noexcept {
     const auto It = std::find_if(
       Callable_->getASTContext().getTypes().begin(),
       Callable_->getASTContext().getTypes().end(),
@@ -2305,10 +2305,13 @@ class ReferenceFieldInitialiser {
     ClassTemplateDecl *Master =
       (*It)->getAsCXXRecordDecl()->getDescribedClassTemplate();
 
-    void *Tmp = nullptr;
+    QualType Ty{isa<CXXThisExpr>(Init_) ?
+                Init_->getType()->getPointeeType()->getCanonicalTypeInternal() :
+                Init_->getType().getNonReferenceType()->getCanonicalTypeInternal()};
+
+    void *Tmp{};
     ClassTemplateSpecializationDecl *Spec = Master->findSpecialization(
-      llvm::makeArrayRef<TemplateArgument>(
-        Init_->getType().getNonReferenceType()->getCanonicalTypeInternal()),
+      llvm::makeArrayRef<TemplateArgument>(Ty),
       Tmp);
 
     if (!Spec) return nullptr;
@@ -2349,13 +2352,11 @@ class ReferenceFieldInitialiser {
       nullptr,
       VK_LValue);
 
-    return new (Maker->getASTContext()) CallExpr{
-      Maker->getASTContext(),
-      MakerPFN,
-      llvm::makeArrayRef(Init_),
-      Maker->getCallResultType(),
-      Expr::getValueKindForType(Maker->getReturnType()),
-      SourceLocation{}};
+    return CallExpr::Create(Maker->getASTContext(), MakerPFN,
+                            llvm::makeArrayRef(Init_),
+                            Maker->getCallResultType(),
+                            Expr::getValueKindForType(Maker->getReturnType()),
+                            Init_->getBeginLoc());
   }
 public:
   ReferenceFieldInitialiser(Expr *Init, const CXXRecordDecl *Callable,
@@ -2365,7 +2366,9 @@ public:
 
   Expr *operator()() const {
     if (!IsROCccCallable_()) return Init_;
-    if (!Field_->getType()->isReferenceType()) return Init_;
+    if (!isa<CXXThisExpr>(Init_) && !Field_->getType()->isReferenceType()) {
+      return Init_;
+    }
 
     return InitialiseReferenceField_();
   }

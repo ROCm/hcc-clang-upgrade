@@ -9291,7 +9291,7 @@ public:
 //===----------------------------------------------------------------------===//
 
 bool CodeGenModule::supportsCOMDAT() const {
-  return (!getLangOpts().CPlusPlusAMP && getTriple().supportsCOMDAT());
+  return getTriple().supportsCOMDAT();
 }
 
 const TargetCodeGenInfo &CodeGenModule::getTargetCodeGenInfo() {
