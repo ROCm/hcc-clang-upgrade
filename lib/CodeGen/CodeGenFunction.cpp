@@ -26,6 +26,7 @@
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
+#include "clang/AST/Expr.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/Basic/Builtins.h"
@@ -1379,11 +1380,10 @@ static void handleHCArrayField(CodeGenFunction &CGF, FieldDecl *Field,
                         AddFn->getBeginLoc(), AddFn->getType(), VK_LValue,
                         OK_Ordinary};
 
-    CXXMemberCallExpr AddToCaptured{CGF.CGM.getContext(), &AddFnRef, {},
-                                    AddFn->getType(), VK_LValue,
-                                    FD->getBody()->getBeginLoc()};
-
-    CGF.EmitCallExpr(&AddToCaptured);
+    CGF.EmitCallExpr(CXXMemberCallExpr::Create(CGF.CGM.getContext(),
+                                               &AddFnRef, {}, AddFn->getType(),
+                                               VK_LValue,
+                                               FD->getBody()->getBeginLoc()));
 }
 
 static void maybeEmitHCArrayCapturePropagation(CodeGenFunction &CGF,
@@ -1401,13 +1401,17 @@ static void maybeEmitHCArrayCapturePropagation(CodeGenFunction &CGF,
   auto TSI = FD->getASTContext()
                .getTrivialTypeSourceInfo(CallableT, Callable->getBeginLoc());
 
-  DeclRefExpr CallableRef{FD->parameters()[CallableIdx], false,
-                          FD->parameters()[CallableIdx]->getOriginalType()
-                                                       .getNonReferenceType(),
-                          VK_LValue, FD->getBody()->getBeginLoc()};
+  auto CallableRef =
+    DeclRefExpr::Create(FD->parameters()[CallableIdx]->getASTContext(),
+                        FD->parameters()[CallableIdx]->getQualifierLoc(),
+                        SourceLocation{}, FD->parameters()[CallableIdx], false,
+                        FD->parameters()[CallableIdx]->getBeginLoc(),
+                        FD->parameters()[CallableIdx]->getOriginalType()
+                                                     .getNonReferenceType(),
+                        VK_LValue);
   // TODO: fields should be visited as well
   for (auto &&Field : Callable->fields()) {
-    handleHCArrayField(CGF, Field, FD, &CallableRef);
+    handleHCArrayField(CGF, Field, FD, CallableRef);
   }
   // TODO: bases should be visited recursively.
   for (auto &&Base : Callable->bases()) {
@@ -1416,7 +1420,7 @@ static void maybeEmitHCArrayCapturePropagation(CodeGenFunction &CGF,
       auto BaseRef = CXXStaticCastExpr::Create(FD->getASTContext(),
                                                CallableT, VK_LValue,
                                                CastKind::CK_DerivedToBase,
-                                               &CallableRef, &Tmp, TSI,
+                                               CallableRef, &Tmp, TSI,
                                                FD->getBody()->getBeginLoc(),
                                                FD->getBody()->getBeginLoc(),
                                                SourceRange{});
