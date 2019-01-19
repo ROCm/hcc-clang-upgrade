@@ -483,6 +483,17 @@ TEST_F(PPCallbacksTest, DirectiveExprRanges) {
   EXPECT_EQ(
       GetSourceStringToEnd(CharSourceRange(Results7[1].ConditionRange, false)),
       "defined(FLOOFY)");
+
+  const auto &Results8 =
+      DirectiveExprRange("#define FLOOFY 0\n#if __FILE__ > FLOOFY\n#endif\n");
+  EXPECT_EQ(Results8.size(), 1U);
+  EXPECT_EQ(
+      GetSourceStringToEnd(CharSourceRange(Results8[0].ConditionRange, false)),
+      "__FILE__ > FLOOFY");
+  EXPECT_EQ(
+      Lexer::getSourceText(CharSourceRange(Results8[0].ConditionRange, false),
+                           SourceMgr, LangOpts),
+      "__FILE__ > FLOOFY");
 }
 
 } // namespace

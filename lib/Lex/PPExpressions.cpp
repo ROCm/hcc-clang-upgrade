@@ -842,14 +842,22 @@ Preprocessor::EvaluateDirectiveExpression(IdentifierInfo *&IfNDefMacro) {
 
   PPValue ResVal(BitWidth);
   DefinedTracker DT;
+  SourceLocation ExprStartLoc = SourceMgr.getExpansionLoc(Tok.getLocation());
   if (EvaluateValue(ResVal, Tok, DT, true, *this)) {
     // Parse error, skip the rest of the macro line.
+    SourceRange ConditionRange = ExprStartLoc;
     if (Tok.isNot(tok::eod))
-      DiscardUntilEndOfDirective();
+      ConditionRange = DiscardUntilEndOfDirective();
 
     // Restore 'DisableMacroExpansion'.
     DisableMacroExpansion = DisableMacroExpansionAtStartOfDirective;
-    return {false, DT.IncludedUndefinedIds, {}};
+
+    // We cannot trust the source range from the value because there was a
+    // parse error. Track the range manually -- the end of the directive is the
+    // end of the condition range.
+    return {false,
+            DT.IncludedUndefinedIds,
+            {ExprStartLoc, ConditionRange.getEnd()}};
   }
 
   // If we are at the end of the expression after just parsing a value, there

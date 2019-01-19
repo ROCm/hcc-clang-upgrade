@@ -274,6 +274,10 @@ def warn_riscv_interrupt_attribute : Warning<
    "RISC-V 'interrupt' attribute only applies to functions that have "
    "%select{no parameters|a 'void' return type}0">,
    InGroup<IgnoredAttributes>;
+def warn_msp430_interrupt_attribute : Warning<
+   "MSP430 'interrupt' attribute only applies to functions that have "
+   "%select{no parameters|a 'void' return type}0">,
+   InGroup<IgnoredAttributes>;
 def warn_unused_parameter : Warning<"unused parameter %0">,
   InGroup<UnusedParameter>, DefaultIgnore;
 def warn_unused_variable : Warning<"unused variable %0">,
@@ -2125,6 +2129,12 @@ def warn_cxx14_compat_class_template_argument_deduction : Warning<
   "class template argument deduction is incompatible with C++ standards "
   "before C++17%select{|; for compatibility, use explicit type name %1}0">,
   InGroup<CXXPre17Compat>, DefaultIgnore;
+def warn_ctad_maybe_unsupported : Warning<
+  "%0 may not intend to support class template argument deduction">,
+  InGroup<CTADMaybeUnsupported>, DefaultIgnore;
+def note_suppress_ctad_maybe_unsupported : Note<
+  "add a deduction guide to suppress this warning">;
+
 
 // C++14 deduced return types
 def err_auto_fn_deduction_failure : Error<
@@ -4567,7 +4577,10 @@ def warn_unavailable_fwdclass_message : Warning<
     InGroup<UnavailableDeclarations>;
 def note_availability_specified_here : Note<
   "%0 has been explicitly marked "
-  "%select{unavailable|deleted|deprecated|partial}1 here">;
+  "%select{unavailable|deleted|deprecated}1 here">;
+def note_partial_availability_specified_here : Note<
+  "%0 has been marked as being introduced in %1 %2 here, "
+  "but the deployment target is %1 %3">;
 def note_implicitly_deleted : Note<
   "explicitly defaulted function was implicitly deleted here">;
 def warn_not_enough_argument : Warning<
@@ -5877,7 +5890,8 @@ def ext_typecheck_comparison_of_fptr_to_void : Extension<
 def err_typecheck_comparison_of_fptr_to_void : Error<
   "equality comparison between function pointer and void pointer (%0 and %1)">;
 def ext_typecheck_comparison_of_pointer_integer : ExtWarn<
-  "comparison between pointer and integer (%0 and %1)">;
+  "comparison between pointer and integer (%0 and %1)">,
+  InGroup<DiagGroup<"pointer-integer-compare">>;
 def err_typecheck_comparison_of_pointer_integer : Error<
   "comparison between pointer and integer (%0 and %1)">;
 def ext_typecheck_comparison_of_distinct_pointers : ExtWarn<
@@ -6805,7 +6819,7 @@ def ext_typecheck_convert_int_pointer : ExtWarn<
   "; take the address with &|"
   "; remove *|"
   "; remove &}3">,
-  InGroup<IntConversion>;
+  InGroup<IntConversion>, SFINAEFailure;
 def ext_typecheck_convert_pointer_void_func : Extension<
   "%select{%diff{assigning to $ from $|assigning to different types}0,1"
   "|%diff{passing $ to parameter of type $|"

@@ -53,9 +53,10 @@
 #include "llvm/Transforms/IPO/ThinLTOBitcodeWriter.h"
 #include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Instrumentation.h"
-#include "llvm/Transforms/Instrumentation/MemorySanitizer.h"
 #include "llvm/Transforms/Instrumentation/BoundsChecking.h"
 #include "llvm/Transforms/Instrumentation/GCOVProfiler.h"
+#include "llvm/Transforms/Instrumentation/MemorySanitizer.h"
+#include "llvm/Transforms/Instrumentation/ThreadSanitizer.h"
 #include "llvm/Transforms/ObjCARC.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/GVN.h"
@@ -328,7 +329,7 @@ static void addKernelMemorySanitizerPass(const PassManagerBuilder &Builder,
 
 static void addThreadSanitizerPass(const PassManagerBuilder &Builder,
                                    legacy::PassManagerBase &PM) {
-  PM.add(createThreadSanitizerPass());
+  PM.add(createThreadSanitizerLegacyPassPass());
 }
 
 static void addDataFlowSanitizerPass(const PassManagerBuilder &Builder,
@@ -1066,10 +1067,21 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
 
       // Register callbacks to schedule sanitizer passes at the appropriate part of
       // the pipeline.
+      // FIXME: either handle asan/the remaining sanitizers or error out
       if (LangOpts.Sanitize.has(SanitizerKind::LocalBounds))
         PB.registerScalarOptimizerLateEPCallback(
             [](FunctionPassManager &FPM, PassBuilder::OptimizationLevel Level) {
               FPM.addPass(BoundsCheckingPass());
+            });
+      if (LangOpts.Sanitize.has(SanitizerKind::Memory))
+        PB.registerOptimizerLastEPCallback(
+            [](FunctionPassManager &FPM, PassBuilder::OptimizationLevel Level) {
+              FPM.addPass(MemorySanitizerPass());
+            });
+      if (LangOpts.Sanitize.has(SanitizerKind::Thread))
+        PB.registerOptimizerLastEPCallback(
+            [](FunctionPassManager &FPM, PassBuilder::OptimizationLevel Level) {
+              FPM.addPass(ThreadSanitizerPass());
             });
       if (Optional<GCOVOptions> Options = getGCOVOptions(CodeGenOpts))
         PB.registerPipelineStartEPCallback([Options](ModulePassManager &MPM) {

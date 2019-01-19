@@ -5377,6 +5377,27 @@ static void handleARMInterruptAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 }
 
 static void handleMSP430InterruptAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  // MSP430 'interrupt' attribute is applied to
+  // a function with no parameters and void return type.
+  if (!isFunctionOrMethod(D)) {
+    S.Diag(D->getLocation(), diag::warn_attribute_wrong_decl_type)
+        << "'interrupt'" << ExpectedFunctionOrMethod;
+    return;
+  }
+
+  if (hasFunctionProto(D) && getFunctionOrMethodNumParams(D) != 0) {
+    S.Diag(D->getLocation(), diag::warn_msp430_interrupt_attribute)
+        << 0;
+    return;
+  }
+
+  if (!getFunctionOrMethodResultType(D)->isVoidType()) {
+    S.Diag(D->getLocation(), diag::warn_msp430_interrupt_attribute)
+        << 1;
+    return;
+  }
+
+  // The attribute takes one integer argument.
   if (!checkAttributeNumArgs(S, AL, 1))
     return;
 
@@ -5386,8 +5407,6 @@ static void handleMSP430InterruptAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
     return;
   }
 
-  // FIXME: Check for decl - it should be void ()(void).
-
   Expr *NumParamsExpr = static_cast<Expr *>(AL.getArgAsExpr(0));
   llvm::APSInt NumParams(32);
   if (!NumParamsExpr->isIntegerConstantExpr(NumParams, S.Context)) {
@@ -5396,9 +5415,9 @@ static void handleMSP430InterruptAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
         << NumParamsExpr->getSourceRange();
     return;
   }
-
+  // The argument should be in range 0..63.
   unsigned Num = NumParams.getLimitedValue(255);
-  if ((Num & 1) || Num > 30) {
+  if (Num > 63) {
     S.Diag(AL.getLoc(), diag::err_attribute_argument_out_of_bounds)
         << AL << (int)NumParams.getSExtValue()
         << NumParamsExpr->getSourceRange();
@@ -7582,13 +7601,11 @@ ShouldDiagnoseAvailabilityInContext(Sema &S, AvailabilityResult K,
         return true;
     } else if (K == AR_Unavailable) {
       // It is perfectly fine to refer to an 'unavailable' Objective-C method
-      // when it's actually defined and is referenced from within the
-      // @implementation itself. In this context, we interpret unavailable as a
-      // form of access control.
+      // when it is referenced from within the @implementation itself. In this
+      // context, we interpret unavailable as a form of access control.
       if (const auto *MD = dyn_cast<ObjCMethodDecl>(OffendingDecl)) {
         if (const auto *Impl = dyn_cast<ObjCImplDecl>(C)) {
-          if (MD->getClassInterface() == Impl->getClassInterface() &&
-              MD->isDefined())
+          if (MD->getClassInterface() == Impl->getClassInterface())
             return true;
         }
       }
@@ -7820,14 +7837,16 @@ static void DoEmitAvailabilityWarning(Sema &S, AvailabilityResult K,
     unsigned Warning = UseNewWarning ? diag::warn_unguarded_availability_new
                                      : diag::warn_unguarded_availability;
 
-    S.Diag(Loc, Warning)
-        << OffendingDecl
-        << AvailabilityAttr::getPrettyPlatformName(
-               S.getASTContext().getTargetInfo().getPlatformName())
-        << Introduced.getAsString();
+    std::string PlatformName = AvailabilityAttr::getPrettyPlatformName(
+        S.getASTContext().getTargetInfo().getPlatformName());
 
-    S.Diag(OffendingDecl->getLocation(), diag::note_availability_specified_here)
-        << OffendingDecl << /* partial */ 3;
+    S.Diag(Loc, Warning) << OffendingDecl << PlatformName
+                         << Introduced.getAsString();
+
+    S.Diag(OffendingDecl->getLocation(),
+           diag::note_partial_availability_specified_here)
+        << OffendingDecl << PlatformName << Introduced.getAsString()
+        << S.Context.getTargetInfo().getPlatformMinVersion().getAsString();
 
     if (const auto *Enclosing = findEnclosingDeclToAnnotate(Ctx)) {
       if (const auto *TD = dyn_cast<TagDecl>(Enclosing))
@@ -8281,15 +8300,18 @@ void DiagnoseUnguardedAvailability::DiagnoseDeclAvailability(
             ? diag::warn_unguarded_availability_new
             : diag::warn_unguarded_availability;
 
+    std::string PlatformName = AvailabilityAttr::getPrettyPlatformName(
+        SemaRef.getASTContext().getTargetInfo().getPlatformName());
+
     SemaRef.Diag(Range.getBegin(), DiagKind)
-        << Range << D
-        << AvailabilityAttr::getPrettyPlatformName(
-               SemaRef.getASTContext().getTargetInfo().getPlatformName())
-        << Introduced.getAsString();
+        << Range << D << PlatformName << Introduced.getAsString();
 
     SemaRef.Diag(OffendingDecl->getLocation(),
-                 diag::note_availability_specified_here)
-        << OffendingDecl << /* partial */ 3;
+                 diag::note_partial_availability_specified_here)
+        << OffendingDecl << PlatformName << Introduced.getAsString()
+        << SemaRef.Context.getTargetInfo()
+               .getPlatformMinVersion()
+               .getAsString();
 
     auto FixitDiag =
         SemaRef.Diag(Range.getBegin(), diag::note_unguarded_available_silence)
