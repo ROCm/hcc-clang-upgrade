@@ -1404,7 +1404,7 @@ AggExprEmitter::VisitLambdaExpr(LambdaExpr *E) {
     auto IE = (CGF.getLangOpts().CPlusPlusAMP && !CGF.getLangOpts().DevicePath)
               ? ReferenceFieldInitialiser{*i, E->getLambdaClass(), *CurField}()
               : *i;
-    EmitInitializationToLValue(*i, LV);
+    EmitInitializationToLValue(IE, LV);
 
     // Push a destructor if necessary.
     if (QualType::DestructionKind DtorKind =
