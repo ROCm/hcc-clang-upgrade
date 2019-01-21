@@ -2369,7 +2369,7 @@ public:
   friend class ASTReader;
   friend class ASTWriter;
 
-  /// \brief True if object is of hc::array or Concurrency:type
+  /// \brief True if object is of hc::array.
   bool isGPUArrayType() const;
 };
 

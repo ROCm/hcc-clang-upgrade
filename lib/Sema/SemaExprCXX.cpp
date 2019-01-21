@@ -5745,8 +5745,8 @@ QualType Sema::CXXCheckConditionalOperands(ExprResult &Cond, ExprResult &LHS,
 
   // C++AMP
   if(getLangOpts().CPlusPlusAMP) {
-    DiagnoseCXXAMPExpr(LHS.get()->IgnoreParenImpCasts(), LHS);
-    DiagnoseCXXAMPExpr(RHS.get()->IgnoreParenImpCasts(), RHS);
+    DiagnoseHCExpr(LHS.get()->IgnoreParenImpCasts(), LHS);
+    DiagnoseHCExpr(RHS.get()->IgnoreParenImpCasts(), RHS);
   }
 
   // Either of the arguments dependent?

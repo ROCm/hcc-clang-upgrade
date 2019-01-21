@@ -3461,11 +3461,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   // add HCC macros, based on compiler modes
   if (Args.hasArg(options::OPT_hc_mode)) {
-    CmdArgs.push_back("-D__KALMAR_HC__=1");
     CmdArgs.push_back("-D__HCC_HC__=1");
   } else if (Args.hasArg(options::OPT_famp) ||
     Args.getLastArgValue(options::OPT_std_EQ).equals("c++amp")) {
-    CmdArgs.push_back("-D__KALMAR_AMP__=1");
     CmdArgs.push_back("-D__HCC_AMP__=1");
   }
 

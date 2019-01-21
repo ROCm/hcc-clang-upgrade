@@ -138,7 +138,7 @@ CodeGenModule::CodeGenModule(ASTContext &C, const HeaderSearchOptions &HSO,
   if (LangOpts.CUDA)
     createCUDARuntime();
   if (LangOpts.CPlusPlusAMP)
-    createAMPRuntime();
+    createHCRuntime();
 
   // Enable TBAA unless it's suppressed. ThreadSanitizer needs TBAA even at O0.
   if (LangOpts.Sanitize.has(SanitizerKind::Thread) ||
@@ -226,8 +226,8 @@ void CodeGenModule::createCUDARuntime() {
   CUDARuntime.reset(CreateNVCUDARuntime(*this));
 }
 
-void CodeGenModule::createAMPRuntime() {
-  AMPRuntime.reset(CreateAMPRuntime(*this));
+void CodeGenModule::createHCRuntime() {
+  HCRuntime.reset(CreateHCRuntime(*this));
 }
 
 void CodeGenModule::addReplacement(StringRef Name, llvm::Constant *C) {
@@ -434,7 +434,7 @@ void CodeGenModule::Release() {
   EmitCtorList(GlobalCtors, "llvm.global_ctors");
   EmitCtorList(GlobalDtors, "llvm.global_dtors");
   // skip global annotation for HCC kernel path
-  if (Context.getLangOpts().CPlusPlusAMP && getCodeGenOpts().AMPIsDevice) {
+  if (Context.getLangOpts().CPlusPlusAMP && getCodeGenOpts().HCIsDevice) {
   } else {
     EmitGlobalAnnotations();
   }
@@ -1587,14 +1587,11 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
   else if (const auto *SA = FD->getAttr<SectionAttr>())
      F->setSection(SA->getName());
 
+  // TODO: Fix for winter cleanup.
   // Prevent barrier functions be duplicated
   // Set C++AMP kernels carry AMDGPU_KERNEL calling convention
   if (getLangOpts().OpenCL ||
-      (getLangOpts().CPlusPlusAMP && CodeGenOpts.AMPIsDevice)) {
-      if (F->getName()=="amp_barrier") {
-          F->addFnAttr(llvm::Attribute::NoDuplicate);
-          F->addFnAttr(llvm::Attribute::NoUnwind);
-      }
+      (getLangOpts().CPlusPlusAMP && CodeGenOpts.HCIsDevice)) {
       if (FD->hasAttr<OpenCLKernelAttr>())
           F->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
   }
@@ -2222,23 +2219,23 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
   }
 
   // If this is C++AMP, be selective about which declarations we emit.
-  if (LangOpts.CPlusPlusAMP && !CodeGenOpts.AMPCPU) {
-    if (CodeGenOpts.AMPIsDevice) {
-      // If -famp-is-device switch is on, we are in GPU build path.
+  if (LangOpts.CPlusPlusAMP) {
+    if (CodeGenOpts.HCIsDevice) {
+      // If -fhc-is-device switch is on, we are in GPU build path.
       // Since we will emit both CPU codes and GPU codes to make C++ mangling
       // algorithm happy, we won't reject anything other than ones with only
-      // restrict(cpu).  Another optimization pass will remove all CPU codes.
-      if (!Global->hasAttr<CXXAMPRestrictAMPAttr>() &&
-         Global->hasAttr<CXXAMPRestrictCPUAttr>())
+      // [[cpu]].  Another optimization pass will remove all CPU codes.
+      if (!Global->hasAttr<HCRestrictHCAttr>() &&
+          Global->hasAttr<HCRestrictCPUAttr>())
         return;
     } else {
       // In host path:
       // let file-scope global variables be emitted
-      // let functions qualifired with restrict(amp) or [[hc]],
-      // but not with restrict(cpu) or [[cpu]] not be emitted
+      // let functions qualifired with [[hc]] or [[hc]],
+      // but not with [[cpu]] or [[cpu]] not be emitted
       if (!isa<VarDecl>(Global) &&
-          Global->hasAttr<CXXAMPRestrictAMPAttr>() &&
-          !Global->hasAttr<CXXAMPRestrictCPUAttr>())
+          Global->hasAttr<HCRestrictHCAttr>() &&
+          !Global->hasAttr<HCRestrictHCAttr>())
         return;
     }
   }
@@ -2545,7 +2542,7 @@ namespace
   public:
     bool operator()(const Decl* x)
     {
-      if (!x || x->hasAttr<CXXAMPRestrictAMPAttr>()) return true;
+      if (!x || x->hasAttr<HCRestrictHCAttr>()) return true;
 
       if (d_.count(x)) return d_[x];
       if (d_.count(x->getNonClosureContext()) &&
@@ -2594,14 +2591,14 @@ void CodeGenModule::EmitGlobalDefinition(GlobalDecl GD, llvm::GlobalValue *GV) {
   const auto *D = cast<ValueDecl>(GD.getDecl());
 
   // If this is C++AMP, be selective about which declarations we emit.
-  if (LangOpts.CPlusPlusAMP && !CodeGenOpts.AMPCPU) {
-    if (CodeGenOpts.AMPIsDevice) {
-      // If -famp-is-device switch is on, we are in GPU build path.
+  if (LangOpts.CPlusPlusAMP) {
+    if (CodeGenOpts.HCIsDevice) {
+      // If -fhc-is-device switch is on, we are in GPU build path.
       if (!isWhiteListForHCC(*this, GD)) return;
     }
     else if (!isa<VarDecl>(D) &&
-      D->hasAttr<CXXAMPRestrictAMPAttr>() &&
-      !D->hasAttr<CXXAMPRestrictCPUAttr>()) {
+      D->hasAttr<HCRestrictHCAttr>() &&
+      !D->hasAttr<HCRestrictCPUAttr>()) {
       return;
     }
   }
@@ -2917,7 +2914,7 @@ llvm::Constant *CodeGenModule::GetOrCreateLLVMFunction(
       setDSOLocal(Entry);
     }
 
-    // Relax the rule for C++AMP
+    // Relax the rule for HC
     if (!LangOpts.CPlusPlusAMP) {
 
      // If there are two attempts to define the same mangled name, issue an
@@ -3527,8 +3524,10 @@ LangAS CodeGenModule::GetGlobalVarAddressSpace(const VarDecl *D) {
       return LangAS::cuda_device;
   }
 
-  if (LangOpts.CPlusPlusAMP && LangOpts.DevicePath &&
-      D && D->hasAttr<HCCTileStaticAttr>())
+  if (LangOpts.CPlusPlusAMP &&
+      LangOpts.DevicePath &&
+      D &&
+      D->hasAttr<HCCTileStaticAttr>())
     return LangAS::hcc_tilestatic;
 
   return getTargetCodeGenInfo().getGlobalVarAddressSpace(*this, D);
@@ -4171,7 +4170,7 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
                                                    /*DontDefer=*/true,
                                                    ForDefinition));
 
-  if (D->getAttr<CXXAMPRestrictAMPAttr>()) {
+  if (D->getAttr<HCRestrictHCAttr>()) {
     cast<llvm::Function>(GV)->addFnAttr("HC");
   }
 

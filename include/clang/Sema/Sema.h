@@ -1867,9 +1867,9 @@ public:
                std::unique_ptr<CorrectionCandidateCallback> CCC = nullptr);
 
   // C++AMP declarator diagnostic functions
-  bool DiagnoseCXXAMPDecl(Decl* Dcl, bool CheckContainer = false, bool IsInfer = false);
-  bool IsCXXAMPTileStatic(Declarator &D);
-  void DiagnosticCXXAMPTileStatic(Declarator &D, Decl *Dcl);
+  bool DiagnoseHCDecl(Decl* Dcl, bool CheckContainer = false, bool IsInfer = false);
+  bool IsHCTileStatic(Declarator &D);
+  void DiagnosticHCTileStatic(Declarator &D, Decl *Dcl);
 
   /// Describes the detailed kind of a template name. Used in diagnostics.
   enum class TemplateNameKindForDiagnostics {
@@ -2072,9 +2072,6 @@ public:
   /// order to parse the rest of the program (for instance, if it is
   /// \c constexpr in C++11 or has an 'auto' return type in C++14).
   bool canSkipFunctionBody(Decl *D);
-
-  // C++AMP restriction specifier inferring routine
-  void TryCXXAMPRestrictionInferring(Decl *D, Stmt *Body);
 
   void computeNRVO(Stmt *Body, sema::FunctionScopeInfo *Scope);
   Decl *ActOnFinishFunctionBody(Decl *Decl, Stmt *Body);
@@ -2561,9 +2558,8 @@ public:
     Ovl_NonFunction
   };
 
-  // C++AMP diagnostic routine on destructor overload resolution
-  void DiagnoseCXXAMPDtorOverload(FunctionDecl *New,
-                           const LookupResult &Old);
+  // HC diagnostic routine on destructor overload resolution
+  void DiagnoseHCDtorOverload(FunctionDecl *New, const LookupResult &Old);
 
   OverloadKind CheckOverload(Scope *S,
                              FunctionDecl *New,
@@ -2870,12 +2866,11 @@ public:
                                             OverloadCandidateSet& CandidateSet,
                                             bool PartialOverloading = false);
 
-  // C++AMP restriction specifier scope checking routines
-  bool IsInAMPRestricted();
+  // HC restriction specifier scope checking routines
+  bool IsInHCRestricted();
   // Determine if in CPU and/or AMP restricted codes
   bool IsInAnyExplicitRestricted();
-  void GetCXXAMPParentRestriction(Scope* SC, bool& ParentCPU,
-    bool& ParentAMP, bool&ParentAUTO);
+  void GetHCParentRestriction(Scope *SC, bool &ParentCPU, bool &ParentHC);
 
   // Emit as a 'note' the specific overload candidate
   void NoteOverloadCandidate(NamedDecl *Found, FunctionDecl *Fn,
@@ -2990,8 +2985,8 @@ public:
                                            Expr *Range, ExprResult *CallExpr);
 
   // C++AMP diagnostic routine on overloaded call expressions
-  void DiagnoseCXXAMPOverloadedCallExpr(SourceLocation LParenLoc,
-                                        FunctionDecl* Callee);
+  void DiagnoseHCOverloadedCallExpr(SourceLocation LParenLoc,
+                                    FunctionDecl* Callee);
 
   ExprResult BuildOverloadedCallExpr(Scope *S, Expr *Fn,
                                      UnresolvedLookupExpr *ULE,
@@ -3184,15 +3179,16 @@ public:
   typedef std::function<ExprResult(Sema &, TypoExpr *, TypoCorrection)>
       TypoRecoveryCallback;
 
-  // C++AMP type checking routine for kernel codes
+  // TODO: Fix for winter cleanup.
+  // HC type checking routine for kernel codes
 public:
   bool IsIncompatibleType(const Type* Ty, bool CheckContainer = false, bool IsInfer = false);
 
 private:
-  // C++AMP type checking routine for kernel codes
-  bool IsCXXAMPUnsupportedPointerType(const Type* Ty,
+  // HC type checking routine for kernel codes
+  bool IsHCUnsupportedPointerType(const Type *Ty,
     bool CheckContainer = false, bool IsInfer = false);
-  bool IsCXXAMPUnsupportedReferenceType(const Type* Ty,
+  bool IsHCUnsupportedReferenceType(const Type* Ty,
     bool CheckContainer = false, bool IsInfer = false);
 
   bool CppLookupName(LookupResult &R, Scope *S);
@@ -4428,9 +4424,9 @@ public:
                                 ParmVarDecl *Param,
                                 const Expr *ArgExpr);
 
-  // C++AMP diagnotic routine on C++ method call expressions
-  void DiagnoseCXXAMPMethodCallExpr(SourceLocation LParenLoc,
-                                    CXXMethodDecl *Callee);
+  // HC diagnotic routine on C++ method call expressions
+  void DiagnoseHCMethodCallExpr(SourceLocation LParenLoc,
+                                CXXMethodDecl *Callee);
 
   /// ActOnCallExpr - Handle a call to Fn with the specified array of arguments.
   /// This provides the location of the left/right parens and a list of comma
@@ -5022,22 +5018,6 @@ public:
   /// Defines an implicitly-declared copy assignment operator.
   void DefineImplicitCopyAssignment(SourceLocation CurrentLocation,
                                     CXXMethodDecl *MethodDecl);
-
-  /// Defines an AMP CUP-side serialize function.
-  void DefineAmpCpuSerializeFunction(SourceLocation CurrentLocation,
-                                     CXXMethodDecl *MethodDecl);
-  /// Defines an AMP GPU-side deserialize function.
-  void DefineAmpGpuDeSerializeFunction(SourceLocation CurrentLocation,
-                                       CXXMethodDecl *MethodDecl);
-  /// Declare trampoline name lookup code for AMP CPU-side
-  void DeclareAMPTrampolineName(CXXRecordDecl *ClassDecl,
-                                DeclarationName Name);
-  /// Declare trampoline code for AMP GPU-side entry
-  void DeclareAMPTrampoline(CXXRecordDecl *ClassDecl,
-                            DeclarationName Name);
-  /// Define trampoline code for AMP GPU-side entry
-  void DefineAMPTrampoline(SourceLocation CurrentLocation,
-                           CXXMethodDecl *OperatorCall);
 
   /// Declare the implicit move assignment operator for the given class.
   ///
@@ -5950,19 +5930,6 @@ public:
   /// \returns true if any work was done, false otherwise.
   bool DefineUsedVTables();
 
-  /// \brief Test if a given class requires a
-  /// C++AMP deserializer declaration
-  bool NeedAMPDeserializer(CXXRecordDecl *ClassDecl);
-  /// \brief Test if a given class has a C++AMP deserializer declaration
-  bool HasDeclaredAMPDeserializer(CXXRecordDecl *ClassDecl);
-
-  // Declare C++AMP serializer and deserializer
-  typedef SmallVector<QualType, 16> AMPDeserializerArgs;
-  void DeclareAMPSerializer(CXXRecordDecl *ClassDecl,
-                            DeclarationName Name);
-  void DeclareAMPDeserializer(CXXRecordDecl *ClassDecl,
-                              AMPDeserializerArgs *Args);
-
   void AddImplicitlyDeclaredMembersToClass(CXXRecordDecl *ClassDecl);
 
   void ActOnMemInitializers(Decl *ConstructorDecl,
@@ -6496,10 +6463,10 @@ public:
   };
 
   // C++AMP diagnotic routine for template arguments
-  void DiagnoseCXXAMPTemplateArgument(NamedDecl *Param,
-                                      const TemplateArgumentLoc &AL,
-                                      NamedDecl *Template,
-                                      SourceLocation TemplateLoc);
+  void DiagnoseHCTemplateArgument(NamedDecl *Param,
+                                  const TemplateArgumentLoc &AL,
+                                  NamedDecl *Template,
+                                  SourceLocation TemplateLoc);
 
   bool CheckTemplateArgument(NamedDecl *Param,
                              TemplateArgumentLoc &Arg,
@@ -9677,8 +9644,9 @@ public:
     Incompatible
   };
 
-  // C++AMP diagnostic routine for expressions
-  void DiagnoseCXXAMPExpr(Expr* Stripped, ExprResult &HS, bool DiagnoseWhenStatic=false);
+  // HC diagnostic routine for expressions
+  void DiagnoseHCExpr(Expr *Stripped,
+                      ExprResult &HS, bool DiagnoseWhenStatic = false);
 
   /// DiagnoseAssignmentResult - Emit a diagnostic, if required, for the
   /// assignment conversion type specified by ConvTy.  This returns true if the

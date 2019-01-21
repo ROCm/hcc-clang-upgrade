@@ -201,8 +201,8 @@ private:
   /// Used to determine if errors occurred in this scope.
   DiagnosticErrorTrap ErrorTrap;
 
-  /// C++AMP restriction specifier
-  unsigned short CXXAMPSpecifier;
+  /// HC restriction specifier
+  unsigned short HCSpecifier;
 
   /// A lattice consisting of undefined, a single NRVO candidate variable in
   /// this scope, or over-defined. The bit is true when over-defined.
@@ -385,24 +385,20 @@ public:
     return getFlags() & Scope::FunctionPrototypeScope;
   }
 
-  /// \brief C++AMP restriction specifiers
-  enum CPPAMPSpecifier {
-    CPPAMP_None = 0x0,
-    CPPAMP_CPU  = 0x1,
-    CPPAMP_AMP  = 0x2,
-    CPPAMP_AUTO = 0x4
+  /// \brief HC restriction specifiers
+  enum HCSpecifier {
+    HC_None = 0x0,
+    HC_CPU  = 0x1,
+    HC_HC  = 0x2
   };
-  void setCXXAMPSpecifier(unsigned A) { CXXAMPSpecifier = A; }
-  void setAMPScope() { CXXAMPSpecifier |= CPPAMP_AMP; }
-  void setCPUScope() { CXXAMPSpecifier |= CPPAMP_CPU; }
-  bool isAMPScope() const {
-    return CXXAMPSpecifier & CPPAMP_AMP;
+  void setHCSpecifier(unsigned A) { HCSpecifier = A; }
+  void setHCScope() { HCSpecifier |= HC_HC; }
+  void setCPUScope() { HCSpecifier |= HC_CPU; }
+  bool isHCScope() const {
+    return HCSpecifier & HC_HC;
   }
   bool isCPUScope() const {
-    return CXXAMPSpecifier & CPPAMP_CPU;
-  }
-  bool isAUTOScope() const {
-    return CXXAMPSpecifier & CPPAMP_AUTO;
+    return HCSpecifier & HC_CPU;
   }
 
   /// isAtCatchScope - Return true if this scope is \@catch.

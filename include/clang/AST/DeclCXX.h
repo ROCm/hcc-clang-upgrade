@@ -985,9 +985,6 @@ public:
 #endif
   }
 
-  /// Returns the deserialization constructor for this class.
-  CXXMethodDecl *getCXXAMPDeserializationConstructor() const;
-
   /// Determine whether this class has any user-declared constructors.
   ///
   /// When true, a default constructor will not be implicitly declared.

@@ -7686,8 +7686,8 @@ ABIArgInfo AMDGPUABIInfo::classifyArgumentType(QualType Ty,
 
   Ty = useFirstFieldIfTransparentUnion(Ty);
 
-  if (isAggregateTypeForABI(Ty)
-      && !getContext().getLangOpts().CPlusPlusAMP) {
+  if (isAggregateTypeForABI(Ty) && !getContext().getLangOpts().CPlusPlusAMP) {
+    // TODO: Fix for winter cleanup.
     // Records with non-trivial destructors/copy-constructors should not be
     // passed by value.
     if (auto RAA = getRecordArgABI(Ty, getCXXABI()))
@@ -7773,17 +7773,14 @@ public:
 };
 }
 
-namespace {
-inline llvm::APSInt getConstexprInt(const Expr *E, const ASTContext &Ctx) {
-  clang::Expr::EvalResult r;
-  APValue Val(llvm::APSInt(32));
-  r.Val = Val;
-  if (E)
-    E->EvaluateAsInt(r, Ctx);
+static llvm::APSInt getConstexprInt(const Expr *E, const ASTContext &Ctx)
+{
+  assert(E);
 
-  return r.Val.getInt();
+  llvm::APSInt R = E->EvaluateKnownConstInt(Ctx);
+
+  return R;
 }
-} // namespace
 
 void AMDGPUTargetCodeGenInfo::setTargetAttributes(
     const Decl *D, llvm::GlobalValue *GV, CodeGen::CodeGenModule &M) const {
@@ -7805,10 +7802,8 @@ void AMDGPUTargetCodeGenInfo::setTargetAttributes(
 
   const auto *FlatWGS = FD->getAttr<AMDGPUFlatWorkGroupSizeAttr>();
   if (ReqdWGS || FlatWGS) {
-    llvm::APSInt min = getConstexprInt(FlatWGS ? FlatWGS->getMin() : nullptr,
-                                       FD->getASTContext());
-    llvm::APSInt max = getConstexprInt(FlatWGS ? FlatWGS->getMax() : nullptr,
-                                       FD->getASTContext());
+    llvm::APSInt min = getConstexprInt(FlatWGS->getMin(), M.getContext());
+    llvm::APSInt max = getConstexprInt(FlatWGS->getMax(), M.getContext());
 
     unsigned Min = min.getZExtValue();
     unsigned Max = max.getZExtValue();
@@ -7828,8 +7823,8 @@ void AMDGPUTargetCodeGenInfo::setTargetAttributes(
   }
 
   if (const auto *Attr = FD->getAttr<AMDGPUWavesPerEUAttr>()) {
-    llvm::APSInt min = getConstexprInt(Attr->getMin(), FD->getASTContext());
-    llvm::APSInt max = getConstexprInt(Attr->getMax(), FD->getASTContext());
+    llvm::APSInt min = getConstexprInt(Attr->getMin(), M.getContext());
+    llvm::APSInt max = getConstexprInt(Attr->getMax(), M.getContext());
 
     unsigned Min = min.getZExtValue();
     unsigned Max = max.getZExtValue();
@@ -7848,7 +7843,7 @@ void AMDGPUTargetCodeGenInfo::setTargetAttributes(
 
   if (const auto *Attr = FD->getAttr<AMDGPUNumSGPRAttr>()) {
     llvm::APSInt sgprs =
-      getConstexprInt(Attr->getNumSGPR(), FD->getASTContext());
+      getConstexprInt(Attr->getNumSGPR(), M.getContext());
     unsigned NumSGPR = sgprs.getZExtValue();
 
     if (NumSGPR != 0)
@@ -7857,7 +7852,7 @@ void AMDGPUTargetCodeGenInfo::setTargetAttributes(
 
   if (const auto *Attr = FD->getAttr<AMDGPUNumVGPRAttr>()) {
     llvm::APSInt vgprs =
-      getConstexprInt(Attr->getNumVGPR(), FD->getASTContext());
+      getConstexprInt(Attr->getNumVGPR(), M.getContext());
     unsigned NumVGPR = vgprs.getZExtValue();
 
     if (NumVGPR != 0)
@@ -7865,9 +7860,9 @@ void AMDGPUTargetCodeGenInfo::setTargetAttributes(
   }
 
   if (const auto *Attr = FD->getAttr<AMDGPUMaxWorkGroupDimAttr>()) {
-    llvm::APSInt x = getConstexprInt(Attr->getX(), FD->getASTContext());
-    llvm::APSInt y = getConstexprInt(Attr->getY(), FD->getASTContext());
-    llvm::APSInt z = getConstexprInt(Attr->getZ(), FD->getASTContext());
+    llvm::APSInt x = getConstexprInt(Attr->getX(), M.getContext());
+    llvm::APSInt y = getConstexprInt(Attr->getY(), M.getContext());
+    llvm::APSInt z = getConstexprInt(Attr->getZ(), M.getContext());
 
     unsigned X = x.getZExtValue();
     unsigned Y = y.getZExtValue();

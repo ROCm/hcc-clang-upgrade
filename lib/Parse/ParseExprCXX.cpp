@@ -756,7 +756,7 @@ Optional<unsigned> Parser::ParseLambdaIntroducer(LambdaIntroducer &Intro,
 
   // try parse attributes before parameter list
   SourceLocation DeclEndLoc = Intro.Range.getEnd();
-  if (getLangOpts().CPlusPlusAMP) {
+  if (getLangOpts().CPlusPlusAMP) { // TODO: Fix for winter cleanup (maybe)
     MaybeParseGNUAttributes(AttrIntro, &DeclEndLoc);
   }
 
@@ -1142,7 +1142,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
   // try parse attributes before parameter list
   SourceLocation DeclEndLoc = Intro.Range.getBegin();
   ParsedAttributes AttrPre(AttrFactory);
-  if (getLangOpts().CPlusPlusAMP) {
+  if (getLangOpts().CPlusPlusAMP) { // TODO: Fix for winter cleanup (maybe)
     MaybeParseGNUAttributes(AttrPre, &DeclEndLoc);
   }
 
@@ -1189,24 +1189,10 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
     addConstexprToLambdaDeclSpecifier(*this, ConstexprLoc, DS);
 
-    // Parse C++AMP restriction specifier
-    unsigned cppampSpec = CPPAMP_None;
-    if (getLangOpts().CPlusPlusAMP) {
-      cppampSpec = ParseRestrictionSpecification(D, Attr, DeclEndLoc);
-
-      if (getLangOpts().HSAExtension && getLangOpts().AutoAuto) {
-        // auto-auto: automatically append restrict(auto) in case no restriction specifier is found
-        if (cppampSpec == CPPAMP_None) {
-          cppampSpec = CPPAMP_AUTO;
-          IdentifierInfo *II = &PP.getIdentifierTable().get("auto");
-          assert(II);
-          Attr.addNew(II, DeclEndLoc, 0, DeclEndLoc, /*0, DeclEndLoc,*/ 0, 0, ParsedAttr::AS_GNU);
-        }
-      }
-    }
-
-    // C++AMP
-    if (getLangOpts().CPlusPlusAMP) {
+    // TODO: Fix for winter cleanup
+    // HC
+    //unsigned hcSpec = HC_None;
+    if (getLangOpts().CPlusPlusAMP) { // TODO: Fix for winter cleanup (maybe)
       // take all attributed parsed before introducer
       Attr.takeAllFrom(AttrIntro);
       // take all attributes parsed before parameter list
@@ -1229,15 +1215,19 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
     if (ESpecType != EST_None) {
       DeclEndLoc = ESpecRange.getEnd();
-
-      // C++AMP specific, reject exception specifiers for amp-restricted functions
-      if (getLangOpts().CPlusPlusAMP && (cppampSpec & CPPAMP_AMP)) {
-        Diag(ESpecRange.getBegin(), diag::err_amp_no_throw);
-      }
     }
 
     // Parse attribute-specifier[opt].
     MaybeParseCXX11Attributes(Attr, &DeclEndLoc);
+
+    // TODO - Fix for winter cleanup (maybe)
+    // HC specific, reject exception specifiers for [[hc]] functions
+    if (getLangOpts().CPlusPlusAMP && ESpecType == EST_Dynamic) {
+      for (auto &&A : Attr) {
+        if (A.getKind() != ParsedAttr::AT_HC_HC) continue;
+        Diag(ESpecRange.getBegin(), diag::err_amp_no_throw);
+      }
+    }
 
     SourceLocation FunLocalRangeEnd = DeclEndLoc;
 
@@ -1334,23 +1324,6 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                       /*DeclsInPrototype=*/None, DeclLoc, DeclEndLoc, D,
                       TrailingReturnType),
                   std::move(Attr), DeclEndLoc);
-  }  else if (Tok.is(tok::l_brace)) {
-    // Next is compound-statement.
-    // Parse C++AMP restrict specifier though the lambda expression has no params, so that
-    // context inside lambda compound-statement is distinguished from cpu codes or amp codes.
-    // And the lambda's calloperator will be attached with the same restrictions as its parent
-    // function's if any. Such lambda expression is as follows,
-    //   [] {
-    //     // The compound-statement
-    //   };
-    if (getLangOpts().CPlusPlusAMP) {
-      // Place restriction after r_square
-      SourceLocation LambdaEndLoc = Intro.Range.getEnd();
-      ParsedAttributes Attr(AttrFactory);
-      ParseRestrictionSpecification(D, Attr, LambdaEndLoc);
-      D.getAttributes().addAll(Attr.begin(), Attr.end());
-      D.getAttributePool().takeAllFrom(Attr.getPool());
-    }
   }
 
   // FIXME: Rename BlockScope -> ClosureScope if we decide to continue using

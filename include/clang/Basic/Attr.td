@@ -3166,17 +3166,12 @@ def InternalLinkage : InheritableAttr {
 
 // C++AMP attributes
 
-def CXXAMPRestrictAMP : InheritableAttr {
-  let Spellings = [GNU<"amp">, GNU<"hc">];
+def HCRestrictHC : InheritableAttr {
+  let Spellings = [GNU<"hc">];
   let Documentation = [Undocumented];
 }
 
-def CXXAMPRestrictAUTO : InheritableAttr {
-  let Spellings = [GNU<"auto">];
-  let Documentation = [Undocumented];
-}
-
-def CXXAMPRestrictCPU : InheritableAttr {
+def HCRestrictCPU : InheritableAttr {
   let Spellings = [GNU<"cpu">];
   let Documentation = [Undocumented];
 }

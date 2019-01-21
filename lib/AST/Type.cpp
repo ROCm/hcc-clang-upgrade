@@ -4020,7 +4020,7 @@ bool Type::isGPUArrayType() const {
     CXXRecordDecl* ClassDecl = type->getAsCXXRecordDecl();
     NamespaceDecl* NSDecl = dyn_cast<NamespaceDecl>(ClassDecl->getEnclosingNamespaceContext());
     if (ClassDecl && (ClassDecl->getName() == "array")
-        && NSDecl && (NSDecl->getName() == "hc" || NSDecl->getName() == "Concurrency")) {
+        && NSDecl && (NSDecl->getName() == "hc")) {
       gpu_array_flag = true;
     }
   }

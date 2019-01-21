@@ -330,8 +330,7 @@ namespace clang {
   enum CPPAMPSpecifier {
     CPPAMP_None = 0x0,
     CPPAMP_CPU  = 0x1,
-    CPPAMP_AMP  = 0x2,
-    CPPAMP_AUTO = 0x4
+    CPPAMP_AMP  = 0x2
   };
 } // end namespace clang
 

@@ -31,14 +31,13 @@
 #include "llvm/ADT/SmallVector.h"
 using namespace clang;
 
-bool Parser::IsInAMPFunction(Scope *scope) {
+bool Parser::IsInHCFunction(Scope *scope) {
   while (scope) {
-    if (scope->getFlags() & Scope::FnScope) {
-      FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(static_cast<DeclContext*>(scope->getEntity()));
-      if (FD && FD->hasAttr<CXXAMPRestrictAMPAttr>()) {
-        return true;
-      }
+    if (!(scope->getFlags() & Scope::FnScope)) return false;
+    if (auto FD = dyn_cast_or_null<FunctionDecl>(scope->getEntity())) {
+      if (FD->hasAttr<HCRestrictHCAttr>()) return true;
     }
+
     scope = scope->getParent();
   }
   return false;
@@ -177,9 +176,9 @@ ExprResult Parser::ParseAssignmentExpression(TypeCastState isTypeCast) {
   }
 
   if (Tok.is(tok::kw_throw)) {
-    // C++ AMP-specific, reject if we are in an AMP-restricted function
-    if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath && !getLangOpts().AMPCPU) {
-      if (IsInAMPFunction(getCurScope())) {
+    // HC-specific, reject if we are in an HC-restricted function
+    if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath) {
+      if (IsInHCFunction(getCurScope())) {
         Diag(Tok, diag::err_amp_illegal_keyword_throw);
       }
     }
@@ -1221,9 +1220,9 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
     return Res;
   }
   case tok::kw_dynamic_cast:
-    // C++ AMP-specific, reject if we are in an AMP-restricted function
+    // HC-specific, reject if we are in an [[hc]] function
     if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath) {
-      if (IsInAMPFunction(getCurScope())) {
+      if (IsInHCFunction(getCurScope())) {
         Diag(Tok, diag::err_amp_illegal_keyword_dynamiccast);
       }
     }
@@ -1233,9 +1232,9 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
     Res = ParseCXXCasts();
     break;
   case tok::kw_typeid:
-    // C++ AMP-specific, reject if we are in an AMP-restricted function
+    // HC-specific, reject if we are in an [[hc]] function
     if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath) {
-      if (IsInAMPFunction(getCurScope())) {
+      if (IsInHCFunction(getCurScope())) {
         Diag(Tok, diag::err_amp_illegal_keyword_typeid);
       }
     }

@@ -65,9 +65,35 @@ inline bool DeclAttrsMatchCUDAMode(const LangOptions &LangOpts, Decl *D) {
 inline bool DeclAttrsMatchHCCMode(const LangOptions &LangOpts, Decl *D) {
   if (!LangOpts.CPlusPlusAMP || !D)
     return true;
-  bool isDeviceSideDecl = D->hasAttr<CXXAMPRestrictAMPAttr>() ||
+  bool isDeviceSideDecl = D->hasAttr<HCRestrictHCAttr>() ||
                           D->hasAttr<HC_HCAttr>();
   return isDeviceSideDecl == LangOpts.DevicePath;
+}
+
+// Helper function to (possibly) add [[cpu]] and / or [[hc]] to local classes
+// (e.g. lambdas) which are defined in a [[cpu]] and / or [[hc]] context.
+inline void MaybeAddHCAttr(const LangOptions &LangOpts, FunctionDecl *FD) {
+  if (!FD) return;
+  if (!LangOpts.CPlusPlusAMP) return;
+
+  bool hasCPU = FD->hasAttr<HCRestrictCPUAttr>();
+  bool hasHC = FD->hasAttr<HCRestrictHCAttr>();
+  auto DC = FD->getDeclContext();
+
+  while (DC && (!hasHC || !hasCPU)) {
+    if (auto ParentFD = dyn_cast<FunctionDecl>(DC)) {
+      if (ParentFD->hasAttr<HCRestrictHCAttr>() && !hasHC) {
+        FD->addAttr(HCRestrictHCAttr::CreateImplicit(FD->getASTContext()));
+        hasHC = true;
+      }
+      if (ParentFD->hasAttr<HCRestrictCPUAttr>() && !hasCPU) {
+        FD->addAttr(HCRestrictCPUAttr::CreateImplicit(FD->getASTContext()));
+        hasCPU = true;
+      }
+    }
+
+    DC = DC->getParent();
+  }
 }
 
 // Directly mark a variable odr-used. Given a choice, prefer to use

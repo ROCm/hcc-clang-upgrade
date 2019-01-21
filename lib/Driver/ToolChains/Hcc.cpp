@@ -27,7 +27,9 @@ using namespace clang::driver::toolchains;
 using namespace clang::driver::tools;
 using namespace llvm::opt;
 
-HCCInstallationDetector::HCCInstallationDetector(const Driver &D, const llvm::opt::ArgList &Args) : D(D) {
+HCCInstallationDetector::HCCInstallationDetector(const Driver &D,
+                                                 const llvm::opt::ArgList &Args)
+  : D(D) {
   std::string BinPath = D.Dir;
   std::string InstallPath = D.InstalledDir;
   auto &FS = D.getVFS();
@@ -36,14 +38,15 @@ HCCInstallationDetector::HCCInstallationDetector(const Driver &D, const llvm::op
   if (Args.hasArg(options::OPT_hcc_path_EQ))
     HCCPathCandidates.push_back(
       Args.getLastArgValue(options::OPT_hcc_path_EQ));
-    
+
   HCCPathCandidates.push_back(InstallPath + "/..");
   HCCPathCandidates.push_back(BinPath + "/..");
   HCCPathCandidates.push_back(BinPath + "/../..");
 
   for (const auto &HCCPath: HCCPathCandidates) {
     if (HCCPath.empty() ||
-        !(FS.exists(HCCPath + "/include/hc.hpp") || FS.exists(HCCPath + "/include/hcc/hc.hpp")) || 
+        !(FS.exists(HCCPath + "/include/hc.hpp") ||
+          FS.exists(HCCPath + "/include/hcc/hc.hpp")) ||
         !FS.exists(HCCPath + "/lib/libmcwamp.so"))
       continue;
 
@@ -55,18 +58,26 @@ HCCInstallationDetector::HCCInstallationDetector(const Driver &D, const llvm::op
   }
 }
 
-void HCCInstallationDetector::AddHCCIncludeArgs(const llvm::opt::ArgList &DriverArgs, llvm::opt::ArgStringList &CC1Args) const {
+void HCCInstallationDetector::AddHCCIncludeArgs(
+  const llvm::opt::ArgList &DriverArgs,
+  llvm::opt::ArgStringList &CC1Args) const {
   if (IsValid) {
     CC1Args.push_back(DriverArgs.MakeArgString("-I" + IncPath + "/include"));
-    CC1Args.push_back(DriverArgs.MakeArgString("-I" + IncPath + "/hcc/include"));
+    CC1Args.push_back(
+      DriverArgs.MakeArgString("-I" + IncPath + "/hcc/include"));
+    CC1Args.push_back(
+      DriverArgs.MakeArgString("-I" + IncPath + "/third_party"));
+    CC1Args.push_back(DriverArgs.MakeArgString("-I/opt/rocm/hsa/include"));
   }
 }
 
-void HCCInstallationDetector::AddHCCLibArgs(const llvm::opt::ArgList &Args, llvm::opt::ArgStringList &CmdArgs) const {
+void HCCInstallationDetector::AddHCCLibArgs(
+  const llvm::opt::ArgList &Args,
+  llvm::opt::ArgStringList &CmdArgs) const {
   if (IsValid) {
     // add verbose flag to linker script if clang++ is invoked with --verbose flag
     if (Args.hasArg(options::OPT_v)) CmdArgs.push_back("--verbose");
-        
+
     // Reverse translate the -lstdc++ option
     // Or add -lstdc++ when running on RHEL 7 or CentOS 7
     if (Args.hasArg(options::OPT_Z_reserved_lib_stdcxx) ||
@@ -75,11 +86,13 @@ void HCCInstallationDetector::AddHCCLibArgs(const llvm::opt::ArgList &Args, llvm
     }
 
     CmdArgs.push_back(Args.MakeArgString("-L" + LibPath));
+    CmdArgs.push_back(Args.MakeArgString("-L/opt/rocm/lib"));
     CmdArgs.push_back(Args.MakeArgString("--rpath=" + LibPath));
+    CmdArgs.push_back(Args.MakeArgString("--rpath=/opt/rocm/lib"));
 
     for (auto &lib: SystemLibs)
       CmdArgs.push_back(lib);
-    
+
     for (auto &lib: RuntimeLibs)
       CmdArgs.push_back(lib);
 
@@ -226,7 +239,8 @@ namespace
     void remove_duplicate_targets(std::vector<T>& TargetVec)
     {
         std::sort(TargetVec.begin(), TargetVec.end());
-        TargetVec.erase(unique(TargetVec.begin(), TargetVec.end()), TargetVec.end());
+        TargetVec.erase(
+            std::unique(TargetVec.begin(), TargetVec.end()), TargetVec.end());
     }
 
     void construct_amdgpu_target_cmdargs(
@@ -309,7 +323,7 @@ void HCC::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
   #define HCC_TOOLCHAIN_RHEL false
 #endif
 
-void HCC::CXXAMPLink::ConstructLinkerJob(
+void HCC::HCLink::ConstructLinkerJob(
     Compilation &C,
     const JobAction &JA,
     const InputInfo &Output,
@@ -324,7 +338,7 @@ void HCC::CXXAMPLink::ConstructLinkerJob(
     construct_amdgpu_target_cmdargs(C, getToolChain(), Args, CmdArgs);
 }
 
-void HCC::CXXAMPLink::ConstructJob(Compilation &C,
+void HCC::HCLink::ConstructJob(Compilation &C,
                                    const JobAction &JA,
                                    const InputInfo &Output,
                                    const InputInfoList &Inputs,
@@ -422,5 +436,5 @@ Tool *HCCToolChain::buildAssembler() const {
 }
 
 Tool *HCCToolChain::buildLinker() const {
-  return new tools::HCC::CXXAMPLink(*this);
+  return new tools::HCC::HCLink(*this);
 }
