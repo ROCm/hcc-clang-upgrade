@@ -2431,13 +2431,11 @@ static bool mergeDeclAttribute(Sema &S, NamedDecl *D,
   InheritableAttr *NewAttr = nullptr;
   unsigned AttrSpellingListIndex = Attr->getSpellingListIndex();
   if (const auto *AA = dyn_cast<AvailabilityAttr>(Attr))
-    NewAttr = S.mergeAvailabilityAttr(D, AA->getRange(), AA->getPlatform(),
-                                      AA->isImplicit(), AA->getIntroduced(),
-                                      AA->getDeprecated(),
-                                      AA->getObsoleted(), AA->getUnavailable(),
-                                      AA->getMessage(), AA->getStrict(),
-                                      AA->getReplacement(), AMK,
-                                      AttrSpellingListIndex);
+    NewAttr = S.mergeAvailabilityAttr(
+        D, AA->getRange(), AA->getPlatform(), AA->isImplicit(),
+        AA->getIntroduced(), AA->getDeprecated(), AA->getObsoleted(),
+        AA->getUnavailable(), AA->getMessage(), AA->getStrict(),
+        AA->getReplacement(), AMK, AA->getPriority(), AttrSpellingListIndex);
   else if (const auto *VA = dyn_cast<VisibilityAttr>(Attr))
     NewAttr = S.mergeVisibilityAttr(D, VA->getRange(), VA->getVisibility(),
                                     AttrSpellingListIndex);
@@ -9288,8 +9286,12 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
 
       // Complain about the 'static' specifier if it's on an out-of-line
       // member function definition.
+
+      // MSVC permits the use of a 'static' storage specifier on an out-of-line
+      // member function template declaration, warn about this.
       Diag(D.getDeclSpec().getStorageClassSpecLoc(),
-           diag::err_static_out_of_line)
+           NewFD->getDescribedFunctionTemplate() && getLangOpts().MSVCCompat
+           ? diag::ext_static_out_of_line : diag::err_static_out_of_line)
         << FixItHint::CreateRemoval(D.getDeclSpec().getStorageClassSpecLoc());
     }
 
@@ -10790,7 +10792,7 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(NewFD);
   if (!getLangOpts().CPlusPlus14 && MD && MD->isConstexpr() &&
       !MD->isStatic() && !isa<CXXConstructorDecl>(MD) &&
-      !MD->getTypeQualifiers().hasConst()) {
+      !MD->getMethodQualifiers().hasConst()) {
     CXXMethodDecl *OldMD = nullptr;
     if (OldDecl)
       OldMD = dyn_cast_or_null<CXXMethodDecl>(OldDecl->getAsFunction());

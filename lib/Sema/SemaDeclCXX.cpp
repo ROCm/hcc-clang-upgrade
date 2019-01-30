@@ -1300,6 +1300,10 @@ static DeclAccessPair findDecomposableBaseClass(Sema &S, SourceLocation Loc,
 static bool checkMemberDecomposition(Sema &S, ArrayRef<BindingDecl*> Bindings,
                                      ValueDecl *Src, QualType DecompType,
                                      const CXXRecordDecl *OrigRD) {
+  if (S.RequireCompleteType(Src->getLocation(), DecompType,
+                            diag::err_incomplete_type))
+    return true;
+
   CXXCastPath BasePath;
   DeclAccessPair BasePair =
       findDecomposableBaseClass(S, Src->getLocation(), OrigRD, BasePath);
@@ -6596,7 +6600,7 @@ void Sema::CheckExplicitlyDefaultedSpecialMember(CXXMethodDecl *MD) {
     ReturnType = Type->getReturnType();
 
     QualType DeclType = Context.getTypeDeclType(RD);
-    DeclType = Context.getAddrSpaceQualType(DeclType, MD->getTypeQualifiers().getAddressSpace());
+    DeclType = Context.getAddrSpaceQualType(DeclType, MD->getMethodQualifiers().getAddressSpace());
     QualType ExpectedReturnType = Context.getLValueReferenceType(DeclType);
 
     if (!Context.hasSameType(ReturnType, ExpectedReturnType)) {
@@ -6606,7 +6610,7 @@ void Sema::CheckExplicitlyDefaultedSpecialMember(CXXMethodDecl *MD) {
     }
 
     // A defaulted special member cannot have cv-qualifiers.
-    if (Type->getTypeQuals().hasConst() || Type->getTypeQuals().hasVolatile()) {
+    if (Type->getMethodQuals().hasConst() || Type->getMethodQuals().hasVolatile()) {
       if (DeleteOnTypeMismatch)
         ShouldDeleteForTypeMismatch = true;
       else {
@@ -12312,7 +12316,7 @@ void Sema::DefineImplicitCopyAssignment(SourceLocation CurrentLocation,
     DerefBuilder DerefThis(This);
     CastBuilder To(DerefThis,
                    Context.getQualifiedType(
-                       BaseType, CopyAssignOperator->getTypeQualifiers()),
+                       BaseType, CopyAssignOperator->getMethodQualifiers()),
                    VK_LValue, BasePath);
 
     // Build the copy.
@@ -13036,7 +13040,7 @@ void Sema::DefineAmpCpuSerializeFunction(SourceLocation CurrentLocation,
           // Implicitly cast "this" to the appropriately-qualified base type.
           Base = ImpCastExprToType(Base.get(),
                                    Context.getQualifiedType(B->getType().getUnqualifiedType(),
-                                             Serialization->getTypeQualifiers()),
+                                             Serialization->getMethodQualifiers()),
                                    CK_UncheckedDerivedToBase,
                                    VK_LValue, &BasePath);
           CXXScopeSpec SS;
@@ -13628,7 +13632,7 @@ void Sema::DefineImplicitMoveAssignment(SourceLocation CurrentLocation,
     // Implicitly cast "this" to the appropriately-qualified base type.
     CastBuilder To(DerefThis,
                    Context.getQualifiedType(
-                       BaseType, MoveAssignOperator->getTypeQualifiers()),
+                       BaseType, MoveAssignOperator->getMethodQualifiers()),
                    VK_LValue, BasePath);
 
     // Build the move.

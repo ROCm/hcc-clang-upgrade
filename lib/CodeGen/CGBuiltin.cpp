@@ -9151,6 +9151,20 @@ static Value *EmitX86ExpandLoad(CodeGenFunction &CGF,
   return CGF.Builder.CreateCall(F, { Ptr, MaskVec, Ops[1] });
 }
 
+static Value *EmitX86CompressExpand(CodeGenFunction &CGF,
+                                    ArrayRef<Value *> Ops,
+                                    bool IsCompress) {
+  llvm::Type *ResultTy = Ops[1]->getType();
+
+  Value *MaskVec = getMaskVecValue(CGF, Ops[2],
+                                   ResultTy->getVectorNumElements());
+
+  Intrinsic::ID IID = IsCompress ? Intrinsic::x86_avx512_mask_compress
+                                 : Intrinsic::x86_avx512_mask_expand;
+  llvm::Function *F = CGF.CGM.getIntrinsic(IID, ResultTy);
+  return CGF.Builder.CreateCall(F, { Ops[0], Ops[1], MaskVec });
+}
+
 static Value *EmitX86CompressStore(CodeGenFunction &CGF,
                                    ArrayRef<Value *> Ops) {
   llvm::Type *ResultTy = Ops[1]->getType();
@@ -9328,6 +9342,25 @@ static Value *EmitX86MaskedCompare(CodeGenFunction &CGF, unsigned CC,
 static Value *EmitX86ConvertToMask(CodeGenFunction &CGF, Value *In) {
   Value *Zero = Constant::getNullValue(In->getType());
   return EmitX86MaskedCompare(CGF, 1, true, { In, Zero });
+}
+
+static Value *EmitX86ConvertIntToFp(CodeGenFunction &CGF,
+                                    ArrayRef<Value *> Ops, bool IsSigned) {
+  unsigned Rnd = cast<llvm::ConstantInt>(Ops[3])->getZExtValue();
+  llvm::Type *Ty = Ops[1]->getType();
+
+  Value *Res;
+  if (Rnd != 4) {
+    Intrinsic::ID IID = IsSigned ? Intrinsic::x86_avx512_sitofp_round
+                                 : Intrinsic::x86_avx512_uitofp_round;
+    Function *F = CGF.CGM.getIntrinsic(IID, { Ty, Ops[0]->getType() });
+    Res = CGF.Builder.CreateCall(F, { Ops[0], Ops[3] });
+  } else {
+    Res = IsSigned ? CGF.Builder.CreateSIToFP(Ops[0], Ty)
+                   : CGF.Builder.CreateUIToFP(Ops[0], Ty);
+  }
+
+  return EmitX86Select(CGF, Ops[2], Res, Ops[1]);
 }
 
 static Value *EmitX86Abs(CodeGenFunction &CGF, ArrayRef<Value *> Ops) {
@@ -9991,6 +10024,15 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
   case X86::BI__builtin_ia32_cvtq2mask512:
     return EmitX86ConvertToMask(*this, Ops[0]);
 
+  case X86::BI__builtin_ia32_cvtdq2ps512_mask:
+  case X86::BI__builtin_ia32_cvtqq2ps512_mask:
+  case X86::BI__builtin_ia32_cvtqq2pd512_mask:
+    return EmitX86ConvertIntToFp(*this, Ops, /*IsSigned*/true);
+  case X86::BI__builtin_ia32_cvtudq2ps512_mask:
+  case X86::BI__builtin_ia32_cvtuqq2ps512_mask:
+  case X86::BI__builtin_ia32_cvtuqq2pd512_mask:
+    return EmitX86ConvertIntToFp(*this, Ops, /*IsSigned*/false);
+
   case X86::BI__builtin_ia32_vfmaddss3:
   case X86::BI__builtin_ia32_vfmaddsd3:
   case X86::BI__builtin_ia32_vfmaddss3_mask:
@@ -10133,6 +10175,46 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
   case X86::BI__builtin_ia32_compressstoreqi256_mask:
   case X86::BI__builtin_ia32_compressstoreqi512_mask:
     return EmitX86CompressStore(*this, Ops);
+
+  case X86::BI__builtin_ia32_expanddf128_mask:
+  case X86::BI__builtin_ia32_expanddf256_mask:
+  case X86::BI__builtin_ia32_expanddf512_mask:
+  case X86::BI__builtin_ia32_expandsf128_mask:
+  case X86::BI__builtin_ia32_expandsf256_mask:
+  case X86::BI__builtin_ia32_expandsf512_mask:
+  case X86::BI__builtin_ia32_expanddi128_mask:
+  case X86::BI__builtin_ia32_expanddi256_mask:
+  case X86::BI__builtin_ia32_expanddi512_mask:
+  case X86::BI__builtin_ia32_expandsi128_mask:
+  case X86::BI__builtin_ia32_expandsi256_mask:
+  case X86::BI__builtin_ia32_expandsi512_mask:
+  case X86::BI__builtin_ia32_expandhi128_mask:
+  case X86::BI__builtin_ia32_expandhi256_mask:
+  case X86::BI__builtin_ia32_expandhi512_mask:
+  case X86::BI__builtin_ia32_expandqi128_mask:
+  case X86::BI__builtin_ia32_expandqi256_mask:
+  case X86::BI__builtin_ia32_expandqi512_mask:
+    return EmitX86CompressExpand(*this, Ops, /*IsCompress*/false);
+
+  case X86::BI__builtin_ia32_compressdf128_mask:
+  case X86::BI__builtin_ia32_compressdf256_mask:
+  case X86::BI__builtin_ia32_compressdf512_mask:
+  case X86::BI__builtin_ia32_compresssf128_mask:
+  case X86::BI__builtin_ia32_compresssf256_mask:
+  case X86::BI__builtin_ia32_compresssf512_mask:
+  case X86::BI__builtin_ia32_compressdi128_mask:
+  case X86::BI__builtin_ia32_compressdi256_mask:
+  case X86::BI__builtin_ia32_compressdi512_mask:
+  case X86::BI__builtin_ia32_compresssi128_mask:
+  case X86::BI__builtin_ia32_compresssi256_mask:
+  case X86::BI__builtin_ia32_compresssi512_mask:
+  case X86::BI__builtin_ia32_compresshi128_mask:
+  case X86::BI__builtin_ia32_compresshi256_mask:
+  case X86::BI__builtin_ia32_compresshi512_mask:
+  case X86::BI__builtin_ia32_compressqi128_mask:
+  case X86::BI__builtin_ia32_compressqi256_mask:
+  case X86::BI__builtin_ia32_compressqi512_mask:
+    return EmitX86CompressExpand(*this, Ops, /*IsCompress*/true);
 
   case X86::BI__builtin_ia32_gather3div2df:
   case X86::BI__builtin_ia32_gather3div2di:
@@ -12398,6 +12480,14 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
   case AMDGPU::BI__builtin_amdgcn_fmed3f:
   case AMDGPU::BI__builtin_amdgcn_fmed3h:
     return emitTernaryBuiltin(*this, E, Intrinsic::amdgcn_fmed3);
+  case AMDGPU::BI__builtin_amdgcn_ds_append:
+  case AMDGPU::BI__builtin_amdgcn_ds_consume: {
+    Intrinsic::ID Intrin = BuiltinID == AMDGPU::BI__builtin_amdgcn_ds_append ?
+      Intrinsic::amdgcn_ds_append : Intrinsic::amdgcn_ds_consume;
+    Value *Src0 = EmitScalarExpr(E->getArg(0));
+    Function *F = CGM.getIntrinsic(Intrin, { Src0->getType() });
+    return Builder.CreateCall(F, { Src0, Builder.getFalse() });
+  }
   case AMDGPU::BI__builtin_amdgcn_read_exec: {
     CallInst *CI = cast<CallInst>(
       EmitSpecialRegisterBuiltin(*this, E, Int64Ty, Int64Ty, true, "exec"));

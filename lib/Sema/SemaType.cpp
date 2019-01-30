@@ -1441,7 +1441,15 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
     else
       Result = Context.Int128Ty;
     break;
-  case DeclSpec::TST_float16: Result = Context.Float16Ty; break;
+  case DeclSpec::TST_float16:
+    // CUDA host and device may have different _Float16 support, therefore
+    // do not diagnose _Float16 usage to avoid false alarm.
+    // ToDo: more precise diagnostics for CUDA.
+    if (!S.Context.getTargetInfo().hasFloat16Type() && !S.getLangOpts().CUDA)
+      S.Diag(DS.getTypeSpecTypeLoc(), diag::err_type_unsupported)
+        << "_Float16";
+    Result = Context.Float16Ty;
+    break;
   case DeclSpec::TST_half:    Result = Context.HalfTy; break;
   case DeclSpec::TST_float:   Result = Context.FloatTy; break;
   case DeclSpec::TST_double:
@@ -1867,7 +1875,7 @@ static QualType inferARCLifetimeForPointee(Sema &S, QualType type,
 }
 
 static std::string getFunctionQualifiersAsString(const FunctionProtoType *FnTy){
-  std::string Quals = FnTy->getTypeQuals().getAsString();
+  std::string Quals = FnTy->getMethodQuals().getAsString();
 
   switch (FnTy->getRefQualifier()) {
   case RQ_None:
@@ -1909,7 +1917,7 @@ static bool checkQualifiedFunction(Sema &S, QualType T, SourceLocation Loc,
                                    QualifiedFunctionKind QFK) {
   // Does T refer to a function type with a cv-qualifier or a ref-qualifier?
   const FunctionProtoType *FPT = T->getAs<FunctionProtoType>();
-  if (!FPT || (FPT->getTypeQuals().empty() && FPT->getRefQualifier() == RQ_None))
+  if (!FPT || (FPT->getMethodQuals().empty() && FPT->getRefQualifier() == RQ_None))
     return false;
 
   S.Diag(Loc, diag::err_compound_qualified_function_type)
@@ -3962,7 +3970,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
 
   // Does T refer to a function type with a cv-qualifier or a ref-qualifier?
   bool IsQualifiedFunction = T->isFunctionProtoType() &&
-      (!T->castAs<FunctionProtoType>()->getTypeQuals().empty() ||
+      (!T->castAs<FunctionProtoType>()->getMethodQuals().empty() ||
        T->castAs<FunctionProtoType>()->getRefQualifier() != RQ_None);
 
   // If T is 'decltype(auto)', the only declarators we can have are parens
