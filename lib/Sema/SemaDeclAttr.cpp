@@ -6659,7 +6659,6 @@ static void handleDeviceAttr(Sema &S, Decl *D, const ParsedAttr &Attr) {
                CUDADeviceAttr(Attr.getRange(), S.Context,
                               Attr.getAttributeSpellingListIndex()));
   } else if (S.LangOpts.CPlusPlusAMP) {
-    if (!S.LangOpts.AMPCPU)
     D->addAttr(::new (S.Context) CXXAMPRestrictAMPAttr(Attr.getRange(),
           S.Context, Attr.getAttributeSpellingListIndex()));
   } else {
