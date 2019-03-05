@@ -552,6 +552,7 @@ namespace clang {
     // Importing expressions
     ExpectedStmt VisitExpr(Expr *E);
     ExpectedStmt VisitVAArgExpr(VAArgExpr *E);
+    ExpectedStmt VisitChooseExpr(ChooseExpr *E);
     ExpectedStmt VisitGNUNullExpr(GNUNullExpr *E);
     ExpectedStmt VisitPredefinedExpr(PredefinedExpr *E);
     ExpectedStmt VisitDeclRefExpr(DeclRefExpr *E);
@@ -5540,7 +5541,7 @@ ASTNodeImporter::VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
   // Try to find a function in our own ("to") context with the same name, same
   // type, and in the same context as the function we're importing.
   if (!LexicalDC->isFunctionOrMethod()) {
-    unsigned IDNS = Decl::IDNS_Ordinary;
+    unsigned IDNS = Decl::IDNS_Ordinary | Decl::IDNS_OrdinaryFriend;
     auto FoundDecls = Importer.findDeclsInToCtx(DC, Name);
     for (auto *FoundDecl : FoundDecls) {
       if (!FoundDecl->isInIdentifierNamespace(IDNS))
@@ -6135,6 +6136,33 @@ ExpectedStmt ASTNodeImporter::VisitVAArgExpr(VAArgExpr *E) {
       E->isMicrosoftABI());
 }
 
+ExpectedStmt ASTNodeImporter::VisitChooseExpr(ChooseExpr *E) {
+  auto Imp = importSeq(E->getCond(), E->getLHS(), E->getRHS(),
+                       E->getBuiltinLoc(), E->getRParenLoc(), E->getType());
+  if (!Imp)
+    return Imp.takeError();
+
+  Expr *ToCond;
+  Expr *ToLHS;
+  Expr *ToRHS;
+  SourceLocation ToBuiltinLoc, ToRParenLoc;
+  QualType ToType;
+  std::tie(ToCond, ToLHS, ToRHS, ToBuiltinLoc, ToRParenLoc, ToType) = *Imp;
+
+  ExprValueKind VK = E->getValueKind();
+  ExprObjectKind OK = E->getObjectKind();
+
+  bool TypeDependent = ToCond->isTypeDependent();
+  bool ValueDependent = ToCond->isValueDependent();
+
+  // The value of CondIsTrue only matters if the value is not
+  // condition-dependent.
+  bool CondIsTrue = !E->isConditionDependent() && E->isConditionTrue();
+
+  return new (Importer.getToContext())
+      ChooseExpr(ToBuiltinLoc, ToCond, ToLHS, ToRHS, ToType, VK, OK,
+                 ToRParenLoc, CondIsTrue, TypeDependent, ValueDependent);
+}
 
 ExpectedStmt ASTNodeImporter::VisitGNUNullExpr(GNUNullExpr *E) {
   ExpectedType TypeOrErr = import(E->getType());
@@ -7393,13 +7421,9 @@ ExpectedStmt ASTNodeImporter::VisitLambdaExpr(LambdaExpr *E) {
   // NOTE: lambda classes are created with BeingDefined flag set up.
   // It means that ImportDefinition doesn't work for them and we should fill it
   // manually.
-  if (ToClass->isBeingDefined()) {
-    for (auto FromField : FromClass->fields()) {
-      auto ToFieldOrErr = import(FromField);
-      if (!ToFieldOrErr)
-        return ToFieldOrErr.takeError();
-    }
-  }
+  if (ToClass->isBeingDefined())
+    if (Error Err = ImportDeclContext(FromClass, /*ForceImport = */ true))
+      return std::move(Err);
 
   auto ToCallOpOrErr = import(E->getCallOperator());
   if (!ToCallOpOrErr)
@@ -8205,9 +8229,10 @@ SourceLocation ASTImporter::Import(SourceLocation FromLoc) {
     return {};
 
   SourceManager &FromSM = FromContext.getSourceManager();
+  bool IsBuiltin = FromSM.isWrittenInBuiltinFile(FromLoc);
 
   std::pair<FileID, unsigned> Decomposed = FromSM.getDecomposedLoc(FromLoc);
-  FileID ToFileID = Import(Decomposed.first);
+  FileID ToFileID = Import(Decomposed.first, IsBuiltin);
   if (ToFileID.isInvalid())
     return {};
   SourceManager &ToSM = ToContext.getSourceManager();
@@ -8222,13 +8247,13 @@ SourceRange ASTImporter::Import(SourceRange FromRange) {
   return SourceRange(Import(FromRange.getBegin()), Import(FromRange.getEnd()));
 }
 
-Expected<FileID> ASTImporter::Import_New(FileID FromID) {
-  FileID ToID = Import(FromID);
+Expected<FileID> ASTImporter::Import_New(FileID FromID, bool IsBuiltin) {
+  FileID ToID = Import(FromID, IsBuiltin);
   if (ToID.isInvalid() && FromID.isValid())
     return llvm::make_error<ImportError>();
   return ToID;
 }
-FileID ASTImporter::Import(FileID FromID) {
+FileID ASTImporter::Import(FileID FromID, bool IsBuiltin) {
   llvm::DenseMap<FileID, FileID>::iterator Pos = ImportedFileIDs.find(FromID);
   if (Pos != ImportedFileIDs.end())
     return Pos->second;
@@ -8254,25 +8279,36 @@ FileID ASTImporter::Import(FileID FromID) {
     }
     ToID = ToSM.getFileID(MLoc);
   } else {
-    // Include location of this file.
-    SourceLocation ToIncludeLoc = Import(FromSLoc.getFile().getIncludeLoc());
-
     const SrcMgr::ContentCache *Cache = FromSLoc.getFile().getContentCache();
-    if (Cache->OrigEntry && Cache->OrigEntry->getDir()) {
-      // FIXME: We probably want to use getVirtualFile(), so we don't hit the
-      // disk again
-      // FIXME: We definitely want to re-use the existing MemoryBuffer, rather
-      // than mmap the files several times.
-      const FileEntry *Entry =
-          ToFileManager.getFile(Cache->OrigEntry->getName());
-      if (!Entry)
-        return {};
-      ToID = ToSM.createFileID(Entry, ToIncludeLoc,
-                               FromSLoc.getFile().getFileCharacteristic());
-    } else {
+
+    if (!IsBuiltin) {
+      // Include location of this file.
+      SourceLocation ToIncludeLoc = Import(FromSLoc.getFile().getIncludeLoc());
+
+      if (Cache->OrigEntry && Cache->OrigEntry->getDir()) {
+        // FIXME: We probably want to use getVirtualFile(), so we don't hit the
+        // disk again
+        // FIXME: We definitely want to re-use the existing MemoryBuffer, rather
+        // than mmap the files several times.
+        const FileEntry *Entry =
+            ToFileManager.getFile(Cache->OrigEntry->getName());
+        // FIXME: The filename may be a virtual name that does probably not
+        // point to a valid file and we get no Entry here. In this case try with
+        // the memory buffer below.
+        if (Entry)
+          ToID = ToSM.createFileID(Entry, ToIncludeLoc,
+                                   FromSLoc.getFile().getFileCharacteristic());
+      }
+    }
+
+    if (ToID.isInvalid() || IsBuiltin) {
       // FIXME: We want to re-use the existing MemoryBuffer!
-      const llvm::MemoryBuffer *FromBuf =
-          Cache->getBuffer(FromContext.getDiagnostics(), FromSM);
+      bool Invalid = true;
+      const llvm::MemoryBuffer *FromBuf = Cache->getBuffer(
+          FromContext.getDiagnostics(), FromSM, SourceLocation{}, &Invalid);
+      if (!FromBuf || Invalid)
+        return {};
+
       std::unique_ptr<llvm::MemoryBuffer> ToBuf =
           llvm::MemoryBuffer::getMemBufferCopy(FromBuf->getBuffer(),
                                                FromBuf->getBufferIdentifier());
@@ -8280,6 +8316,8 @@ FileID ASTImporter::Import(FileID FromID) {
                                FromSLoc.getFile().getFileCharacteristic());
     }
   }
+
+  assert(ToID.isValid() && "Unexpected invalid fileID was created.");
 
   ImportedFileIDs[FromID] = ToID;
   return ToID;

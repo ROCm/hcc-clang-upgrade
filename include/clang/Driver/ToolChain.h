@@ -453,9 +453,7 @@ public:
   virtual bool SupportsEmbeddedBitcode() const { return false; }
 
   /// getThreadModel() - Which thread model does this target use?
-  virtual std::string getThreadModel(const llvm::opt::ArgList &) const {
-    return "posix";
-  }
+  virtual std::string getThreadModel() const { return "posix"; }
 
   /// isThreadModelSupported() - Does this target support a thread model?
   virtual bool isThreadModelSupported(const StringRef Model) const;
@@ -568,7 +566,9 @@ public:
   virtual SanitizerMask getSupportedSanitizers() const;
 
   /// Return sanitizers which are enabled by default.
-  virtual SanitizerMask getDefaultSanitizers() const { return 0; }
+  virtual SanitizerMask getDefaultSanitizers() const {
+    return SanitizerMask();
+  }
 };
 
 /// Set a ToolChain's effective triple. Reset it when the registration object

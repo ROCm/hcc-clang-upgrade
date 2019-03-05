@@ -1804,13 +1804,6 @@ two's complement of a positive value. Passing ``0`` or ``0, 0`` as
 ``<min>[, <max>]`` implies the default behavior (``128, 256``). If ``<max>``
 is unspecified, platform allowed maximum value is assumed.
 
-``<ISA>`` parameter specifies the target ISA version for which this parameter
-is applied. It is either a three-digit ISA version string prefixed by "gfx",
-e.g. "gfx810". If this parameter is not specified, the attribute is always
-applied. If this parameter is specified but does not match the ISA version of
-the target GPU, the attribute is not applied. Multiple attributes with
-different ``<ISA>`` parameter can be used for the same function.
-
 If specified, the AMDGPU target backend might be able to produce better machine
 code for barriers and perform scratch promotion by estimating available group
 segment size.
@@ -1850,13 +1843,6 @@ the one dictated by the hardware for which the kernel is compiled. Passing
 ``0, 0`` as ``<min>, <max>`` implies the default behavior (no limits). ``<min>``
 and ``<max>`` must be 32 bit integer constants. Negative value is treated as 32
 bit two's complement of a postive value.
-
-``<ISA>`` parameter specifies the target ISA version for which this parameter
-is applied. It is either a three-digit ISA version string prefixed by "gfx",
-e.g. "gfx810". If this parameter is not specified, the attribute is always
-applied. If this parameter is specified but does not match the ISA version of
-the target GPU, the attribute is not applied. Multiple attributes with
-different ``<ISA>`` parameter can be used for the same function.
 
 If specified, this attribute allows an advanced developer to tune the number of
 wavefronts that are capable of fitting within the resources of an EU. The AMDGPU
@@ -4032,13 +4018,13 @@ The ``gnu_inline`` changes the meaning of ``extern inline`` to use GNU inline
 semantics, meaning:
 
 * If any declaration that is declared ``inline`` is not declared ``extern``,
-then the ``inline`` keyword is just a hint. In particular, an out-of-line
-definition is still emitted for a function with external linkage, even if all
-call sites are inlined, unlike in C99 and C++ inline semantics.
+  then the ``inline`` keyword is just a hint. In particular, an out-of-line
+  definition is still emitted for a function with external linkage, even if all
+  call sites are inlined, unlike in C99 and C++ inline semantics.
 
 * If all declarations that are declared ``inline`` are also declared
-``extern``, then the function body is present only for inlining and no
-out-of-line version is emitted.
+  ``extern``, then the function body is present only for inlining and no
+  out-of-line version is emitted.
 
 Some important consequences: ``static inline`` emits an out-of-line
 version if needed, a plain ``inline`` definition emits an out-of-line version
@@ -4148,3 +4134,24 @@ Likewise, when applied to a strong local variable, that variable becomes
 
 When compiled without ``-fobjc-arc``, this attribute is ignored.
 }]; }
+
+def MIGConventionDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+  The Mach Interface Generator release-on-success convention dictates
+functions that follow it to only release arguments passed to them when they
+return "success" (a ``kern_return_t`` error code that indicates that
+no errors have occured). Otherwise the release is performed by the MIG client
+that called the function. The annotation ``__attribute__((mig_server_routine))``
+is applied in order to specify which functions are expected to follow the
+convention. This allows the Static Analyzer to find bugs caused by violations of
+that convention. The attribute would normally appear on the forward declaration
+of the actual server routine in the MIG server header, but it may also be
+added to arbitrary functions that need to follow the same convention - for
+example, a user can add them to auxiliary functions called by the server routine
+that have their return value of type ``kern_return_t`` unconditionally returned
+from the routine. The attribute can be applied to C++ methods, and in this case
+it will be automatically applied to overrides if the method is virtual. The
+attribute can also be written using C++11 syntax: ``[[mig::server_routine]]``.
+}];
+}

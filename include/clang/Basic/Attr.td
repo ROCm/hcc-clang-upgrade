@@ -1313,6 +1313,12 @@ def MayAlias : InheritableAttr {
   let Documentation = [Undocumented];
 }
 
+def MIGServerRoutine : InheritableAttr {
+  let Spellings = [Clang<"mig_server_routine">];
+  let Subjects = SubjectList<[Function, ObjCMethod, Block]>;
+  let Documentation = [MIGConventionDocs];
+}
+
 def MSABI : DeclOrTypeAttr {
   let Spellings = [GCC<"ms_abi">];
 //  let Subjects = [Function, ObjCMethod];
@@ -1493,8 +1499,7 @@ def AMDGPUFlatWorkGroupSize : InheritableAttr {
   let Spellings = [Clang<"amdgpu_flat_work_group_size",0>,
                    CXX11<"","hc_flat_workgroup_size", 201511>];
   let Args = [ExprArgument<"Min">,
-              ExprArgument<"Max", 1>,
-              StringArgument<"ISA", 1>];
+              ExprArgument<"Max", 1>];
   let Documentation = [AMDGPUFlatWorkGroupSizeDocs];
   let TemplateDependent = 1;
   let Subjects = SubjectList<[Function], ErrorDiag, "kernel functions">;
@@ -1505,8 +1510,7 @@ def AMDGPUWavesPerEU : InheritableAttr {
   let Spellings = [Clang<"amdgpu_waves_per_eu",0>,
                    CXX11<"", "hc_waves_per_eu", 201511>];
   let Args = [ExprArgument<"Min">,
-              ExprArgument<"Max", 1>,
-              StringArgument<"ISA", 1>];
+              ExprArgument<"Max", 1>];
   let Documentation = [AMDGPUWavesPerEUDocs];
   let TemplateDependent = 1;
   let Subjects = SubjectList<[Function], ErrorDiag, "kernel functions">;
@@ -2397,7 +2401,7 @@ def NoSanitize : InheritableAttr {
   let Documentation = [NoSanitizeDocs];
   let AdditionalMembers = [{
     SanitizerMask getMask() const {
-      SanitizerMask Mask = 0;
+      SanitizerMask Mask;
       for (auto SanitizerName : sanitizers()) {
         SanitizerMask ParsedMask =
             parseSanitizerValue(SanitizerName, /*AllowGroups=*/true);

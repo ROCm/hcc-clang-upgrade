@@ -280,10 +280,15 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
       OutputName = Names[i]->getName();
 
     TargetInfo::ConstraintInfo Info(Literal->getString(), OutputName);
-    if (!Context.getTargetInfo().validateOutputConstraint(Info))
-      return StmtError(
-          Diag(Literal->getBeginLoc(), diag::err_asm_invalid_output_constraint)
-          << Info.getConstraintStr());
+    if (!Context.getTargetInfo().validateOutputConstraint(Info)) {
+      targetDiag(Literal->getBeginLoc(),
+                 diag::err_asm_invalid_output_constraint)
+          << Info.getConstraintStr();
+      return new (Context)
+          GCCAsmStmt(Context, AsmLoc, IsSimple, IsVolatile, NumOutputs,
+                     NumInputs, Names, Constraints, Exprs.data(), AsmString,
+                     NumClobbers, Clobbers, RParenLoc);
+    }
 
     ExprResult ER = CheckPlaceholderExpr(Exprs[i]);
     if (ER.isInvalid())
@@ -337,10 +342,14 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
 
     unsigned Size = Context.getTypeSize(OutputExpr->getType());
     if (!Context.getTargetInfo().validateOutputSize(Literal->getString(),
-                                                    Size))
-      return StmtError(
-          Diag(OutputExpr->getBeginLoc(), diag::err_asm_invalid_output_size)
-          << Info.getConstraintStr());
+                                                    Size)) {
+      targetDiag(OutputExpr->getBeginLoc(), diag::err_asm_invalid_output_size)
+          << Info.getConstraintStr();
+      return new (Context)
+          GCCAsmStmt(Context, AsmLoc, IsSimple, IsVolatile, NumOutputs,
+                     NumInputs, Names, Constraints, Exprs.data(), AsmString,
+                     NumClobbers, Clobbers, RParenLoc);
+    }
   }
 
   SmallVector<TargetInfo::ConstraintInfo, 4> InputConstraintInfos;
@@ -356,9 +365,12 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     TargetInfo::ConstraintInfo Info(Literal->getString(), InputName);
     if (!Context.getTargetInfo().validateInputConstraint(OutputConstraintInfos,
                                                          Info)) {
-      return StmtError(
-          Diag(Literal->getBeginLoc(), diag::err_asm_invalid_input_constraint)
-          << Info.getConstraintStr());
+      targetDiag(Literal->getBeginLoc(), diag::err_asm_invalid_input_constraint)
+          << Info.getConstraintStr();
+      return new (Context)
+          GCCAsmStmt(Context, AsmLoc, IsSimple, IsVolatile, NumOutputs,
+                     NumInputs, Names, Constraints, Exprs.data(), AsmString,
+                     NumClobbers, Clobbers, RParenLoc);
     }
 
     ExprResult ER = CheckPlaceholderExpr(Exprs[i]);
@@ -430,8 +442,8 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     unsigned Size = Context.getTypeSize(Ty);
     if (!Context.getTargetInfo().validateInputSize(Literal->getString(),
                                                    Size))
-      return StmtError(
-          Diag(InputExpr->getBeginLoc(), diag::err_asm_invalid_input_size)
+      return StmtResult(
+          targetDiag(InputExpr->getBeginLoc(), diag::err_asm_invalid_input_size)
           << Info.getConstraintStr());
   }
 
@@ -442,10 +454,14 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
 
     StringRef Clobber = Literal->getString();
 
-    if (!Context.getTargetInfo().isValidClobber(Clobber))
-      return StmtError(
-          Diag(Literal->getBeginLoc(), diag::err_asm_unknown_register_name)
-          << Clobber);
+    if (!Context.getTargetInfo().isValidClobber(Clobber)) {
+      targetDiag(Literal->getBeginLoc(), diag::err_asm_unknown_register_name)
+          << Clobber;
+      return new (Context)
+          GCCAsmStmt(Context, AsmLoc, IsSimple, IsVolatile, NumOutputs,
+                     NumInputs, Names, Constraints, Exprs.data(), AsmString,
+                     NumClobbers, Clobbers, RParenLoc);
+    }
   }
 
   GCCAsmStmt *NS =
@@ -457,9 +473,9 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
   SmallVector<GCCAsmStmt::AsmStringPiece, 8> Pieces;
   unsigned DiagOffs;
   if (unsigned DiagID = NS->AnalyzeAsmString(Pieces, Context, DiagOffs)) {
-    Diag(getLocationOfStringLiteralByte(AsmString, DiagOffs), DiagID)
-           << AsmString->getSourceRange();
-    return StmtError();
+    targetDiag(getLocationOfStringLiteralByte(AsmString, DiagOffs), DiagID)
+        << AsmString->getSourceRange();
+    return NS;
   }
 
   // Validate constraints and modifiers.
@@ -497,16 +513,15 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     if (!Context.getTargetInfo().validateConstraintModifier(
             Literal->getString(), Piece.getModifier(), Size,
             SuggestedModifier)) {
-      Diag(Exprs[ConstraintIdx]->getBeginLoc(),
-           diag::warn_asm_mismatched_size_modifier);
+      targetDiag(Exprs[ConstraintIdx]->getBeginLoc(),
+                 diag::warn_asm_mismatched_size_modifier);
 
       if (!SuggestedModifier.empty()) {
-        auto B = Diag(Piece.getRange().getBegin(),
-                      diag::note_asm_missing_constraint_modifier)
+        auto B = targetDiag(Piece.getRange().getBegin(),
+                            diag::note_asm_missing_constraint_modifier)
                  << SuggestedModifier;
         SuggestedModifier = "%" + SuggestedModifier + Piece.getString();
-        B.AddFixItHint(FixItHint::CreateReplacement(Piece.getRange(),
-                                                    SuggestedModifier));
+        B << FixItHint::CreateReplacement(Piece.getRange(), SuggestedModifier);
       }
     }
   }
@@ -517,12 +532,14 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     TargetInfo::ConstraintInfo &Info = OutputConstraintInfos[i];
     StringRef ConstraintStr = Info.getConstraintStr();
     unsigned AltCount = ConstraintStr.count(',') + 1;
-    if (NumAlternatives == ~0U)
+    if (NumAlternatives == ~0U) {
       NumAlternatives = AltCount;
-    else if (NumAlternatives != AltCount)
-      return StmtError(Diag(NS->getOutputExpr(i)->getBeginLoc(),
-                            diag::err_asm_unexpected_constraint_alternatives)
-                       << NumAlternatives << AltCount);
+    } else if (NumAlternatives != AltCount) {
+      targetDiag(NS->getOutputExpr(i)->getBeginLoc(),
+                 diag::err_asm_unexpected_constraint_alternatives)
+          << NumAlternatives << AltCount;
+      return NS;
+    }
   }
   SmallVector<size_t, 4> InputMatchedToOutput(OutputConstraintInfos.size(),
                                               ~0U);
@@ -530,12 +547,14 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     TargetInfo::ConstraintInfo &Info = InputConstraintInfos[i];
     StringRef ConstraintStr = Info.getConstraintStr();
     unsigned AltCount = ConstraintStr.count(',') + 1;
-    if (NumAlternatives == ~0U)
+    if (NumAlternatives == ~0U) {
       NumAlternatives = AltCount;
-    else if (NumAlternatives != AltCount)
-      return StmtError(Diag(NS->getInputExpr(i)->getBeginLoc(),
-                            diag::err_asm_unexpected_constraint_alternatives)
-                       << NumAlternatives << AltCount);
+    } else if (NumAlternatives != AltCount) {
+      targetDiag(NS->getInputExpr(i)->getBeginLoc(),
+                 diag::err_asm_unexpected_constraint_alternatives)
+          << NumAlternatives << AltCount;
+      return NS;
+    }
 
     // If this is a tied constraint, verify that the output and input have
     // either exactly the same type, or that they are int/ptr operands with the
@@ -550,13 +569,13 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     // Make sure no more than one input constraint matches each output.
     assert(TiedTo < InputMatchedToOutput.size() && "TiedTo value out of range");
     if (InputMatchedToOutput[TiedTo] != ~0U) {
-      Diag(NS->getInputExpr(i)->getBeginLoc(),
-           diag::err_asm_input_duplicate_match)
+      targetDiag(NS->getInputExpr(i)->getBeginLoc(),
+                 diag::err_asm_input_duplicate_match)
           << TiedTo;
-      Diag(NS->getInputExpr(InputMatchedToOutput[TiedTo])->getBeginLoc(),
-           diag::note_asm_input_duplicate_first)
+      targetDiag(NS->getInputExpr(InputMatchedToOutput[TiedTo])->getBeginLoc(),
+                 diag::note_asm_input_duplicate_first)
           << TiedTo;
-      return StmtError();
+      return NS;
     }
     InputMatchedToOutput[TiedTo] = i;
 
@@ -641,10 +660,10 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
       continue;
     }
 
-    Diag(InputExpr->getBeginLoc(), diag::err_asm_tying_incompatible_types)
+    targetDiag(InputExpr->getBeginLoc(), diag::err_asm_tying_incompatible_types)
         << InTy << OutTy << OutputExpr->getSourceRange()
         << InputExpr->getSourceRange();
-    return StmtError();
+    return NS;
   }
 
   // Check for conflicts between clobber list and input or output lists
@@ -652,7 +671,7 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
       getClobberConflictLocation(Exprs, Constraints, Clobbers, NumClobbers,
                                  Context.getTargetInfo(), Context);
   if (ConstraintLoc.isValid())
-    return Diag(ConstraintLoc, diag::error_inoutput_conflict_with_clobber);
+    targetDiag(ConstraintLoc, diag::error_inoutput_conflict_with_clobber);
 
   return NS;
 }
