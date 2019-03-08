@@ -59,6 +59,11 @@ void HCCInstallationDetector::AddHCCIncludeArgs(const llvm::opt::ArgList &Driver
   if (IsValid) {
     CC1Args.push_back(DriverArgs.MakeArgString("-I" + IncPath + "/include"));
     CC1Args.push_back(DriverArgs.MakeArgString("-I" + IncPath + "/hcc/include"));
+
+    if (DriverArgs.hasFlag(options::OPT_famdgpu_function_calls,
+                           options::OPT_fno_amdgpu_function_calls,
+                           true))
+      CC1Args.push_back("-famdgpu-function-calls");
   }
 }
 
@@ -91,8 +96,11 @@ void HCCInstallationDetector::AddHCCLibArgs(const llvm::opt::ArgList &Args, llvm
         CmdArgs.push_back(Args.MakeArgString(prefix + Lib));
     }
 
-    if (Args.hasArg(options::OPT_amdgpu_function_calls))
+    if (Args.hasFlag(options::OPT_famdgpu_function_calls,
+                     options::OPT_fno_amdgpu_function_calls,
+                     true)) {
       CmdArgs.push_back("--amdgpu-func-calls");
+    }
   }
 }
 
