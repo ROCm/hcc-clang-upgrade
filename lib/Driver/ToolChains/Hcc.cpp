@@ -27,7 +27,7 @@ using namespace clang::driver::toolchains;
 using namespace clang::driver::tools;
 using namespace llvm::opt;
 
-bool FunctionCallDefault = false;
+bool FunctionCallDefault = true;
 
 HCCInstallationDetector::HCCInstallationDetector(const Driver &D, const llvm::opt::ArgList &Args) : D(D) {
   std::string BinPath = D.Dir;
