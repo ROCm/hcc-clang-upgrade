@@ -61,11 +61,6 @@ void HCCInstallationDetector::AddHCCIncludeArgs(const llvm::opt::ArgList &Driver
   if (IsValid) {
     CC1Args.push_back(DriverArgs.MakeArgString("-I" + IncPath + "/include"));
     CC1Args.push_back(DriverArgs.MakeArgString("-I" + IncPath + "/hcc/include"));
-
-    if (DriverArgs.hasFlag(options::OPT_famdgpu_function_calls,
-                           options::OPT_fno_amdgpu_function_calls,
-                           FunctionCallDefault))
-      CC1Args.push_back("-famdgpu-function-calls");
   }
 }
 
@@ -96,12 +91,6 @@ void HCCInstallationDetector::AddHCCLibArgs(const llvm::opt::ArgList &Args, llvm
 
       for(auto&& Lib:HccExtraLibs)
         CmdArgs.push_back(Args.MakeArgString(prefix + Lib));
-    }
-
-    if (Args.hasFlag(options::OPT_famdgpu_function_calls,
-                     options::OPT_fno_amdgpu_function_calls,
-                     FunctionCallDefault)) {
-      CmdArgs.push_back("--amdgpu-func-calls");
     }
   }
 }
@@ -280,6 +269,12 @@ namespace
         for (auto&& AMDGPUTarget : AMDGPUTargetVector) {
             validate_and_add_to_command(AMDGPUTarget, C, Args, CmdArgs);
         }
+
+        if (Args.hasFlag(options::OPT_famdgpu_function_calls,
+                         options::OPT_fno_amdgpu_function_calls,
+                         FunctionCallDefault)) {
+          CmdArgs.push_back("--amdgpu-func-calls");
+        }
     }
 }
 
@@ -369,6 +364,12 @@ void HCCToolChain::addClangTargetOptions(
   HostTC.addClangTargetOptions(DriverArgs, CC1Args, DeviceOffloadKind);
 
   // TBD, depends on mode set correct arguments
+
+  if (DriverArgs.hasFlag(options::OPT_famdgpu_function_calls,
+                         options::OPT_fno_amdgpu_function_calls,
+                         FunctionCallDefault))
+    CC1Args.push_back("-famdgpu-function-calls");
+
 }
 
 void HCCToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs, ArgStringList &CC1Args) const {
