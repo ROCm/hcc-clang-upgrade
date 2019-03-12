@@ -364,12 +364,6 @@ void HCCToolChain::addClangTargetOptions(
   HostTC.addClangTargetOptions(DriverArgs, CC1Args, DeviceOffloadKind);
 
   // TBD, depends on mode set correct arguments
-
-  if (DriverArgs.hasFlag(options::OPT_famdgpu_function_calls,
-                         options::OPT_fno_amdgpu_function_calls,
-                         FunctionCallDefault))
-    CC1Args.push_back("-famdgpu-function-calls");
-
 }
 
 void HCCToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs, ArgStringList &CC1Args) const {
