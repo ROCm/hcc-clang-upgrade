@@ -12,14 +12,24 @@
 #if !defined(PASS1)
 #define PASS1
 
+typedef void **omp_allocator_handle_t;
+extern const omp_allocator_handle_t omp_default_mem_alloc;
+extern const omp_allocator_handle_t omp_large_cap_mem_alloc;
+extern const omp_allocator_handle_t omp_const_mem_alloc;
+extern const omp_allocator_handle_t omp_high_bw_mem_alloc;
+extern const omp_allocator_handle_t omp_low_lat_mem_alloc;
+extern const omp_allocator_handle_t omp_cgroup_mem_alloc;
+extern const omp_allocator_handle_t omp_pteam_mem_alloc;
+extern const omp_allocator_handle_t omp_thread_mem_alloc;
+
 int a;
 // CHECK: int a;
 
 #elif !defined(PASS2)
 #define PASS2
 
-#pragma omp allocate(a)
-// CHECK: #pragma omp allocate(a)
+#pragma omp allocate(a) allocator(omp_default_mem_alloc)
+// CHECK: #pragma omp allocate(a) allocator(omp_default_mem_alloc)
 
 #else
 
