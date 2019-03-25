@@ -296,6 +296,9 @@ void HCC::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (JA.getKind() == Action::AssembleJobClass) {
     if (!Args.hasFlag(options::OPT_fgpu_rdc, options::OPT_fno_gpu_rdc, true)) {
+      if (Args.hasFlag(options::OPT_hc_function_calls, {}, false)) {
+        CmdArgs.push_back("--amdgpu-func-calls");
+      }
       CmdArgs.push_back("--early_finalize");
       // add the amdgpu target args
       construct_amdgpu_target_cmdargs(C, getToolChain(), Args, CmdArgs);
