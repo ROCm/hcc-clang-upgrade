@@ -239,7 +239,7 @@ namespace
     {
         // specify AMDGPU target
         constexpr const char auto_tgt[] = "auto";
-        
+
         #if !defined(HCC_AMDGPU_TARGET)
             #define HCC_AMDGPU_TARGET auto_tgt
         #endif
@@ -268,12 +268,6 @@ namespace
 
         for (auto&& AMDGPUTarget : AMDGPUTargetVector) {
             validate_and_add_to_command(AMDGPUTarget, C, Args, CmdArgs);
-        }
-
-        if (Args.hasFlag(options::OPT_famdgpu_function_calls,
-                         options::OPT_fno_amdgpu_function_calls,
-                         FunctionCallDefault)) {
-          CmdArgs.push_back("--amdgpu-func-calls");
         }
     }
 }
