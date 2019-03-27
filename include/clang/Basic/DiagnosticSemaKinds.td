@@ -2958,6 +2958,9 @@ def err_base_specifier_attribute : Error<
   "%0 attribute cannot be applied to a base specifier">;
 def err_invalid_attribute_on_virtual_function : Error<
   "%0 attribute cannot be applied to virtual functions">;
+def warn_declspec_allocator_nonpointer : Warning<
+  "ignoring __declspec(allocator) because the function return type %0 is not "
+  "a pointer or reference type">, InGroup<IgnoredAttributes>;
 
 def ext_cannot_use_trivial_abi : ExtWarn<
   "'trivial_abi' cannot be applied to %0">, InGroup<IgnoredAttributes>;
@@ -7200,8 +7203,9 @@ def err_cuda_device_exceptions : Error<
 def err_dynamic_var_init : Error<
     "dynamic initialization is not supported for "
     "__device__, __constant__, and __shared__ variables.">;
-def err_shared_var_init : Error<
-    "initialization is not supported for __shared__ variables.">;
+def warn_shared_var_init : Warning<
+    "initialization is not supported for __shared__ variables.">,
+    InGroup<DiagGroup<"cuda-shared-init">>, DefaultError;
 def err_device_static_local_var : Error<
     "within a %select{__device__|__global__|__host__|__host__ __device__}0 "
     "function, only __shared__ variables or const variables without device "
@@ -9232,6 +9236,9 @@ def warn_omp_used_different_allocator : Warning<
   InGroup<OpenMPClauses>;
 def note_omp_previous_allocator : Note<
   "previous allocator is specified here">;
+def err_expected_allocator_clause : Error<"expected an 'allocator' clause "
+  "inside of the target region; provide an 'allocator' clause or use 'requires'"
+  " directive with the 'dynamic_allocators' clause">;
 } // end of OpenMP category
 
 let CategoryName = "Related Result Type Issue" in {
