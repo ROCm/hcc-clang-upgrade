@@ -39,6 +39,8 @@
 using namespace clang;
 using namespace sema;
 
+static constexpr unsigned int IgnoreCnt{5u}; // Skip launch configuration.
+
 static bool functionHasPassObjectSizeParams(const FunctionDecl *FD) {
   return llvm::any_of(FD->parameters(), [](const ParmVarDecl *P) {
     return P->hasAttr<PassObjectSizeAttr>();
@@ -12417,6 +12419,10 @@ static FunctionDecl *getBestCandidateForHIP(Sema &S,
 
   if (It != CandidateSet.end()) return It->Function;
 
+  // Validate number of arguments.  Add 5 for launch configuration
+  if ( (CandidateSet.begin()->Function->param_size()+IgnoreCnt) != Args.size())
+    return nullptr;
+
   It = std::min_element(CandidateSet.begin(), CandidateSet.end(),
                         [&](const OverloadCandidate &C0,
                             const OverloadCandidate &C1) {
@@ -12430,6 +12436,10 @@ static FunctionDecl *getBestCandidateForHIP(Sema &S,
 
     return Cnt0 < Cnt1;
   });
+
+  // Validate number of arguments.  Add 5 for launch configuration
+  if ( (It->Function->param_size()+IgnoreCnt) != Args.size())
+    return nullptr;
 
   return It->Function;
 }
@@ -12450,8 +12460,6 @@ static void maybeCastArgsForHIPGlobalFunction(Sema &S,
       return;
     F = PE->getSubExpr();
   }
-
-  static constexpr unsigned int IgnoreCnt{5u}; // Skip launch configuration.
 
   FunctionDecl *FD =
     getBestCandidateForHIP(S, cast<UnresolvedLookupExpr>(F),
