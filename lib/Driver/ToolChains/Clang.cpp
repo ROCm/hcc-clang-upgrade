@@ -3227,6 +3227,8 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
     }
   }
 
+  if (!IsHCCKernelPath ||
+       DebugInfoKind == codegenoptions::DebugLineTablesOnly) {
   // If a debugger tuning argument appeared, remember it.
   if (const Arg *A =
           Args.getLastArg(options::OPT_gTune_Group, options::OPT_ggdbN_Group)) {
@@ -3417,6 +3419,8 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
   // scope?
   if (DebuggerTuning == llvm::DebuggerKind::SCE)
     CmdArgs.push_back("-dwarf-explicit-import");
+
+  } // if (!IsHCCKernelPath)
 
   RenderDebugInfoCompressionArgs(Args, CmdArgs, D, TC);
 }
